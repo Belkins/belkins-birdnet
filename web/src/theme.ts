@@ -22,6 +22,8 @@ export function storedTheme(): Theme {
 /** Apply + persist. Sets data-theme on <html> so the CSS var blocks switch. */
 export function applyTheme(t: Theme): void {
   document.documentElement.setAttribute('data-theme', t);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'day' ? '#fcfaf4' : '#0a090d');
   try {
     localStorage.setItem(KEY, t);
   } catch {

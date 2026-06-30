@@ -37,7 +37,9 @@ export function AtlasView({ rows }: { rows: RosterRow[] }) {
             <div className="acard-cn">{r.com || r.sci}</div>
             <div className="acard-ln">{r.sci}</div>
             <div className="acard-f">
-              <span className="acard-play">▶ Listen</span>
+              <button type="button" className="acard-play" aria-label={`Play a recording of ${r.com || r.sci}`}>
+                ▶ Listen
+              </button>
               <a
                 className="acard-lnk"
                 href={`https://en.wikipedia.org/wiki/${encodeURIComponent(r.sci.replace(/ /g, '_'))}`}

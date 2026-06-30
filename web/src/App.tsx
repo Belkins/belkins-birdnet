@@ -10,7 +10,13 @@ import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas';
-const PERIODS = ['1H', '12H', '24H', '7D', 'ALL'];
+const PERIODS: { label: string; hours: number }[] = [
+  { label: '1H', hours: 1 },
+  { label: '12H', hours: 12 },
+  { label: '24H', hours: 24 },
+  { label: '7D', hours: 168 },
+  { label: 'ALL', hours: 1_000_000 },
+];
 const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas'];
 
 function Overlay({ children }: { children: ReactNode }) {
@@ -28,6 +34,7 @@ export default function App() {
   const [status, setStatus] = useState('starting');
   const [latest, setLatest] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const [period, setPeriod] = useState('24H');
 
   // Engine + canvas live for the whole session — never unmounted on tab switch.
   useEffect(() => {
@@ -66,9 +73,16 @@ export default function App() {
 
       <div className="filter">
         {PERIODS.map((p) => (
-          <span key={p} className={p === '24H' ? 'on' : ''}>
-            {p}
-          </span>
+          <button
+            key={p.label}
+            className={p.label === period ? 'on' : ''}
+            onClick={() => {
+              setPeriod(p.label);
+              engineRef.current?.setWindow(p.hours);
+            }}
+          >
+            {p.label}
+          </button>
         ))}
       </div>
 

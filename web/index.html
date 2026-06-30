@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#0a090d" />
+    <script>
+      // Set the theme before first paint so a persisted Day theme doesn't flash dark.
+      try {
+        var _t = localStorage.getItem('belkins-birdnet-theme');
+        document.documentElement.setAttribute('data-theme', _t === 'day' ? 'day' : 'night');
+        if (_t === 'day') document.querySelector('meta[name="theme-color"]').content = '#fcfaf4';
+      } catch (e) {}
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

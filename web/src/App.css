@@ -30,16 +30,19 @@
   gap: 18px;
   z-index: 50;
 }
-.filter span {
+.filter button {
+  font-family: var(--sans);
   font-size: 12px;
   letter-spacing: 0.15em;
   color: var(--mut);
-  padding-bottom: 3px;
+  background: none;
+  border: 0;
   border-bottom: 1.5px solid transparent;
+  padding: 0 0 3px;
   cursor: pointer;
   transition: color 0.2s, border-color 0.2s;
 }
-.filter span.on {
+.filter button.on {
   color: var(--ink);
   border-color: var(--amber);
 }
@@ -98,6 +101,9 @@
 }
 .menu-pop button:hover {
   background: var(--glass);
+}
+:root[data-theme='day'] .menu-pop {
+  box-shadow: 0 18px 40px -20px rgba(60, 45, 25, 0.25);
 }
 
 /* ── masthead (collage) ────────────────────────────────────── */
@@ -545,6 +551,7 @@
   letter-spacing: 0.04em;
   color: var(--on-fg);
   background: var(--on-bg);
+  border: 0;
   border-radius: 999px;
   padding: 7px 13px;
   cursor: pointer;
