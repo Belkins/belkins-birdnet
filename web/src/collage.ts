@@ -17,6 +17,13 @@ import { MockStream, SseStream } from './events';
 import { API_BASE, BASE, EVENTS_URL, MOCK } from './config';
 import { MOCK_SPECIES } from './mockData';
 
+// Failed-tile retry loop (auto-gen watcher, CONTRACT.md "Live-update Phase A").
+// A brand-new species' cutout.php 302s to Railway, which 404s until the PNG is
+// generated (~30s). We retry each failed tile's <img> on an interval with a
+// cache-buster so the next 302 -> 200 paints it in without a page refresh.
+const RETRY_INTERVAL_MS = 20000; // ~20s between sweeps
+const RETRY_MAX_TRIES = 15; // ~15 sweeps -> ~5 min total, then give up
+
 // Count-weighted tuning — ported verbatim from apt.js `tuning()`.
 function tuning(n: number) {
   return {
@@ -82,6 +89,9 @@ export class CollageEngine {
   private areaHint = 0;
   private started = false;
   private disposed = false;
+  /** failed-tile retry loop (auto-gen watcher live-update). */
+  private retryTimer: ReturnType<typeof setInterval> | null = null;
+  private retryCount = 0;
   private readonly cb: EngineCallbacks;
 
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks = {}) {
@@ -249,12 +259,18 @@ export class CollageEngine {
     this.cb.onLatest?.(ev.com || sci);
   }
 
-  private loadImage(tile: Tile): void {
-    const url = imageUrl(tile.slug, tile.sci);
+  private loadImage(tile: Tile, bust = false): void {
+    let url = imageUrl(tile.slug, tile.sci);
     if (!url) {
       tile.failed = true;
       tile.loaded = true; // settled (placeholder)
       return;
+    }
+    // Cache-buster ONLY on a retry (never on first load), so the browser
+    // re-requests a tile whose earlier 302->Railway 404'd. `&` when the URL
+    // already carries a query (cutout.php?sci=...&pose=1), `?` otherwise.
+    if (bust) {
+      url += (url.includes('?') ? '&' : '?') + 't=' + Date.now();
     }
     const img = new Image();
     img.decoding = 'async';
@@ -278,6 +294,37 @@ export class CollageEngine {
       onBird: (ev) => this.addBird(ev),
       onError: () => this.cb.onStatus?.('reconnecting…'),
     });
+    this.startRetryLoop();
+  }
+
+  /** Periodically re-attempt any tile whose image failed to load. A brand-new
+   *  species redirects (cutout.php 302) to Railway, which 404s until the asset
+   *  is generated (~30s); retrying with a cache-buster paints it in once ready,
+   *  with no page refresh. Bounded to ~15 sweeps (~5 min) then gives up. */
+  private startRetryLoop(): void {
+    if (this.retryTimer !== null) return;
+    this.retryCount = 0;
+    this.retryTimer = setInterval(() => {
+      this.retryCount += 1;
+      if (this.retryCount > RETRY_MAX_TRIES) {
+        this.stopRetryLoop();
+        return;
+      }
+      for (const tile of this.grid.placed) {
+        if (tile.failed === true) {
+          tile.failed = false;
+          tile.loaded = false;
+          this.loadImage(tile, true);
+        }
+      }
+    }, RETRY_INTERVAL_MS);
+  }
+
+  private stopRetryLoop(): void {
+    if (this.retryTimer !== null) {
+      clearInterval(this.retryTimer);
+      this.retryTimer = null;
+    }
   }
 
   /** Resize the backing canvas. Phase 0 keeps existing positions (no re-pack);
@@ -290,6 +337,7 @@ export class CollageEngine {
 
   destroy(): void {
     this.disposed = true;
+    this.stopRetryLoop();
     this.stream?.stop();
     this.renderer.destroy();
   }

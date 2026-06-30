@@ -60,6 +60,7 @@ avian/assets/_legacy/
 
 # Belkins BirdNET private planning docs (local only — do NOT publish to the public repo)
 /_plan/
+/_design-plan/
 
 # secrets — NEVER commit (this is a PUBLIC repo)
 .env

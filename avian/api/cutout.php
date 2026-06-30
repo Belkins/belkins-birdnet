@@ -75,7 +75,23 @@ if (is_file($cachePath) && filesize($cachePath) > 1024) {
     serve_png($cachePath);
 }
 
-// 4. Fresh Wikipedia fetch + rembg. Skipped if rembg-cli isn't on
+// 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, redirect
+//    long-tail misses to the Railway service, which generates the kachō-e
+//    illustration on demand and serves it from its volume. This MUST be the
+//    FIRST miss-handler (after all bundled/cached lookups, before the
+//    rembg/Wikipedia branch) so the long tail prefers the generated kachō-e
+//    over a background-removed photo. Pose-1 only (the live collage hardcodes
+//    pose=1; generating pose-2 is wasted spend). $slug is already slug-sanitized
+//    above, so no path-traversal reaches the redirect target.
+//    Unset env -> fall through to the existing behavior (graceful degrade,
+//    fully backward-compatible).
+$railwayBase = getenv('AV_RAILWAY_ASSET_BASE');
+if ($railwayBase) {
+    header('Location: ' . rtrim($railwayBase, '/') . '/asset/' . $slug . '.png', true, 302);
+    exit;
+}
+
+// 5. Fresh Wikipedia fetch + rembg. Skipped if rembg-cli isn't on
 //    PATH - the resolver returns a 404 in that case rather than
 //    burning a Wikipedia request we can't use.
 $rembg = '/usr/local/bin/rembg-cli';
