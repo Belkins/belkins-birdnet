@@ -34,11 +34,18 @@ A single $17 USB microphone in your window turns the birds outside into a **livi
 
 498 bundled illustrations across 249 species, a Gemini pipeline to restyle them for *your* region, an optional e-ink frame for your wall — and one read-only SQLite file at the heart of it all.
 
-> Belkins BirdNET is a standalone, deeply-rebranded build of [**BirdNET-Pi**](https://github.com/Nachtzuster/BirdNET-Pi). License and full Cornell attribution are [below](#-license).
+> Belkins BirdNET is a standalone build of [**BirdNET-Pi**](https://github.com/Nachtzuster/BirdNET-Pi); the live-collage concept is inspired by [**AvianVisitors**](https://github.com/Twarner491/AvianVisitors/tree/avian-visitors). Kudos, license, and full Cornell attribution are [below](#-kudos).
 
 <p align="center">
-  <img src="docs/thumb.png" alt="The live Belkins BirdNET collage" width="86%" />
+  <img src="docs/ui-collage.png" alt="Belkins BirdNET — the Living Gallery (nocturne theme)" width="92%" />
 </p>
+
+<p align="center">
+  <img src="docs/ui-hero.png"  width="32.5%" alt="One bird, spotlit" />
+  <img src="docs/ui-index.png" width="32.5%" alt="Species index" />
+  <img src="docs/ui-atlas.png" width="32.5%" alt="Atlas — museum cards" />
+</p>
+<p align="center"><sub>The <strong>Living Gallery</strong> — a dark <em>nocturne</em> theme (with a light day theme), where every detected bird is spotlit. <strong>Collage · Index · Stats · Atlas.</strong></sub></p>
 
 <p align="center">
   <img src="avian/assets/illustrations/turdus-migratorius.png"   height="116" alt="American Robin" />
@@ -228,12 +235,24 @@ Three independent recipes in [`avian/forwarding/`](avian/forwarding/):
 
 ## 🖼️ Wall frame
 
-An optional e-ink frame mirrors the last 24h of birds onto a panel by your window. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, or **standalone from BirdWeather** for any ZIP code with no mic at all.
+An optional e-ink frame mirrors the last 24h of birds onto a panel by your window — in the **nocturne** or **day** theme. Build it from [`frame/`](frame/README.md). It can run off your own BirdNET mic, or **standalone from BirdWeather** for any ZIP code with no mic at all.
 
+<p align="center">
+  <img src="docs/ui-wall.png" alt="Belkins BirdNET — ambient wall mode (nocturne)" width="92%" />
+</p>
+<p align="center">
+  <img src="docs/ui-eink.png" alt="The 13.3-inch Spectra-6 e-ink frame — day and night" width="80%" />
+</p>
+<p align="center"><sub>Left running on a wall screen, or printed to the 13.3" Spectra-6 e-ink frame — same composition, six inks, day <strong>or</strong> night.</sub></p>
+
+<details>
+<summary>Stock BirdNET-Pi dashboards (still there under the hood)</summary>
+<br>
 <p align="center">
   <img src="docs/overview.png" alt="BirdNET-Pi overview dashboard" width="48%" />
   <img src="docs/spectrogram.png" alt="Live spectrogram" width="48%" />
 </p>
+</details>
 
 ---
 
@@ -255,6 +274,16 @@ Everything outside `avian/`, `web/`, and `frame/` is upstream BirdNET-Pi.
 
 ---
 
+## 🙏 Kudos
+
+Belkins BirdNET stands on the work of others:
+
+- [**AvianVisitors** by Twarner491](https://github.com/Twarner491/AvianVisitors/tree/avian-visitors) — the original live-collage idea, the *kachō-e* bird treatment, and the overlay this build grew from. Thank you for the inspiration. 🐦
+- [**BirdNET-Pi**](https://github.com/Nachtzuster/BirdNET-Pi) (Nachtzuster · Patrick McGuire) — the recording + detection foundation.
+- The [**K. Lisa Yang Center for Conservation Bioacoustics, Cornell Lab of Ornithology**](https://www.birds.cornell.edu/ccb/) — the BirdNET model itself.
+
+---
+
 ## 📜 License
 
 CC-BY-NC-SA-4.0, inherited from [BirdNET-Pi](https://github.com/Nachtzuster/BirdNET-Pi/blob/main/LICENSE). **Non-commercial use only.** See the [BirdNET-Pi README](https://github.com/Nachtzuster/BirdNET-Pi/blob/main/README.md) for full Cornell attribution.
@@ -273,4 +302,4 @@ CC-BY-NC-SA-4.0, inherited from [BirdNET-Pi](https://github.com/Nachtzuster/Bird
   <a href="https://github.com/Belkins/belkins-birdnet/issues/new">Open an issue</a>
 </p>
 
-<p align="center"><sub>Made by Belkins · built on the shoulders of BirdNET-Pi and the Cornell Lab of Ornithology.</sub></p>
+<p align="center"><sub>Made by Belkins · inspired by <a href="https://github.com/Twarner491/AvianVisitors/tree/avian-visitors">AvianVisitors</a> · built on the shoulders of BirdNET-Pi and the Cornell Lab of Ornithology.</sub></p>
