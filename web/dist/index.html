@@ -4,10 +4,24 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/collage/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0c1016" />
-    <title>Belkins BirdNET — Live Collage</title>
-    <script type="module" crossorigin src="/collage/assets/index-CFMyF0uz.js"></script>
-    <link rel="stylesheet" crossorigin href="/collage/assets/index-DX9MGnQX.css">
+    <meta name="theme-color" content="#0a090d" />
+    <script>
+      // Set the theme before first paint so a persisted Day theme doesn't flash dark.
+      try {
+        var _t = localStorage.getItem('belkins-birdnet-theme');
+        document.documentElement.setAttribute('data-theme', _t === 'day' ? 'day' : 'night');
+        if (_t === 'day') document.querySelector('meta[name="theme-color"]').content = '#fcfaf4';
+      } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Space+Grotesk:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Belkins BirdNET — Living Gallery</title>
+    <script type="module" crossorigin src="/collage/assets/index-CFcFjZkA.js"></script>
+    <link rel="stylesheet" crossorigin href="/collage/assets/index-CmciHU4c.css">
   </head>
   <body>
     <div id="root"></div>
