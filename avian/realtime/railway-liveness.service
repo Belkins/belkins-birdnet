@@ -1,0 +1,12 @@
+[Unit]
+Description=Christina — Railway gen-service liveness check (alerts if the watcher silently dies)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=belkins
+# Reuses the forwarder env (AV_RAILWAY_BASE). Add NOTIFY_URL=https://ntfy.sh/<topic>
+# there for phone pushes.
+EnvironmentFile=/home/belkins/.christina/forwarder.env
+ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/realtime/railway_liveness.py
