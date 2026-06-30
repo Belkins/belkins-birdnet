@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - serves the spectrogram PNG that BirdNET-Pi generates
+// Belkins BirdNET - serves the spectrogram PNG that BirdNET-Pi generates
 // alongside each detection mp3. Same lookup logic as recording.php (find
 // the matching file under By_Date/<date>/<Common_Name>/) - just .png
 // instead of .mp3.

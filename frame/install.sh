@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the AvianVisitors e-ink frame (display side) on a Raspberry Pi.
+# Install the Belkins BirdNET e-ink frame (display side) on a Raspberry Pi.
 # Enables SPI + I2C, installs deps, makes a venv, installs the systemd timer.
 #
 # Three ways to feed the frame, pick one:
@@ -115,11 +115,11 @@ if [ -f "$CONFIG" ]; then
 elif [ "$MODE" = local ]; then
   cat > "$CONFIG" <<'CFG'
 # birdframe-mode: local
-# AvianVisitors frame, local mode: mirrors the BirdNET-Pi on your network.
+# Belkins BirdNET frame, local mode: mirrors the BirdNET-Pi on your network.
 # This Pi screenshots birdnet.local itself, so there is nothing else to set up.
 base_url = "http://birdnet.local"
 shoot = true
-shoot_title = "Avian Visitors"
+shoot_title = "Belkins BirdNET"
 shoot_subtitle = "Heard Today"
 rotate = 90          # flip to 270 if the frame hangs the other way up
 saturation = 0.6
@@ -133,7 +133,7 @@ elif [ "$MODE" = image ]; then
   # printf, not a heredoc: the URL is written literally, never shell-expanded.
   {
     printf '%s\n' '# birdframe-mode: image'
-    printf '%s\n' '# AvianVisitors frame, image mode: fetches a ready-made frame PNG.'
+    printf '%s\n' '# Belkins BirdNET frame, image mode: fetches a ready-made frame PNG.'
     printf 'base_url = "%s"\n' "$BASE"
     printf 'image_url = "%s"\n' "$IMAGE_URL"
     printf '%s\n' 'shoot = false'
@@ -150,8 +150,8 @@ if [ "$MODE" = birdweather ]; then
   PNG="$HOME/.birdframe/frame.png"
   sudo tee /etc/systemd/system/birdframe.service >/dev/null <<SERVICE
 [Unit]
-Description=AvianVisitors frame, BirdWeather mode (ZIP $ZIP)
-Documentation=https://github.com/Twarner491/AvianVisitors
+Description=Belkins BirdNET frame, BirdWeather mode (ZIP $ZIP)
+Documentation=https://github.com/Belkins/belkins-birdnet
 Wants=network-online.target
 After=network-online.target
 
@@ -173,7 +173,7 @@ SERVICE
     | sudo tee /etc/systemd/system/birdframe.timer >/dev/null
 else
   # local + image both run display.py against the config; only the config differs.
-  sed "s|/home/monalisa/AvianVisitors/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
+  sed "s|/home/monalisa/belkins-birdnet/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
     systemd/birdframe.service | sudo tee /etc/systemd/system/birdframe.service >/dev/null
   sudo cp systemd/birdframe.timer /etc/systemd/system/birdframe.timer
 fi

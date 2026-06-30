@@ -1,0 +1,95 @@
+.stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+.collage-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  color: #aeb8b1;
+  background: linear-gradient(180deg, rgba(8, 12, 16, 0.55), rgba(8, 12, 16, 0));
+  pointer-events: none;
+  user-select: none;
+}
+
+.hud-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-weight: 600;
+  color: #eef3ef;
+}
+
+.hud-phase {
+  font-weight: 400;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: #7e8c84;
+}
+
+.hud-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #b9802a;
+  color: #1a1206;
+}
+
+.hud-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+}
+
+.hud-stat strong {
+  color: #eef3ef;
+  font-size: 15px;
+}
+
+.hud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7a72;
+}
+
+.hud-dot[data-live='true'] {
+  background: #5fd08a;
+  box-shadow: 0 0 8px rgba(95, 208, 138, 0.8);
+}
+
+.hud-status {
+  color: #9aa8a0;
+}
+
+.hud-latest {
+  color: #cfd9d2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-dot[data-live='true'] {
+    box-shadow: none;
+  }
+}

@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - JSON facade over BirdNET-Pi's birds.db. Read-only.
+// Belkins BirdNET - JSON facade over BirdNET-Pi's birds.db. Read-only.
 // Symlinked into the BirdNET-Pi Caddy site root at /avian/api/.
 //
 // Endpoints (?action=...):

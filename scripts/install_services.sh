@@ -69,7 +69,7 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/include_species_list.txt $my_dir/scripts
   sudo -u ${USER} ln -fs $my_dir/whitelist_species_list.txt $my_dir/scripts
   sudo -u ${USER} ln -fs $my_dir/homepage/* ${EXTRACTED}
-  # AvianVisitors overlay. The avian/ symlink keeps assets + PHP shims
+  # Belkins BirdNET overlay. The avian/ symlink keeps assets + PHP shims
   # reachable at /avian/. The five frontend files at the EXTRACTED root
   # make the collage the default index for http://birdnet.local/ -
   # the matching try_files override in update_caddyfile.sh teaches
@@ -94,7 +94,7 @@ create_necessary_dirs() {
   sudo -u ${USER} ln -fs $my_dir/scripts/todays_detections.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/history.php ${EXTRACTED}
   sudo -u ${USER} ln -fs $my_dir/scripts/weekly_report.php ${EXTRACTED}
-  # favicon.ico -> AvianVisitors PNG when the overlay is present (modern
+  # favicon.ico -> Belkins BirdNET PNG when the overlay is present (modern
   # browsers accept image/png for the .ico path); fall back to the stock
   # BirdNET-Pi favicon.ico otherwise so plain installs still get an icon.
   if [ -d $my_dir/avian ]; then
@@ -239,7 +239,7 @@ EOF
   usermod -aG video caddy
   chmod g+r+x $HOME
 
-  # Serve the AvianVisitors collage at / rather than the stock BirdNET-Pi UI.
+  # Serve the Belkins BirdNET collage at / rather than the stock BirdNET-Pi UI.
   # The Caddyfile written above is the stock one (hardcoded php-fpm.sock, no
   # index.html try_files override); re-apply both through update_caddyfile.sh,
   # the single source of truth, so / serves index.html not index.php. Run it
@@ -367,13 +367,13 @@ configure_caddy_php() {
 caddy ALL=(ALL) NOPASSWD: ALL
 EOF
   chmod 0440 /etc/sudoers.d/010_caddy-nopasswd
-  # AvianVisitors admin overlay needs to restart whitelisted units and
+  # Belkins BirdNET admin overlay needs to restart whitelisted units and
   # tail their journal. The 010 rule above already covers everything via
   # NOPASSWD: ALL - this 020 rule pins the exact commands we depend on
   # so the admin overlay stays working even if a future upstream change
   # tightens 010. See SECURITY.md for the longer story.
   if [ -d $my_dir/avian ]; then
-    echo "Adding AvianVisitors admin allowlist"
+    echo "Adding Belkins BirdNET admin allowlist"
     cat << EOF > /etc/sudoers.d/020_avian-admin
 caddy ALL=(root) NOPASSWD: \\
     /bin/systemctl restart birdnet_recording, \\

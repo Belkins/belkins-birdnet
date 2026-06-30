@@ -16,6 +16,7 @@ from utils.helpers import get_settings, get_wav_files, ANALYZING_NOW
 from utils.classes import ParseFileName
 from utils.reporting import extract_detection, summary, write_to_file, write_to_db, apprise, bird_weather, heartbeat, \
     update_json_file
+from utils.realtime import emit_detected
 
 shutdown = False
 
@@ -115,6 +116,7 @@ def handle_reporting_queue(queue):
                 log.info('%s;%s', summary(file, detection), os.path.basename(detection.file_name_extr))
                 write_to_file(file, detection)
                 write_to_db(file, detection)
+                emit_detected(detection)  # realtime spine: guarded, non-blocking, fire-and-forget
             apprise(file, detections)
             bird_weather(file, detections)
             heartbeat()

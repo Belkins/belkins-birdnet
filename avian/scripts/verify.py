@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AvianVisitors - adversarial species-ID + anatomy check on illustrations.
+"""Belkins BirdNET - adversarial species-ID + anatomy check on illustrations.
 
 An independent quality gate for the generated library. Each illustration
 goes through a fresh Gemini Vision call that is NOT told the target

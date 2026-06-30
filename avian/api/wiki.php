@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - Wikipedia summary proxy.
+// Belkins BirdNET - Wikipedia summary proxy.
 //
 // The detail modal calls /avian/api/wiki.php?sci=<name> for the species
 // description. We hit Wikipedia's REST summary endpoint and return the
@@ -25,7 +25,7 @@ if (!preg_match('/^[A-Za-z]{2,40}(?:[ ][a-z]{2,40}){1,3}$/', $sci)) {
     exit;
 }
 
-$ua = getenv('AV_USER_AGENT') ?: 'AvianVisitors/1.0 (+https://github.com/Twarner491/AvianVisitors)';
+$ua = getenv('AV_USER_AGENT') ?: 'Belkins-BirdNET/1.0 (+https://github.com/Belkins/belkins-birdnet)';
 $ctx = stream_context_create([
     'http' => ['header' => "User-Agent: $ua\r\n", 'timeout' => 8],
 ]);

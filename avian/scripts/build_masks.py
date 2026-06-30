@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AvianVisitors - rebuild the collage silhouette masks from the cutouts.
+"""Belkins BirdNET - rebuild the collage silhouette masks from the cutouts.
 
 Step 3 of the illustration pipeline (after pregen.py and cutout.py).
 

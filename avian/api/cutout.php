@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - bird image resolver.
+// Belkins BirdNET - bird image resolver.
 //
 // Lookup chain for /avian/api/cutout.php?sci=Calypte+anna:
 //   1. ../assets/illustrations/<slug>.png   (450+ bundled kachō-e renders)
@@ -90,7 +90,7 @@ if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
 // Wikipedia's REST API asks for a contact-able identifier. Override
 // via the AV_USER_AGENT env var (set in /etc/php/*/fpm/pool.d/www.conf
 // or your shell) if your install hammers their endpoint at scale.
-$ua = getenv('AV_USER_AGENT') ?: 'AvianVisitors/1.0 (+https://github.com/Twarner491/AvianVisitors)';
+$ua = getenv('AV_USER_AGENT') ?: 'Belkins-BirdNET/1.0 (+https://github.com/Belkins/belkins-birdnet)';
 $ctx = stream_context_create([
     'http' => ['header' => "User-Agent: $ua\r\n", 'timeout' => 12],
 ]);

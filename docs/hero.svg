@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" width="1200" height="360" role="img" aria-label="Belkins BirdNET — the dawn chorus, identified">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#13203c"/>
+      <stop offset="0.42" stop-color="#3a4a72"/>
+      <stop offset="0.72" stop-color="#b9678a"/>
+      <stop offset="0.9" stop-color="#f4a060"/>
+      <stop offset="1"   stop-color="#ffd49a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff2cf"/>
+      <stop offset="0.55" stop-color="#ffd27f"/>
+      <stop offset="1" stop-color="#ffb35c"/>
+    </radialGradient>
+    <radialGradient id="sunGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffd27f" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffd27f" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.6" stop-color="#ffe9cf"/>
+      <stop offset="1" stop-color="#ffc98c"/>
+    </linearGradient>
+    <linearGradient id="lshade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0a1020" stop-opacity="0.62"/>
+      <stop offset="1" stop-color="#0a1020" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- sky -->
+  <rect width="1200" height="360" fill="url(#sky)"/>
+
+  <!-- stars -->
+  <g fill="#ffffff">
+    <circle cx="120" cy="48"  r="1.6"><animate attributeName="opacity" values="0.2;1;0.2" dur="3.4s" begin="0s"   repeatCount="indefinite"/></circle>
+    <circle cx="300" cy="30"  r="1.3"><animate attributeName="opacity" values="0.2;0.9;0.2" dur="2.7s" begin="0.6s" repeatCount="indefinite"/></circle>
+    <circle cx="470" cy="60"  r="1.5"><animate attributeName="opacity" values="0.15;1;0.15" dur="3.9s" begin="1.1s" repeatCount="indefinite"/></circle>
+    <circle cx="640" cy="36"  r="1.2"><animate attributeName="opacity" values="0.2;0.8;0.2" dur="3.1s" begin="0.3s" repeatCount="indefinite"/></circle>
+    <circle cx="210" cy="86"  r="1.1"><animate attributeName="opacity" values="0.1;0.7;0.1" dur="2.4s" begin="1.5s" repeatCount="indefinite"/></circle>
+    <circle cx="820" cy="54"  r="1.3"><animate attributeName="opacity" values="0.2;0.9;0.2" dur="3.6s" begin="0.9s" repeatCount="indefinite"/></circle>
+  </g>
+
+  <!-- sun rising -->
+  <g>
+    <animateTransform attributeName="transform" type="translate" from="0 34" to="0 0" dur="2.6s" begin="0s" fill="freeze"/>
+    <circle cx="1050" cy="150" r="120" fill="url(#sunGlow)"/>
+    <circle cx="1050" cy="150" r="46" fill="url(#sun)"/>
+  </g>
+
+  <!-- drifting clouds -->
+  <g fill="#ffffff" opacity="0.12">
+    <g>
+      <animateTransform attributeName="transform" type="translate" from="-160 0" to="1360 0" dur="40s" repeatCount="indefinite"/>
+      <ellipse cx="0" cy="96" rx="70" ry="14"/>
+      <ellipse cx="48" cy="90" rx="46" ry="13"/>
+    </g>
+    <g>
+      <animateTransform attributeName="transform" type="translate" from="-260 0" to="1460 0" dur="58s" repeatCount="indefinite"/>
+      <ellipse cx="0" cy="130" rx="92" ry="16"/>
+      <ellipse cx="70" cy="124" rx="54" ry="14"/>
+    </g>
+  </g>
+
+  <!-- hills, back to front (parallax depth) -->
+  <path d="M0,250 C220,212 380,250 600,236 C820,222 980,256 1200,232 L1200,360 L0,360 Z" fill="#2a3a59" opacity="0.85"/>
+  <path d="M0,286 C260,256 430,292 660,278 C900,264 1040,300 1200,278 L1200,360 L0,360 Z" fill="#1d2c40"/>
+  <path d="M0,320 C240,304 470,330 720,318 C960,306 1080,330 1200,316 L1200,360 L0,360 Z" fill="#121e2c"/>
+
+  <!-- telephone wire (shallow catenary): y = 140*((1-t)^2 + t^2) + 185*2(1-t)t, x = 1200t -->
+  <path d="M0,140 Q600,185 1200,140" fill="none" stroke="#0b1622" stroke-width="2.4" opacity="0.9"/>
+
+  <!-- perched birds on the wire -->
+  <!-- songbird glyph; each translated to its perch -->
+  <g fill="#0c1a25">
+    <!-- bird @ (180,151) -->
+    <g transform="translate(170,140)">
+      <animateTransform attributeName="transform" type="translate" values="170,140; 170,138; 170,140" dur="4.2s" repeatCount="indefinite" additive="sum"/>
+      <path d="M0,11 C2,3 9,1 13,2 C12,-1 14,-3 17,-3 C15,-1 16,1 18,2 C22,3 24,7 22,11 C20,9 18,9 16,10 C13,12 6,13 3,12 Z"/>
+      <path d="M19,11 l9,8 l-9,-1 Z"/>
+    </g>
+    <!-- bird @ (360,159) -->
+    <g transform="translate(350,148)">
+      <animateTransform attributeName="transform" type="translate" values="350,148; 350,150; 350,148" dur="5.1s" begin="0.5s" repeatCount="indefinite" additive="sum"/>
+      <path d="M0,11 C2,3 9,1 13,2 C12,-1 14,-3 17,-3 C15,-1 16,1 18,2 C22,3 24,7 22,11 C20,9 18,9 16,10 C13,12 6,13 3,12 Z"/>
+      <path d="M19,11 l9,8 l-9,-1 Z"/>
+    </g>
+    <!-- bird @ (1020,151) -->
+    <g transform="translate(1010,140)">
+      <animateTransform attributeName="transform" type="translate" values="1010,140; 1010,137; 1010,140" dur="4.6s" begin="0.9s" repeatCount="indefinite" additive="sum"/>
+      <path d="M0,11 C2,3 9,1 13,2 C12,-1 14,-3 17,-3 C15,-1 16,1 18,2 C22,3 24,7 22,11 C20,9 18,9 16,10 C13,12 6,13 3,12 Z"/>
+      <path d="M19,11 l9,8 l-9,-1 Z"/>
+    </g>
+  </g>
+
+  <!-- THE singing bird @ (700,161) with sound rings — this is what BirdNET "hears" -->
+  <g transform="translate(690,150)">
+    <g fill="#0c1a25">
+      <!-- head tilted up, singing -->
+      <path d="M0,11 C2,3 9,1 13,2 C12,-2 15,-4 18,-3 C16,-1 17,1 19,2 C23,3 25,7 23,11 C21,9 19,9 17,10 C13,12 6,13 3,12 Z"/>
+      <path d="M20,11 l9,8 l-9,-1 Z"/>
+      <!-- open beak -->
+      <path d="M18,-3 l6,-2 l-5,3 Z"/>
+    </g>
+    <!-- expanding song rings -->
+    <g fill="none" stroke="#ffce86" stroke-width="2">
+      <path d="M24,-4 A14,14 0 0 1 24,-4">
+        <animate attributeName="d" values="M22,-2 A4,4 0 0 1 30,-6; M22,-2 A22,22 0 0 1 50,-26" dur="2.8s" begin="0s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0" dur="2.8s" begin="0s" repeatCount="indefinite"/>
+      </path>
+      <path d="M22,-2 A4,4 0 0 1 30,-6">
+        <animate attributeName="d" values="M22,-2 A4,4 0 0 1 30,-6; M22,-2 A22,22 0 0 1 50,-26" dur="2.8s" begin="0.9s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0" dur="2.8s" begin="0.9s" repeatCount="indefinite"/>
+      </path>
+      <path d="M22,-2 A4,4 0 0 1 30,-6">
+        <animate attributeName="d" values="M22,-2 A4,4 0 0 1 30,-6; M22,-2 A22,22 0 0 1 50,-26" dur="2.8s" begin="1.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.9;0" dur="2.8s" begin="1.8s" repeatCount="indefinite"/>
+      </path>
+    </g>
+  </g>
+
+  <!-- flying bird crossing the banner, wings flapping -->
+  <g>
+    <animateTransform attributeName="transform" type="translate"
+      values="-120,70; 180,40; 420,86; 700,46; 980,80; 1320,52"
+      keyTimes="0;0.2;0.4;0.6;0.8;1" dur="17s" repeatCount="indefinite"/>
+    <g fill="#0b1824">
+      <ellipse cx="0" cy="0" rx="11" ry="5.5"/>
+      <circle cx="10" cy="-2" r="4.2"/>
+      <path d="M13,-3 l6,-1 l-5,3 Z"/>
+      <!-- left wing -->
+      <path d="M-2,-1 C-16,-16 -30,-18 -40,-12 C-28,-8 -16,-4 -2,-1 Z">
+        <animateTransform attributeName="transform" type="rotate" values="-32 -2 -1; 18 -2 -1; -32 -2 -1" dur="0.5s" repeatCount="indefinite"/>
+      </path>
+      <!-- right wing -->
+      <path d="M-2,1 C-16,16 -30,18 -40,12 C-28,8 -16,4 -2,1 Z">
+        <animateTransform attributeName="transform" type="rotate" values="32 -2 1; -18 -2 1; 32 -2 1" dur="0.5s" repeatCount="indefinite"/>
+      </path>
+    </g>
+  </g>
+
+  <!-- soft backing so the gold wordmark stays legible over the dawn band -->
+  <rect x="0" y="150" width="720" height="210" fill="url(#lshade)"/>
+
+  <!-- animated spectrogram strip along the bottom — the soundscape BirdNET analyses -->
+  <g fill="#7fe3d8" opacity="0.82">
+    <rect x="60"  y="300" width="6" height="40" rx="2"><animate attributeName="height" values="10;46;18;40;10" dur="1.1s" repeatCount="indefinite"/><animate attributeName="y" values="330;294;322;300;330" dur="1.1s" repeatCount="indefinite"/></rect>
+    <rect x="74"  y="300" width="6" height="40" rx="2"><animate attributeName="height" values="30;12;42;20;30" dur="1.3s" repeatCount="indefinite"/><animate attributeName="y" values="310;328;298;320;310" dur="1.3s" repeatCount="indefinite"/></rect>
+    <rect x="88"  y="300" width="6" height="40" rx="2"><animate attributeName="height" values="18;48;26;14;18" dur="0.9s" repeatCount="indefinite"/><animate attributeName="y" values="322;292;314;326;322" dur="0.9s" repeatCount="indefinite"/></rect>
+    <rect x="102" y="300" width="6" height="40" rx="2"><animate attributeName="height" values="40;16;36;52;40" dur="1.5s" repeatCount="indefinite"/><animate attributeName="y" values="300;324;304;288;300" dur="1.5s" repeatCount="indefinite"/></rect>
+    <rect x="116" y="300" width="6" height="40" rx="2"><animate attributeName="height" values="14;38;20;44;14" dur="1.0s" repeatCount="indefinite"/><animate attributeName="y" values="326;302;320;296;326" dur="1.0s" repeatCount="indefinite"/></rect>
+    <rect x="130" y="300" width="6" height="40" rx="2"><animate attributeName="height" values="34;18;46;22;34" dur="1.25s" repeatCount="indefinite"/><animate attributeName="y" values="306;322;294;318;306" dur="1.25s" repeatCount="indefinite"/></rect>
+    <rect x="144" y="300" width="6" height="40" rx="2"><animate attributeName="height" values="22;44;14;40;22" dur="1.4s" repeatCount="indefinite"/><animate attributeName="y" values="318;296;326;300;318" dur="1.4s" repeatCount="indefinite"/></rect>
+  </g>
+
+  <!-- wordmark -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;1" dur="1.3s" begin="0.5s" fill="freeze"/>
+    <text x="60" y="232" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="62" font-weight="800" letter-spacing="0.5" fill="url(#title)">Belkins BirdNET</text>
+    <text x="63" y="266" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="20" font-weight="500" letter-spacing="3.5" fill="#e9d8c4" opacity="0.92">THE DAWN CHORUS, IDENTIFIED</text>
+  </g>
+</svg>

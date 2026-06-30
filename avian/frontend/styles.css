@@ -214,7 +214,7 @@
     color: var(--ink-soft); letter-spacing: 0.04em;
   }
   .lock-err { color: var(--accent); }
-  /* Tiny "built by teddy" attribution - appears under the lock-screen
+  /* Tiny attribution credit - appears under the lock-screen
      password field AND at the foot of the about-card. Same monospace
      micro-type used by .lock-hint so the two contexts read consistent. */
   .built-by {
@@ -1578,7 +1578,7 @@
   }
   .bird-card[data-playing="true"] .spectro-wrap::before { --playhead: 0.6; }
 
-/* ============ AvianVisitors mode toggle ============
+/* ============ Belkins BirdNET mode toggle ============
  * Default install (body.av-local): hide the lock-row, show drawer items
  * directly when the menu opens. The PHP shim at /avian/api/menu.php
  * returns items immediately with no auth, so the live JS skips the lock

@@ -50,10 +50,19 @@ whitelist_species_list.txt
 /nbproject/private/
 .DS_Store
 
-# --- AvianVisitors: local-only material, deliberately not shipped ---
+# --- Belkins BirdNET: local-only material, deliberately not shipped ---
 # Claude Code session data
 .claude/
 # Large source / reference imagery kept on disk for working
 avian/assets/references/
 # Superseded assets retained locally
 avian/assets/_legacy/
+
+# Belkins BirdNET private planning docs (local only — do NOT publish to the public repo)
+/_plan/
+
+# secrets — NEVER commit (this is a PUBLIC repo)
+.env
+.env.local
+.env.*.local
+secrets/

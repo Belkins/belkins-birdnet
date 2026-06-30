@@ -1,0 +1,22 @@
+# birdcast SSE route -- paste this INSIDE each site block in
+# scripts/update_caddyfile.sh, ABOVE the `php_fastcgi` catch-all so it wins
+# before PHP ever sees the request.
+#
+#   reverse_proxy /stream localhost:8000
+#   reverse_proxy /events localhost:8090 {   <-- this block
+#       flush_interval -1
+#   }
+#   php_fastcgi unix/${FPM_SOCK} { ... }      <-- catch-all stays last
+#
+# `flush_interval -1` disables Caddy's response buffering so each SSE frame
+# flushes to the client immediately; without it Caddy can hold the stream and
+# break realtime. /emit is intentionally NOT proxied -- the ingest endpoint
+# stays unreachable from outside and is hit only over loopback by the analysis
+# process. When the Pi is publicly exposed, add /events to the same
+# basic_auth / Cloudflare Access matchers governing /avian/api/* (see
+# avian/forwarding/caddy-auth.caddy); auth stays at Caddy, birdcast stays
+# auth-agnostic.
+
+reverse_proxy /events localhost:8090 {
+    flush_interval -1
+}

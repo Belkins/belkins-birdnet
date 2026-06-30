@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - serves the most-recent detection mp3 for a given
+// Belkins BirdNET - serves the most-recent detection mp3 for a given
 // scientific name. Called by the collage detail modal at
 // /avian/api/recording.php?sci=<name>.
 //

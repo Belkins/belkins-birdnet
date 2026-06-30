@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - drawer menu items.
+// Belkins BirdNET - drawer menu items.
 //
 // Returns the list of links shown in the side drawer when a user clicks
 // the menu button. The live JS expects {items: [{label, href, native}]}.
@@ -27,7 +27,7 @@ if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) 
 // route via `#admin=<section>` rather than opening a new window. We
 // deliberately don't link out to BirdNET-Pi's stock pages - those stay
 // reachable at /index.php, and the github link lives in the drawer
-// footer next to "built by teddy".
+// footer credit next to the GitHub link.
 echo json_encode([
     'items' => [
         ['label' => 'settings', 'href' => '/#admin=settings', 'native' => true],

@@ -1,4 +1,4 @@
-# AvianVisitors e-ink frame. install.sh writes this for you; edit to taste.
+# Belkins BirdNET e-ink frame. install.sh writes this for you; edit to taste.
 # config.toml is gitignored. Nothing here is secret unless your whole site is
 # behind basic-auth (see the bottom). This file is the full reference.
 
@@ -10,14 +10,14 @@ shoot = true
 # Or fetch a ready-made PNG instead of rendering here (lighter, but needs
 # something that serves a frame image, e.g. a public Cloudflare Worker):
 # shoot = false
-# image_url = "https://bird.onethreenine.net/frame.png?k=YOUR_FRAME_KEY"
+# image_url = "https://bird.example.com/frame.png?k=YOUR_FRAME_KEY"
 # Or read a PNG a sibling process drops next to us:
 # image = "~/.birdframe/frame.png"
 
 hours = 24             # window shown on the frame
 
 # --- Titles and look (used when this Pi renders, i.e. shoot = true) ----------
-shoot_title = "Avian Visitors"
+shoot_title = "Belkins BirdNET"
 shoot_subtitle = "Heard Today"
 # shoot_headline_px = 42
 # shoot_eyebrow_px = 18
@@ -46,7 +46,7 @@ cache = "~/.birdframe"
 timeout = 45
 
 # --- Only if your WHOLE site is behind basic-auth ---------------------------
-# The AvianVisitors default leaves the collage and detection API public, so
+# The Belkins BirdNET default leaves the collage and detection API public, so
 # usually leave these out.
 # basic_user = "monalisa"
 # basic_pass = "..."

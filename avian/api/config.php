@@ -1,5 +1,5 @@
 <?php
-// AvianVisitors - read/write a small, whitelisted subset of BirdNET-Pi
+// Belkins BirdNET - read/write a small, whitelisted subset of BirdNET-Pi
 // settings from the admin overlay's settings panel. Fetched by the
 // frontend at /avian/api/config.php.
 //

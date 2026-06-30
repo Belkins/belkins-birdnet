@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 70" width="1200" height="70" role="img" aria-label="">
+  <g fill="none" stroke="#5fb4ac" stroke-width="2.6" stroke-linecap="round">
+    <g>
+      <animateTransform attributeName="transform" type="translate" values="-60,40; 1260,18" dur="13s" repeatCount="indefinite"/>
+      <path d="M0,10 Q9,0 18,10 Q27,0 36,10">
+        <animate attributeName="d" values="M0,12 Q9,2 18,12 Q27,2 36,12; M0,8 Q9,15 18,8 Q27,15 36,8; M0,12 Q9,2 18,12 Q27,2 36,12" dur="0.5s" repeatCount="indefinite"/>
+      </path>
+    </g>
+    <g transform="scale(0.78)">
+      <animateTransform attributeName="transform" type="translate" values="-40,70; 1640,30" dur="17s" repeatCount="indefinite"/>
+      <path d="M0,10 Q9,0 18,10 Q27,0 36,10">
+        <animate attributeName="d" values="M0,12 Q9,2 18,12 Q27,2 36,12; M0,8 Q9,15 18,8 Q27,15 36,8; M0,12 Q9,2 18,12 Q27,2 36,12" dur="0.62s" repeatCount="indefinite"/>
+      </path>
+    </g>
+    <g transform="scale(0.62)">
+      <animateTransform attributeName="transform" type="translate" values="-30,30; 1980,80" dur="22s" repeatCount="indefinite"/>
+      <path d="M0,10 Q9,0 18,10 Q27,0 36,10">
+        <animate attributeName="d" values="M0,12 Q9,2 18,12 Q27,2 36,12; M0,8 Q9,15 18,8 Q27,15 36,8; M0,12 Q9,2 18,12 Q27,2 36,12" dur="0.74s" repeatCount="indefinite"/>
+      </path>
+    </g>
+    <g>
+      <animateTransform attributeName="transform" type="translate" values="-90,22; 1240,46" dur="15s" begin="2s" repeatCount="indefinite"/>
+      <path d="M0,10 Q9,0 18,10 Q27,0 36,10">
+        <animate attributeName="d" values="M0,12 Q9,2 18,12 Q27,2 36,12; M0,8 Q9,15 18,8 Q27,15 36,8; M0,12 Q9,2 18,12 Q27,2 36,12" dur="0.55s" begin="0.2s" repeatCount="indefinite"/>
+      </path>
+    </g>
+    <g transform="scale(0.7)">
+      <animateTransform attributeName="transform" type="translate" values="-50,90; 1760,40" dur="19s" begin="1s" repeatCount="indefinite"/>
+      <path d="M0,10 Q9,0 18,10 Q27,0 36,10">
+        <animate attributeName="d" values="M0,12 Q9,2 18,12 Q27,2 36,12; M0,8 Q9,15 18,8 Q27,15 36,8; M0,12 Q9,2 18,12 Q27,2 36,12" dur="0.66s" begin="0.3s" repeatCount="indefinite"/>
+      </path>
+    </g>
+  </g>
+</svg>

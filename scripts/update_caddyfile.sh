@@ -45,7 +45,7 @@ http:// ${BIRDNETPI_URL} {
     birdnet ${HASHWORD}
   }
   reverse_proxy /stream localhost:8000
-  # AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
+  # Belkins BirdNET overlay drops an index.html alongside BirdNET-Pi's
   # index.php. The default try_files for php_fastcgi prefers index.php
   # over index.html, so override it - this is a no-op on stock installs
   # since EXTRACTED has no index.html there.
@@ -69,7 +69,7 @@ http:// ${BIRDNETPI_URL} {
     file_server browse
   }
   reverse_proxy /stream localhost:8000
-  # AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
+  # Belkins BirdNET overlay drops an index.html alongside BirdNET-Pi's
   # index.php. The default try_files for php_fastcgi prefers index.php
   # over index.html, so override it - this is a no-op on stock installs
   # since EXTRACTED has no index.html there.

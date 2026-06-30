@@ -16,10 +16,10 @@ my_dir=$HOME/BirdNET-Pi/scripts
 
 # Defaults
 remote="origin"
-# AvianVisitors fork: track our overlay branch by default so the
+# Belkins BirdNET fork: track our overlay branch by default so the
 # Sunday auto-update cron (when enabled) doesn't switch back to
 # upstream `main` and delete the avian/ directory.
-branch="avian-visitors"
+branch="main"
 auto_update=""
 
 while getopts ":r:b:a" o; do

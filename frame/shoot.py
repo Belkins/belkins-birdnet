@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Screenshot the live AvianVisitors collage for the e-ink frame.
+"""Screenshot the live Belkins BirdNET collage for the e-ink frame.
 
 Loads the real site (the LAN default http://birdnet.local, or a forwarded
 public URL) at a portrait viewport, hides the controls, sets the frame
 titles, and rewrites a few of the page's own apt.js tunables at capture time
 (cluster bias, count-to-size exponent, a rare-bird floor). The result is the
-actual website, framed for the wall, with no changes to AvianVisitors.
+actual website, framed for the wall, with no changes to Belkins BirdNET.
 
 Needs a real headless browser, so it runs on any 64-bit capable machine, NOT
 the Pi Zero W driving the panel. Writes a 1200x1600 PNG; display.py turns it
 into panel pixels.
 
   pip install playwright && playwright install chromium
-  python3 shoot.py --url https://bird.onethreenine.net \
-      --title "onethreenine birds" --subtitle "heard today" --out frame.png
+  python3 shoot.py --url https://bird.example.com \
+      --title "your birds" --subtitle "heard today" --out frame.png
 """
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ from playwright.sync_api import sync_playwright
 
 # --bird-weather pulls cutouts straight from the repo's raw GitHub URLs, so the
 # Pi never bundles the illustration set and picks up new birds with no redeploy.
-RAW_ILLUSTRATIONS = ("https://raw.githubusercontent.com/Twarner491/AvianVisitors/"
-                     "avian-visitors/avian/assets/illustrations/")
+RAW_ILLUSTRATIONS = ("https://raw.githubusercontent.com/Belkins/belkins-birdnet/"
+                     "main/avian/assets/illustrations/")
 
 # Hide the controls and the other views, freeze animations. Titles + collage
 # stay. Injected before first paint.
@@ -217,7 +217,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Screenshot the AvianVisitors collage for the e-ink frame.")
+    ap = argparse.ArgumentParser(description="Screenshot the Belkins BirdNET collage for the e-ink frame.")
     ap.add_argument("--url", default="http://birdnet.local")
     ap.add_argument("--out", default="frame.png")
     ap.add_argument("--title")
@@ -263,7 +263,7 @@ def main():
         _httpd, port = _serve_frontend(front)
         url = f"http://127.0.0.1:{port}/"
         cutout_base = RAW_ILLUSTRATIONS
-        title = title or "Avian Visitors"
+        title = title or "Belkins BirdNET"
         subtitle = subtitle or "Heard Today"
     # BirdWeather's 7-day counts are flatter than a mic's, so they need a steeper
     # exponent to get the same hero-bird hierarchy and collage shape.

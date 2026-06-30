@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AvianVisitors - cut the cream ground off the generated illustrations.
+"""Belkins BirdNET - cut the cream ground off the generated illustrations.
 
 Step 2 of the illustration pipeline (after pregen.py, before build_masks.py).
 

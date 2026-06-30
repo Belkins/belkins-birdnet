@@ -81,7 +81,7 @@ def _bucket(n):
 
 def fetch_recent(base, hours, timeout, auth=None):
     url = f"{base.rstrip('/')}/avian/api/birdnet-api.php?action=recent&hours={hours}"
-    req = urllib.request.Request(url, headers={"User-Agent": "AvianVisitors-frame/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "Belkins-BirdNET-frame/1.0"})
     if auth:
         req.add_header("Authorization", auth)
     with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -96,7 +96,7 @@ def signature(species):
 # --- image ------------------------------------------------------------------
 def get_image(src, timeout, auth=None):
     if re.match(r"^https?://", src):
-        req = urllib.request.Request(src, headers={"User-Agent": "AvianVisitors-frame/1.0"})
+        req = urllib.request.Request(src, headers={"User-Agent": "Belkins-BirdNET-frame/1.0"})
         if auth:
             req.add_header("Authorization", auth)
         with urllib.request.urlopen(req, timeout=timeout) as r:

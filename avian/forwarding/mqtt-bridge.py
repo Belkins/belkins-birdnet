@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poll AvianVisitors' recent-detections endpoint once a minute and publish
+"""Poll Belkins BirdNET's recent-detections endpoint once a minute and publish
 each new species to MQTT. Edit BROKER, TOPIC_PREFIX, and PI_URL below."""
 import json
 import time

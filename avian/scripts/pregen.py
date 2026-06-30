@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AvianVisitors - generate kachō-e bird illustrations for a region.
+"""Belkins BirdNET - generate kachō-e bird illustrations for a region.
 
 Step 1 of the illustration pipeline:
     1. pregen.py       render each bird on a uniform cream ground
@@ -208,7 +208,7 @@ ANTI_REF_TRIGGERS = (
     (SWALLOW_GENERA, "barnswallow", "Hirundo rustica"),
 )
 
-USER_AGENT = "AvianVisitors/1.0 (https://github.com/Twarner491/AvianVisitors)"
+USER_AGENT = "Belkins-BirdNET/1.0 (https://github.com/Belkins/belkins-birdnet)"
 
 
 def slugify(sci: str) -> str:

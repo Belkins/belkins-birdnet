@@ -1,6 +1,6 @@
 [Unit]
-Description=AvianVisitors e-ink frame update
-Documentation=https://github.com/Twarner491/AvianVisitors
+Description=Belkins BirdNET e-ink frame update
+Documentation=https://github.com/Belkins/belkins-birdnet
 Wants=network-online.target
 After=network-online.target
 
@@ -8,8 +8,8 @@ After=network-online.target
 # install.sh rewrites User= and the paths to match your install.
 Type=oneshot
 User=monalisa
-WorkingDirectory=/home/monalisa/AvianVisitors/frame
-ExecStart=/home/monalisa/AvianVisitors/frame/.venv/bin/python /home/monalisa/AvianVisitors/frame/display.py --config /home/monalisa/.birdframe/config.toml
+WorkingDirectory=/home/monalisa/belkins-birdnet/frame
+ExecStart=/home/monalisa/belkins-birdnet/frame/.venv/bin/python /home/monalisa/belkins-birdnet/frame/display.py --config /home/monalisa/.birdframe/config.toml
 Environment=PYTHONUNBUFFERED=1
 Nice=10
 TimeoutStartSec=180

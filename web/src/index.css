@@ -1,0 +1,28 @@
+:root {
+  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+  font: 16px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  /* sky-to-ground wash behind the cut-out birds */
+  background:
+    radial-gradient(120% 90% at 50% 0%, #1b2733 0%, #121820 55%, #0c1016 100%);
+  color: #cfd9d2;
+  overflow: hidden;
+}
