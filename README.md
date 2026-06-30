@@ -217,9 +217,47 @@ New work in this build: a stdlib **Server-Sent-Events** spine so detections pain
 - [`web/`](web/) — a Vite + React + TypeScript collage shell that seeds from the snapshot API, subscribes to the SSE stream, and paints in each new bird (Canvas2D fade + scale, no re-pack). Runs with **no backend at all** via `npm run dev:mock`.
 
 ```bash
-# on the Pi — additive, idempotent, non-destructive
-bash deploy-realtime.sh
+# on the Pi — additive, idempotent, non-destructive. Brings up the SSE spine +
+# the React collage at /collage (and the auto-gen watcher below, if its env is set).
+bash deploy-christina.sh
 ```
+
+`deploy-realtime.sh` is the spine-only subset if you don't want the collage yet.
+
+---
+
+## 🎨 Auto-gen — birds that aren't in the library yet
+
+The collage ships **250 illustrated species**. When BirdNET hears one that *isn't*
+bundled, the **auto-gen watcher** generates its *kachō-e* illustration on the fly and
+paints it in — no human in the loop.
+
+```
+detection → forwarder (Pi) ──HTTPS──▶ birdgen (Railway) ──▶ Gemini + cream-key cutout
+                                                              │
+   collage  ◀── cutout.php 302 ◀── /asset/<slug>.png  ◀───────┘   (frontend retries → paints)
+```
+
+- **[`services/birdgen/`](services/birdgen/)** — a small **FastAPI** service that deploys to **Railway**: a Bearer-auth `POST /detected` webhook, a single-flight queue, `pregen.gen_one` + the cream-key cutout, an SQLite-lease dedup state machine (`queued → generating → done/dead`), and `GET /asset/<slug>.png` off a persistent volume. The **Gemini key lives only here** — never on the Pi.
+- **[`avian/realtime/forwarder.py`](avian/realtime/)** — a Pi-side daemon that subscribes to the birdcast SSE, drops bundled / low-confidence (`<0.80`) detections, and forwards genuinely-new species to Railway. Holds only a rotatable webhook secret.
+- **[`avian/api/cutout.php`](avian/api/cutout.php)** — with `AV_RAILWAY_ASSET_BASE` set, a long-tail miss `302`-redirects to the Railway asset (unset → unchanged behavior).
+- **[`avian/realtime/railway_liveness.py`](avian/realtime/)** — a 6-hourly systemd timer that pushes a phone alert (ntfy) if the Railway service ever goes dark.
+
+```bash
+# deploy the generator (needs a Railway account + a billing-enabled Gemini key)
+cd services/birdgen
+railway up
+railway volume add -m /data/assets
+railway variables set GEMINI_API_KEY=… WATCHER_WEBHOOK_SECRET=…
+railway domain
+# then on the Pi, wire it (same secret + the Railway URL):
+CHRISTINA_RAILWAY_BASE=https://<svc>.up.railway.app \
+CHRISTINA_WEBHOOK_SECRET=<secret> bash deploy-christina.sh
+```
+
+Cost: **~$0.04 per genuinely-new species**, on-demand. Generation requires a
+billing-enabled Gemini key; the worker is single-flight, deduped, and degrades
+gracefully — if Railway is down the collage keeps running, just without new art.
 
 ---
 
@@ -261,16 +299,18 @@ An optional e-ink frame mirrors the last 24h of birds onto a panel by your windo
 ```
 avian/                  # everything Belkins BirdNET adds to BirdNET-Pi
 ├── frontend/           # static HTML/JS/CSS for the collage
-├── assets/             # 498 bundled illustrations + photo-cutout fallbacks
-├── api/                # PHP shims served by BirdNET-Pi's PHP-FPM
-├── scripts/            # generate → cutout → masks pipeline + prompt
-├── realtime/           # birdcast SSE spine (POST /emit, GET /events)
+├── assets/             # bundled kachō-e illustrations + photo-cutout fallbacks
+├── api/                # PHP shims served by BirdNET-Pi's PHP-FPM (cutout.php 302)
+├── scripts/            # generate → cutout (creamkey) → masks pipeline + prompt
+├── realtime/           # birdcast SSE spine + forwarder + liveness monitor
 └── forwarding/         # optional HA / MQTT / Cloudflare configs
 web/                    # next-gen React + TS collage shell (live SSE)
+services/birdgen/       # Railway: on-demand kachō-e generator (Gemini + cream-key)
 frame/                  # optional e-ink wall display
+deploy-christina.sh     # one-shot full-stack deploy on the Pi (spine + collage + watcher)
 ```
 
-Everything outside `avian/`, `web/`, and `frame/` is upstream BirdNET-Pi.
+Everything outside `avian/`, `web/`, `services/`, and `frame/` is upstream BirdNET-Pi.
 
 ---
 
