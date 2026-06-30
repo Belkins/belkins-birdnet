@@ -1,0 +1,13 @@
+[Unit]
+Description=Nightly + boot rebuild of the Christina species catalog
+
+[Timer]
+# Nightly at 03:30 local, plus a catch-up 2 min after boot so a Pi that was
+# off at 03:30 still refreshes. Persistent=true runs a missed timer on next boot.
+OnCalendar=*-*-* 03:30:00
+OnBootSec=2min
+Persistent=true
+Unit=catalog.service
+
+[Install]
+WantedBy=timers.target

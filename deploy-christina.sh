@@ -108,9 +108,42 @@ else
   warn "CHRISTINA_RAILWAY_BASE + CHRISTINA_WEBHOOK_SECRET not set -> auto-gen watcher skipped (spine + collage deployed)"
 fi
 
-say "7. self-check"
+say "7. species catalog (christina.db, derived nightly from birds.db, read-only)"
+if [ -f "$HERE/avian/catalog/rebuild_catalog.py" ]; then
+  sudo tee /etc/systemd/system/catalog.service >/dev/null <<UNIT
+[Unit]
+Description=Christina species catalog rebuild (christina.db from birds.db, read-only)
+After=network-online.target
+[Service]
+Type=oneshot
+User=$USER_NAME
+Nice=10
+IOSchedulingClass=idle
+ExecStart=$PY $HERE/avian/catalog/rebuild_catalog.py
+UNIT
+  sudo tee /etc/systemd/system/catalog.timer >/dev/null <<'UNIT'
+[Unit]
+Description=Nightly + boot rebuild of the Christina species catalog
+[Timer]
+OnCalendar=*-*-* 03:30:00
+OnBootSec=2min
+Persistent=true
+Unit=catalog.service
+[Install]
+WantedBy=timers.target
+UNIT
+  if "$PY" "$HERE/avian/catalog/rebuild_catalog.py" >/dev/null 2>&1; then
+    ok "initial catalog built ($(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null) species; birds.db untouched, read-only)"
+  else warn "initial catalog build failed (see: $PY $HERE/avian/catalog/rebuild_catalog.py)"; fi
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now catalog.timer
+  ok "catalog.timer: $(systemctl is-active catalog.timer)"
+else warn "avian/catalog not present — species catalog skipped (git pull?)"; fi
+
+say "8. self-check"
 echo "   collage:   $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/collage/)"
 echo "   /events:   $(curl -s -N --max-time 3 http://127.0.0.1/events | head -1)"
+echo "   catalog:   $(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null || echo 0) species in christina.db"
 [ -n "$RAILWAY_BASE" ] && echo "   forwarder: $(systemctl is-active forwarder)"
 echo
 echo "============================================================"
