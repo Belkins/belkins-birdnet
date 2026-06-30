@@ -8,6 +8,16 @@ export interface SpeciesRow {
   n: number;
 }
 
+/** A roster entry the engine emits to the React views (Index / Stats / Atlas):
+ *  snapshot counts plus live increments, with a slug + "new this session" flag. */
+export interface RosterRow {
+  sci: string;
+  com: string;
+  slug: string;
+  n: number;
+  isNew: boolean;
+}
+
 /** The `bird.detected` SSE frame — LOCKED by PHASE-0-CONTRACT.md. */
 export interface BirdEvent {
   v: number;
