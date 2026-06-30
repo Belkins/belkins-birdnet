@@ -4,8 +4,13 @@
 // Each settled bird draws at full alpha. A freshly-added bird "paints in":
 // fade 0->1 + scale 0.85->1 + a cheap top-down reveal wipe over ~1.2s. With
 // prefers-reduced-motion the bird appears instantly (no motion).
+//
+// Theme (night/day) adds a per-bird Canvas shadow — a warm spotlight glow on
+// the dark Obsidian ground, a soft contact shadow on the cream Day ground —
+// plus a light atmospheric depth cue (smaller/farther birds recede).
 
 import type { Tile } from './types';
+import { birdInk, type Theme } from './theme';
 
 const PAINT_MS = 1200;
 const SCALE_FROM = 0.85;
@@ -19,6 +24,7 @@ export class CollageRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private tiles: Tile[] = [];
+  private theme: Theme = 'night';
   private W = 0;
   private H = 0;
   private dpr = 1;
@@ -40,6 +46,13 @@ export class CollageRenderer {
 
   setTiles(tiles: Tile[]): void {
     this.tiles = tiles;
+  }
+
+  /** Swap the bird glow/shadow treatment and repaint immediately. */
+  setTheme(theme: Theme): void {
+    if (theme === this.theme) return;
+    this.theme = theme;
+    this.requestDraw();
   }
 
   resize(W: number, H: number): void {
@@ -69,7 +82,15 @@ export class CollageRenderer {
     ctx.clearRect(0, 0, W, H);
 
     const now = performance.now();
+    const ink = birdInk(this.theme);
+    const night = this.theme === 'night';
     let animating = false;
+
+    // Largest on-screen footprint, for the atmospheric-depth cue.
+    let maxW = 1;
+    for (const t of this.tiles) {
+      if (t.x > -99998 && t.fullW > maxW) maxW = t.fullW;
+    }
 
     for (const t of this.tiles) {
       if (t.x <= -99998) continue; // parked off-screen
@@ -85,7 +106,9 @@ export class CollageRenderer {
         }
       }
 
-      const alpha = progress;
+      // depth: 0 = nearest/biggest, 1 = farthest/smallest.
+      const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
+      const alpha = progress * (1 - 0.2 * depth);
       const scale = SCALE_FROM + (1 - SCALE_FROM) * progress;
       const drawW = t.fullW * scale;
       const drawH = t.fullH * scale;
@@ -102,6 +125,9 @@ export class CollageRenderer {
       }
 
       if (t.loaded && t.img && !t.failed) {
+        ctx.shadowColor = ink.shadowColor;
+        ctx.shadowBlur = night ? ink.shadowBlur * (1 - 0.5 * depth) : ink.shadowBlur;
+        ctx.shadowOffsetY = ink.shadowOffsetY;
         ctx.drawImage(t.img, dx, dy, drawW, drawH);
       } else {
         this.drawPlaceholder(t, dx, dy, drawW, drawH);
@@ -113,20 +139,22 @@ export class CollageRenderer {
   }
 
   /** Muted card + label so a missing image (or default-mask species) is
-   *  still visible — never an invisible gap. */
+   *  still visible — never an invisible gap. Theme-aware so the label reads
+   *  on both the dark and the cream ground. */
   private drawPlaceholder(t: Tile, x: number, y: number, w: number, h: number): void {
     const { ctx } = this;
-    ctx.fillStyle = t.loaded ? 'rgba(120,140,130,0.18)' : 'rgba(120,140,130,0.10)';
+    const night = this.theme === 'night';
+    ctx.fillStyle = night ? 'rgba(241,234,217,0.06)' : 'rgba(26,22,18,0.05)';
     const r = Math.min(10, w * 0.12, h * 0.12);
     roundRect(ctx, x, y, w, h, r);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(120,140,130,0.35)';
+    ctx.strokeStyle = night ? 'rgba(241,234,217,0.16)' : 'rgba(26,22,18,0.18)';
     ctx.lineWidth = 1;
     roundRect(ctx, x, y, w, h, r);
     ctx.stroke();
     const label = t.com || t.sci;
-    ctx.fillStyle = 'rgba(40,55,48,0.75)';
-    ctx.font = `${Math.max(9, Math.min(14, w * 0.12))}px system-ui, sans-serif`;
+    ctx.fillStyle = night ? 'rgba(207,199,182,0.78)' : 'rgba(40,32,22,0.7)';
+    ctx.font = `${Math.max(9, Math.min(14, w * 0.12))}px 'Cormorant Garamond', Georgia, serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(truncate(label, w), x + w / 2, y + h / 2, w * 0.9);

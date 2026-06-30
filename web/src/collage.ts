@@ -8,14 +8,15 @@
 // ONE bird at a time onto the persistent occupancy grid (no re-wipe / no
 // re-pack), per the Phase 0 contract.
 
-import type { BirdEvent, EventStream, SpeciesRow, Tile } from './types';
+import type { BirdEvent, EventStream, RosterRow, SpeciesRow, Tile } from './types';
+import type { Theme } from './theme';
 import { CollageGrid, COLLAGE_PAD, GRID_STRIDE } from './packer';
 import { CollageRenderer } from './renderer';
 import { aspect, loadData, loadMask, slugify } from './data';
 import { fetchSnapshot } from './snapshot';
 import { MockStream, SseStream } from './events';
-import { API_BASE, BASE, EVENTS_URL, MOCK } from './config';
-import { MOCK_SPECIES } from './mockData';
+import { EVENTS_URL, MOCK } from './config';
+import { birdImageUrl } from './img';
 
 // Failed-tile retry loop (auto-gen watcher, CONTRACT.md "Live-update Phase A").
 // A brand-new species' cutout.php 302s to Railway, which 404s until the PNG is
@@ -32,16 +33,6 @@ function tuning(n: number) {
     minTileAreaFrac: n <= 8 ? 0.01 : n <= 20 ? 0.0075 : 0.0055,
     ellipseAspectBias: 2.1,
   };
-}
-
-// Mock slugs that actually have a bundled PNG (others -> placeholder).
-const MOCK_ASSET_SLUGS = new Set(
-  MOCK_SPECIES.filter((s) => s.hasAsset).map((s) => slugify(s.sci)),
-);
-
-function imageUrl(slug: string, sci: string): string | null {
-  if (MOCK) return MOCK_ASSET_SLUGS.has(slug) ? `${BASE}mock/${slug}.png` : null;
-  return `${API_BASE}/cutout.php?sci=${encodeURIComponent(sci)}&pose=1`;
 }
 
 function makeTile(
@@ -73,6 +64,8 @@ export interface EngineCallbacks {
   onCount?: (count: number) => void;
   onStatus?: (status: string) => void;
   onLatest?: (com: string) => void;
+  /** The live species roster (snapshot + live increments), for the React views. */
+  onData?: (rows: RosterRow[]) => void;
 }
 
 export class CollageEngine {
@@ -93,6 +86,8 @@ export class CollageEngine {
   private retryTimer: ReturnType<typeof setInterval> | null = null;
   private retryCount = 0;
   private readonly cb: EngineCallbacks;
+  /** species roster (snapshot counts + live increments) → React views. */
+  private readonly roster = new Map<string, RosterRow>();
 
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks = {}) {
     this.cb = cb;
@@ -223,6 +218,13 @@ export class CollageEngine {
     const areas = tiles.map((t) => t.fullW * t.fullH).sort((a, c) => a - c);
     this.areaHint = areas.length ? areas[areas.length >> 1] : vpArea * 0.012;
 
+    // Seed the species roster (drives the Index / Stats / Atlas views).
+    species.forEach((s) => {
+      const n = !s.n || Number.isNaN(s.n) ? 1 : s.n;
+      this.bumpRoster(s.sci, s.com, slugify(s.sci), n, false);
+    });
+    this.emitRoster();
+
     // Seed reveals instantly (no paint-in storm); live deltas paint in.
     tiles.forEach((t) => {
       t.animStart = null;
@@ -230,7 +232,7 @@ export class CollageEngine {
     });
     this.renderer.setTiles(this.grid.placed);
     this.renderer.requestDraw();
-    this.cb.onCount?.(this.grid.placed.length);
+    this.cb.onCount?.(this.grid.onScreen().length);
     this.cb.onStatus?.(MOCK ? 'mock live' : 'live');
   }
 
@@ -253,14 +255,18 @@ export class CollageEngine {
     this.grid.placeOne(tile, this.xBias, this.yBias);
     this.loadImage(tile);
 
+    const isNewSpecies = !this.roster.has(sci);
+    this.bumpRoster(sci, ev.com, slug, 1, isNewSpecies);
+
     this.renderer.setTiles(this.grid.placed);
     this.renderer.requestDraw();
-    this.cb.onCount?.(this.grid.placed.length);
+    this.cb.onCount?.(this.grid.onScreen().length);
     this.cb.onLatest?.(ev.com || sci);
+    this.emitRoster();
   }
 
   private loadImage(tile: Tile, bust = false): void {
-    let url = imageUrl(tile.slug, tile.sci);
+    let url = birdImageUrl(tile.slug, tile.sci);
     if (!url) {
       tile.failed = true;
       tile.loaded = true; // settled (placeholder)
@@ -327,12 +333,60 @@ export class CollageEngine {
     }
   }
 
-  /** Resize the backing canvas. Phase 0 keeps existing positions (no re-pack);
-   *  the cluster simply stays within the resized canvas. */
+  /** Resize the backing canvas. Phase 0 keeps existing bird POSITIONS (no
+   *  re-pack), but the occupancy grid is rebuilt at the new size and existing
+   *  tiles re-stamped, so the bounds + centre used for FUTURE live placement
+   *  track the new viewport (otherwise new birds nest around the stale centre). */
   resize(W: number, H: number): void {
     this.W = Math.max(1, W);
     this.H = Math.max(1, H);
+    this.computeBiases();
+    const next = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
+    for (const t of this.grid.placed) next.placed.push(t);
+    next.restamp();
+    this.grid = next;
+    this.renderer.setTiles(this.grid.placed);
     this.renderer.resize(this.W, this.H);
+  }
+
+  /** Re-fetch the snapshot for a new time window and re-seed; live SSE keeps
+   *  running. The 1H/12H/24H/7D/ALL filter calls this. */
+  async setWindow(hours: number): Promise<void> {
+    if (this.disposed) return;
+    this.cb.onStatus?.('loading snapshot');
+    try {
+      const snapshot = await fetchSnapshot(hours);
+      if (this.disposed) return;
+      this.roster.clear();
+      this.seed(snapshot);
+    } catch (err) {
+      this.cb.onStatus?.(`snapshot failed: ${String(err)}`);
+    }
+  }
+
+  /** Forward the active theme to the canvas renderer (glow vs contact shadow). */
+  setTheme(theme: Theme): void {
+    this.renderer.setTheme(theme);
+  }
+
+  private bumpRoster(
+    sci: string,
+    com: string,
+    slug: string,
+    addN: number,
+    markNew: boolean,
+  ): void {
+    const existing = this.roster.get(sci);
+    if (existing) {
+      existing.n += addN;
+    } else {
+      this.roster.set(sci, { sci, com, slug, n: addN, isNew: markNew });
+    }
+  }
+
+  private emitRoster(): void {
+    if (!this.cb.onData) return;
+    this.cb.onData([...this.roster.values()].sort((a, b) => b.n - a.n));
   }
 
   destroy(): void {

@@ -11,10 +11,10 @@ interface RecentResponse {
   as_of?: string;
 }
 
-export async function fetchSnapshot(): Promise<SpeciesRow[]> {
+export async function fetchSnapshot(hours: number = SNAPSHOT_HOURS): Promise<SpeciesRow[]> {
   if (MOCK) return mockSnapshot();
 
-  const url = `${API_BASE}/birdnet-api.php?action=recent&hours=${SNAPSHOT_HOURS}`;
+  const url = `${API_BASE}/birdnet-api.php?action=recent&hours=${hours}`;
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`snapshot ${res.status}`);
   const json = (await res.json()) as RecentResponse;

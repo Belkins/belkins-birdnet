@@ -1,10 +1,56 @@
 :root {
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --sans: 'Space Grotesk', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Space Mono', ui-monospace, Consolas, monospace;
+  --display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+  --bold: 'Archivo', var(--sans);
+
+  /* ── NIGHT · Obsidian (default) ───────────────────────────── */
+  --bg0: #211f28;
+  --bg1: #131219;
+  --bg2: #0a090d;
+  --ink: #f1ead9;
+  --ink-2: #cfc7b6;
+  --mut: #857f74;
+  --mut-2: #5f5a51;
+  --amber: #d99a5b;
+  --amber-2: #c98a5e;
+  --red: #dc6242;
+  --card: #1a1922;
+  --card-2: #211f2a;
+  --line: rgba(241, 234, 217, 0.1);
+  --line-2: rgba(241, 234, 217, 0.055);
+  --on-bg: #f1ead9;
+  --on-fg: #15141a;
+  --scrim: rgba(8, 8, 12, 0.66);
+  --glass: rgba(255, 255, 255, 0.05);
+
   color-scheme: dark;
   font: 16px/1.45 var(--sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='day'] {
+  --bg0: #fcfaf4;
+  --bg1: #f3efe4;
+  --bg2: #e8e1d1;
+  --ink: #1a1612;
+  --ink-2: #4a3f31;
+  --mut: #9a8f7c;
+  --mut-2: #c0b6a1;
+  --amber: #b0563b;
+  --amber-2: #a8543b;
+  --red: #c44a3b;
+  --card: #fbf8f0;
+  --card-2: #f4f0e6;
+  --line: rgba(26, 22, 18, 0.12);
+  --line-2: rgba(26, 22, 18, 0.05);
+  --on-bg: #1a1612;
+  --on-fg: #fbf8f0;
+  --scrim: rgba(250, 247, 240, 0.55);
+  --glass: rgba(255, 253, 248, 0.6);
+
+  color-scheme: light;
 }
 
 * {
@@ -20,9 +66,8 @@ body,
 }
 
 body {
-  /* sky-to-ground wash behind the cut-out birds */
-  background:
-    radial-gradient(120% 90% at 50% 0%, #1b2733 0%, #121820 55%, #0c1016 100%);
-  color: #cfd9d2;
+  background: radial-gradient(125% 105% at 50% 6%, var(--bg0) 0%, var(--bg1) 46%, var(--bg2) 100%);
+  color: var(--ink);
   overflow: hidden;
+  transition: background 0.35s ease, color 0.35s ease;
 }

@@ -1,58 +1,158 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import './App.css';
 import { CollageEngine } from './collage';
 import { MOCK } from './config';
+import { applyTheme, storedTheme, type Theme } from './theme';
+import type { RosterRow } from './types';
+import { IndexView } from './views/IndexView';
+import { StatsView } from './views/StatsView';
+import { AtlasView } from './views/AtlasView';
+
+type Tab = 'collage' | 'index' | 'stats' | 'atlas';
+const PERIODS: { label: string; hours: number }[] = [
+  { label: '1H', hours: 1 },
+  { label: '12H', hours: 12 },
+  { label: '24H', hours: 24 },
+  { label: '7D', hours: 168 },
+  { label: 'ALL', hours: 1_000_000 },
+];
+const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas'];
+
+function Overlay({ children }: { children: ReactNode }) {
+  return <div className="overlay">{children}</div>;
+}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const engineRef = useRef<CollageEngine | null>(null);
+  const [theme, setTheme] = useState<Theme>(storedTheme);
+  const [tab, setTab] = useState<Tab>('collage');
+  const [rows, setRows] = useState<RosterRow[]>([]);
   const [count, setCount] = useState(0);
   const [status, setStatus] = useState('starting');
-  const [latest, setLatest] = useState<string>('');
+  const [latest, setLatest] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [period, setPeriod] = useState('24H');
 
+  // Engine + canvas live for the whole session — never unmounted on tab switch.
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
-
     const engine = new CollageEngine(canvas, {
       onCount: setCount,
       onStatus: setStatus,
       onLatest: setLatest,
+      onData: setRows,
     });
-
+    engineRef.current = engine;
+    engine.setTheme(storedTheme());
     const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect;
       if (r) engine.resize(r.width, r.height);
     });
     ro.observe(wrap);
-
     void engine.start();
-
     return () => {
       ro.disconnect();
       engine.destroy();
+      engineRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    applyTheme(theme);
+    engineRef.current?.setTheme(theme);
+  }, [theme]);
 
   return (
     <div className="stage" ref={wrapRef}>
       <canvas ref={canvasRef} className="collage-canvas" />
-      <header className="hud">
-        <div className="hud-title">
-          Belkins BirdNET
-          <span className="hud-phase">collage · phase 0</span>
-          {MOCK && <span className="hud-badge">MOCK</span>}
+
+      <div className="filter">
+        {PERIODS.map((p) => (
+          <button
+            key={p.label}
+            className={p.label === period ? 'on' : ''}
+            onClick={() => {
+              setPeriod(p.label);
+              engineRef.current?.setWindow(p.hours);
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="menu-wrap">
+        <button className="menu" onClick={() => setMenuOpen((o) => !o)}>
+          <i />
+          MENU
+        </button>
+        {menuOpen && (
+          <div className="menu-pop">
+            <button
+              onClick={() => {
+                setTheme((t) => (t === 'night' ? 'day' : 'night'));
+                setMenuOpen(false);
+              }}
+            >
+              {theme === 'night' ? '☀  Day theme' : '☾  Night theme'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {tab === 'collage' && (
+        <header className="mast">
+          <div className="eyebrow">your window{MOCK ? ' · demo' : ''}</div>
+          <div className="mast-t">{count === 0 ? 'LISTENING' : 'HEARD RECENTLY'}</div>
+        </header>
+      )}
+
+      {tab === 'collage' && count === 0 && (
+        <div className="listen">
+          <div className="pulse">
+            <span />
+            <span />
+            <span />
+            <i />
+          </div>
+          <div className="listen-cap">{status}</div>
         </div>
-        <div className="hud-stats">
-          <span className="hud-stat">
-            <strong>{count}</strong> birds
-          </span>
-          <span className="hud-dot" data-live={status.includes('live')} />
-          <span className="hud-status">{status}</span>
-          {latest && <span className="hud-latest">↳ {latest}</span>}
-        </div>
-      </header>
+      )}
+
+      {tab === 'index' && (
+        <Overlay>
+          <IndexView rows={rows} />
+        </Overlay>
+      )}
+      {tab === 'stats' && (
+        <Overlay>
+          <StatsView rows={rows} />
+        </Overlay>
+      )}
+      {tab === 'atlas' && (
+        <Overlay>
+          <AtlasView rows={rows} />
+        </Overlay>
+      )}
+
+      <nav className="nav">
+        {TABS.map((t) => (
+          <button key={t} className={t === tab ? 'on' : ''} onClick={() => setTab(t)}>
+            {t.toUpperCase()}
+          </button>
+        ))}
+      </nav>
+
+      <div className="live">
+        <span className="live-dot" data-live={status.includes('live')} />
+        <span className="live-n">{count}</span>
+        {latest && <span className="live-latest">↳ {latest}</span>}
+      </div>
     </div>
   );
 }
