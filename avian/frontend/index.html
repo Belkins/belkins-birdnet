@@ -10,7 +10,7 @@
 <!-- Apply the saved theme before first paint so dark mode doesn't flash
      light on load. The full switcher lives in Settings (writes bird:theme). -->
 <script>try{if(localStorage.getItem('bird:theme')==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}</script>
-<link rel="stylesheet" href="./styles.css?v=r13">
+<link rel="stylesheet" href="./styles.css?v=r14">
 </head>
 <body class="av-local">
 <!-- Pill in the top-left slot, only visible on admin overlays
@@ -178,6 +178,7 @@
         <div class="modal-meta">
           <span class="meta-item"><span class="k">genus</span><span class="v" id="modalGenus">-</span></span>
           <span class="meta-item"><span class="k">rarity</span><span class="v" id="modalRarity">-</span></span>
+          <span class="meta-item"><span class="k">status</span><span class="v" id="modalIucn">-</span></span>
         </div>
       </div>
     </div>
@@ -228,6 +229,6 @@
   </div>
 </section>
 
-<script src="./apt.js?v=r13"></script>
+<script src="./apt.js?v=r14"></script>
 </body>
 </html>

@@ -1108,7 +1108,37 @@
     'Mimus polyglottos':      'normoc',
     'Sayornis nigricans':     'blkpho',
     'Larus occidentalis':     'wegull',
-    'Corvus brachyrhynchos':  'amecro'
+    'Corvus brachyrhynchos':  'amecro',
+    // European species this deploy actually hears — verified via Wikidata P3444
+    // (2026-07-01). The stock map above is North-American; without these, every
+    // EU bird's eBird chip fell back to the generic /explore page.
+    'Erithacus rubecula':     'eurrob1',
+    'Turdus merula':          'eurbla',
+    'Turdus philomelos':      'sonthr1',
+    'Cyanistes caeruleus':    'blutit',
+    'Parus major':            'gretit1',
+    'Carduelis carduelis':    'eurgol',
+    'Psittacula krameri':     'rorpar',
+    'Apus apus':              'comswi',
+    'Anthus trivialis':       'trepip',
+    'Corvus frugilegus':      'rook1',
+    'Corvus monedula':        'eurjac',
+    'Charadrius dubius':      'lirplo',
+    'Haematopus ostralegus':  'euroys1'
+  };
+  // IUCN Red List status — verified via Wikidata P141 (2026-07-01). Shown as a
+  // quiet field-guide line, never a gamified alarm. Extend as new species land.
+  var IUCN_STATUS = {
+    'Erithacus rubecula': 'LC', 'Turdus merula': 'LC', 'Turdus philomelos': 'LC',
+    'Cyanistes caeruleus': 'LC', 'Parus major': 'LC', 'Carduelis carduelis': 'LC',
+    'Psittacula krameri': 'LC', 'Apus apus': 'LC', 'Anthus trivialis': 'LC',
+    'Corvus frugilegus': 'LC', 'Corvus monedula': 'LC', 'Charadrius dubius': 'LC',
+    'Haematopus ostralegus': 'NT'
+  };
+  var IUCN_LABEL = {
+    LC: 'Least Concern', NT: 'Near Threatened', VU: 'Vulnerable',
+    EN: 'Endangered', CR: 'Critically Endangered', EW: 'Extinct in Wild',
+    EX: 'Extinct', DD: 'Data Deficient'
   };
 
   function wikiUrl(sci) {
@@ -2124,6 +2154,14 @@
     });
     document.getElementById('modalSci').textContent = sci;
     document.getElementById('modalGenus').textContent = (sci.split(' ')[0] || '-');
+    (function () {
+      var iucnEl = document.getElementById('modalIucn');
+      if (!iucnEl) return;
+      var item = iucnEl.closest('.meta-item');
+      var code = IUCN_STATUS[sci];
+      if (code) { iucnEl.textContent = IUCN_LABEL[code] || code; if (item) item.style.display = ''; }
+      else if (item) { item.style.display = 'none'; }
+    })();
     document.getElementById('modalCommon').textContent = '-';
     document.getElementById('modalAllTime').textContent = '-';
     document.getElementById('modalWindow').textContent = '-';
