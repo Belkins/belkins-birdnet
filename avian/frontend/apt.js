@@ -253,7 +253,7 @@
   var GRID_STRIDE = 4; // viewport px per occupancy cell; smaller = slower
   var COLLAGE_PAD = 3; // breathing room (grid cells) around each bird;
                        // eased on narrow screens where birds are smaller.
-  var FLY_PROB = 0.15; // chance a bird shows in its flight pose (rare); perched
+  var FLY_PROB = 0.25; // chance a bird shows in its flight pose (calm minority); perched
                        // otherwise. Rolled once per window appearance.
   var collagePose = {}; // sci -> 1 perched | 2 flight, persisted across polls;
                         // cleared when a bird leaves the window so it rerolls.
@@ -262,6 +262,21 @@
   // without a fallback these species were silently dropped, leaving a blank
   // collage on windows made up entirely of un-illustrated birds.
   var FALLBACK_MASK_SLUG = 'passer-domesticus';
+  // Generic FLIGHT silhouette (a bundled -2 mask) for Railway species that have
+  // real flight art but no bundled flight mask — the tile nests into this
+  // wings-spread shape while the displayed image stays the species' own pose-2.
+  var FLIGHT_FALLBACK_MASK_SLUG = 'turdus-migratorius-2';
+  // Species with a verified REAL, distinct flight render (cutout X-Av-Real=1,
+  // probed 2026-07-01) but no bundled flight silhouette. Lets the collage mix in
+  // their flight pose. Refresh from the X-Av-Real probe as new species are heard
+  // (ideally emitted by rebuild_catalog.py so this isn't hand-maintained).
+  var HAS_FLIGHT = {
+    'erithacus-rubecula': 1, 'psittacula-krameri': 1, 'cyanistes-caeruleus': 1,
+    'carduelis-carduelis': 1, 'apus-apus': 1, 'anthus-trivialis': 1,
+    'corvus-monedula': 1, 'parus-major': 1, 'turdus-philomelos': 1,
+    'corvus-frugilegus': 1, 'pica-pica': 1, 'turdus-merula': 1,
+    'charadrius-dubius': 1, 'haematopus-ostralegus': 1, 'chloris-chloris': 1
+  };
 
   // Decode and cache each mask once. Sparse cell-list form (only "on"
   // cells) makes collision tests linear in opaque area, not total area.
@@ -443,12 +458,21 @@
       // the wings-spread silhouette nests correctly.
       var pose = collagePose[s.sci];
       if (pose === undefined) {
-        pose = (DIMS[base + '-2'] && Math.random() < FLY_PROB) ? 2 : 1;
+        // A bird can fly if it has a bundled flight silhouette OR a verified real
+        // Railway flight render (HAS_FLIGHT). Rerolls on each fresh render/load.
+        var canFly = DIMS[base + '-2'] || HAS_FLIGHT[base];
+        pose = (canFly && Math.random() < FLY_PROB) ? 2 : 1;
         collagePose[s.sci] = pose;
       }
       var slug = pose === 2 ? base + '-2' : base;
       var mask = loadMask(slug);
-      if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(slug); collagePose[s.sci] = 1; }
+      // Flight tile with no bundled flight silhouette (a Railway species): nest it
+      // into the generic flight silhouette so it still flies. The mask only
+      // positions the tile — the displayed image is the species' real pose-2 art
+      // (cutout keyed on sci), so nothing is clipped or swapped.
+      if (!mask && pose === 2) { slug = FLIGHT_FALLBACK_MASK_SLUG; mask = loadMask(slug); }
+      // Deeper fallback: no flight silhouette at all -> revert cleanly to perched.
+      if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(base); collagePose[s.sci] = 1; }
       // Un-illustrated species (not in the bundled NA library) still need a
       // shape to nest in the packer - fall back to a generic silhouette so
       // they appear in the collage instead of being dropped. The displayed
