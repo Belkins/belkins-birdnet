@@ -24,6 +24,39 @@
   margin-top: 6px;
 }
 
+/* Sort toggle — a segmented pill (matches the popup pose toggle), centered under
+   the masthead. Switches the plates between first-appearance and rarity order
+   without renumbering the accession No. */
+.wall-sort {
+  display: inline-flex;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 3px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.wall-sort-b {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut);
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 15px;
+  cursor: pointer;
+  transition: color 0.16s ease, background 0.16s ease;
+}
+.wall-sort-b:hover {
+  color: var(--ink-2);
+}
+.wall-sort-b[aria-pressed='true'] {
+  color: var(--on-fg);
+  background: var(--ink-2);
+}
+
 /* Header: the catalogue identity on the left — the number bound to its "first
    seen" date — and the all-time call tally on the right. The pairing makes the
    number's meaning explicit; no Lifer/Heard pill (collection, not streaks). */
@@ -48,15 +81,34 @@
 }
 .wall-tally {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--mut);
 }
-.wall-tally b {
+.wall-calls b {
   font-family: var(--display);
   font-size: 15px;
   color: var(--ink);
+}
+/* Rarity band — the local-scarcity tier. The rare tier gets the single amber
+   accent (a "special find"); the rest stay quiet. Uppercased mono, like the date. */
+.wall-rarity {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+.wall-rarity[data-band='rare'] {
+  color: var(--amber);
+}
+.wall-rarity[data-band='occasional'] {
+  color: var(--ink-2);
 }
 
 /* Loading — a composed gallery label, never a spinner. */
