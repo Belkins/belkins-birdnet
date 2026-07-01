@@ -2,7 +2,7 @@
   var PLACEHOLDER = [{"sci":"Calypte anna","com":"Anna's Hummingbird","featured":true},{"sci":"Passer domesticus","com":"House Sparrow"},{"sci":"Haemorhous mexicanus","com":"House Finch"},{"sci":"Turdus migratorius","com":"American Robin"},{"sci":"Zenaida macroura","com":"Mourning Dove"},{"sci":"Spinus psaltria","com":"Lesser Goldfinch"},{"sci":"Zonotrichia leucophrys","com":"White-crowned Sparrow"},{"sci":"Aphelocoma californica","com":"California Scrub-Jay"},{"sci":"Mimus polyglottos","com":"Northern Mockingbird"},{"sci":"Sayornis nigricans","com":"Black Phoebe"},{"sci":"Larus occidentalis","com":"Western Gull"},{"sci":"Corvus brachyrhynchos","com":"American Crow"}];
   // Bumped whenever the offline sketch build changes, so the browser
   // doesn't keep a stale cache after we regenerate the sketches.
-  var SKETCH_VERSION = 'r11'; // full library restyle: every species
+  var SKETCH_VERSION = 'r12'; // full library restyle: every species
                               // re-rendered (perched + flight) with clean cutouts.
   // Cache-bust for /api/img - bump whenever a bird gets re-rendered via
   // /api/regen or whenever you need every CF DC to drop its cached copy.
@@ -10,7 +10,7 @@
   // equivalent to a global cache purge for /api/img. (caches.default
   // .delete() in the worker only affects ONE colo at a time, so a
   // versioned URL is the only reliable way to invalidate everywhere.)
-  var IMG_VERSION = 'r11'; // full library restyle: every species re-rendered
+  var IMG_VERSION = 'r12'; // full library restyle: every species re-rendered
                            // with clean cutouts, so drop every cached copy.
 
   // ---- Sliding pill helper ----
@@ -571,7 +571,22 @@
       btn.style.top    = r.y + 'px';
       btn.style.width  = r.fullW + 'px';
       btn.style.height = r.fullH + 'px';
-      btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + s.com + '">';
+      // Build the <img> in the DOM (not via innerHTML) so we can wire an
+      // onerror silhouette fallback: if cutout.php ever fails to resolve a real
+      // bird, onerror re-requests the SAME species with &fb=1, which cutout.php
+      // honors by serving its ink silhouette directly (200) — so a tile degrades
+      // to a silhouette, never a broken glyph.
+      var imgEl = document.createElement('img');
+      imgEl.loading = 'lazy';
+      imgEl.decoding = 'async';
+      imgEl.alt = s.com;
+      imgEl.onerror = function () {
+        if (imgEl.dataset.fb) { imgEl.style.visibility = 'hidden'; return; }
+        imgEl.dataset.fb = '1';
+        imgEl.src = img + '&fb=1';
+      };
+      imgEl.src = img;
+      btn.appendChild(imgEl);
       r.el = btn;
       collage.appendChild(btn);
     });
@@ -1378,7 +1393,7 @@
     host.innerHTML = top.map(function (s, i) {
       var n = +s.n || 0;
       var w = 20 + (n / max) * 60;                       // 20-80% proportional bar
-      return '<li class="idx-row' + (i === 0 ? ' top' : '') +
+      return '<li class="idx-row' + (i === 0 ? ' is-top' : '') +
                '" data-sci="' + (s.sci || '').replace(/"/g, '&quot;') + '">' +
         '<span class="idx-no">' + pad(i + 1) + '</span>' +
         '<span class="idx-nm">' + (s.com || s.sci) + '</span>' +
@@ -2068,7 +2083,12 @@
     var probes = poseBtns.map(function (b) {
       var pose = +b.dataset.pose;
       return fetch(sketchSrc(sci, pose), { method: 'HEAD', cache: 'no-store' })
-        .then(function (r) { return { pose: pose, btn: b, ok: r.ok }; })
+        .then(function (r) {
+          // A pose is available only if cutout.php serves a REAL asset for it
+          // (X-Av-Real:1). Every response is now 200 (silhouette on a miss), so
+          // r.ok alone would falsely light up a substitute/flight placeholder.
+          return { pose: pose, btn: b, ok: r.ok && r.headers.get('X-Av-Real') === '1' };
+        })
         .catch(function () { return { pose: pose, btn: b, ok: false }; });
     });
     Promise.all(probes).then(function (results) {

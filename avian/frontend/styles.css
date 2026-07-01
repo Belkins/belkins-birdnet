@@ -1622,7 +1622,7 @@ body.av-local #dd-items  { display: block; }
   }
   .idx-no { font: 12px ui-monospace, Menlo, monospace; color: var(--ink-soft); width: 26px; }
   .idx-nm { flex: 1; font-family: ui-serif, "Iowan Old Style", Georgia, serif; font-size: 26px; color: var(--ink); }
-  .idx-row.top .idx-nm { color: var(--accent); }
+  .idx-row.is-top .idx-nm { color: var(--accent); }
   .idx-bar { height: 5px; max-width: 40%; background: var(--accent); border-radius: 3px; opacity: 0.85; }
   .idx-ct {
     font: 700 13px ui-monospace, Menlo, monospace; width: 40px; text-align: right;
