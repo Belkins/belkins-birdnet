@@ -166,11 +166,11 @@
   display: flex;
   gap: 2px;
   z-index: 50;
-  background: var(--glass);
+  background: color-mix(in srgb, var(--bg1) 90%, transparent);
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 5px;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(16px) saturate(1.15);
 }
 .nav button {
   font-family: var(--sans);
@@ -283,7 +283,9 @@
 }
 .view {
   min-height: 100%;
-  padding: 90px 5% 96px;
+  /* Bottom gutter clears the floating nav pill (bottom: 4.6% + ~46px tall) so no
+     card, CTA, or data row can sit under it at the scroll extent. */
+  padding: 90px 5% calc(4.6vh + 108px);
 }
 .view-mast {
   text-align: center;
@@ -587,15 +589,15 @@
    toward a consistent optical size, so the grid rhythm reads even. */
 .acard-img {
   flex: 1 1 auto;
-  min-height: 158px;
+  min-height: 118px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  margin: 16px 0 14px;
+  margin: 12px 0 10px;
 }
 .acard-img img {
-  max-height: 158px;
+  max-height: 134px;
   max-width: 92%;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
 }
