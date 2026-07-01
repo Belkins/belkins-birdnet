@@ -135,8 +135,18 @@ function Dialog({
   // broken-glyph / alt speck in the plate's upper-left before it resolves.
   const [imgLoaded, setImgLoaded] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
+  // The single expanded recording row (spectrogram band open). Opening another
+  // collapses this one — one clip open/playing at a time. `progress` is the 0..1
+  // playhead fraction for that open row; `specFailed` remembers which clips'
+  // spectrogram PNGs 404'd so we degrade to a plain grey scrubber quietly.
+  const [openFile, setOpenFile] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [specFailed, setSpecFailed] = useState<Set<string>>(() => new Set());
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const bandRef = useRef<HTMLDivElement | null>(null);
+  const openRowRef = useRef<HTMLLIElement | null>(null);
+  const draggingRef = useRef(false);
 
   // All-time total, first-heard, and the recent-detections list come from this
   // one call; `detections` is newest-first. A failure (offline mock, 404, abort
@@ -231,25 +241,100 @@ function Dialog({
     };
   }, []);
 
-  // One <audio> element for the whole list: clicking the active row's ▶ pauses
-  // it; clicking any other row stops the current clip and starts that one.
-  function playRow(file: string): void {
+  // Drive the playhead from a requestAnimationFrame loop (smoother than the ~4Hz
+  // `timeupdate` event) while a clip plays. Scoped to `playing`: it starts when a
+  // row begins, and its cleanup cancels the frame on pause / ended / switch /
+  // unmount — so the loop never survives the modal. `duration` is NaN until
+  // metadata loads, so the guard keeps progress at 0 until the clip is seekable.
+  useEffect(() => {
+    if (playing == null) return;
+    let raf = 0;
+    const tick = (): void => {
+      const a = audioRef.current;
+      if (a && a.duration && Number.isFinite(a.duration)) setProgress(a.currentTime / a.duration);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+
+  // Nudge a freshly-opened row into view — the band adds ~110px, which can push
+  // it under the scrollable list's fold.
+  useEffect(() => {
+    if (openFile) openRowRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [openFile]);
+
+  // Expand a row into its spectrogram band and start its clip on the one shared
+  // <audio> element. Any previously-open row is stopped + collapsed first, so
+  // only one is ever open/playing. A recording.php 404 (or mock dev) fires the
+  // audio `error` → we drop `playing` but keep the band open as an inert grey
+  // scrubber, mirroring the modal's quiet-degrade contract.
+  function openRow(file: string): void {
     const cur = audioRef.current;
-    if (playing === file && cur) {
-      cur.pause();
-      setPlaying(null);
-      return;
-    }
     if (cur) {
       cur.pause();
       cur.src = '';
     }
+    setProgress(0);
+    setOpenFile(file);
     const a = new Audio(`${API_BASE}/recording.php?file=${encodeURIComponent(file)}`);
-    a.addEventListener('ended', () => setPlaying(null));
+    // Rewind the playhead on end but keep the element for replay; play() on an
+    // ended clip re-seeks to 0 per spec, so the ▶ button replays it.
+    a.addEventListener('ended', () => {
+      setPlaying(null);
+      setProgress(0);
+    });
     a.addEventListener('error', () => setPlaying(null));
     audioRef.current = a;
     setPlaying(file);
     a.play().catch(() => setPlaying(null));
+  }
+
+  // Row-header click: open+play this clip, or collapse+stop it if already open.
+  function toggleRow(file: string): void {
+    if (openFile === file) {
+      const cur = audioRef.current;
+      if (cur) {
+        cur.pause();
+        cur.src = '';
+        audioRef.current = null;
+      }
+      setOpenFile(null);
+      setPlaying(null);
+      setProgress(0);
+      return;
+    }
+    openRow(file);
+  }
+
+  // The ▶/❚❚ control on the open row: pause/resume without collapsing (so you
+  // can scrub a paused clip and resume). Opens the row if it wasn't already.
+  function playPause(file: string): void {
+    const a = audioRef.current;
+    if (openFile !== file || !a) {
+      openRow(file);
+      return;
+    }
+    if (playing === file) {
+      a.pause();
+      setPlaying(null);
+    } else {
+      setPlaying(file);
+      a.play().catch(() => setPlaying(null));
+    }
+  }
+
+  // Map a pointer x onto the band's width → 0..1 → currentTime. setProgress runs
+  // even when paused (rAF isn't looping then) so the line tracks a paused scrub.
+  function seek(clientX: number): void {
+    const band = bandRef.current;
+    if (!band) return;
+    const rect = band.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    const a = audioRef.current;
+    if (a && a.duration && Number.isFinite(a.duration)) a.currentTime = pct * a.duration;
+    setProgress(pct);
   }
 
   const title = bird.com || bird.sci;
@@ -362,23 +447,70 @@ function Dialog({
             </div>
             <ol className="bp-rec-list">
               {recordings.map((r, i) => {
+                const isOpen = openFile === r.file;
                 const isPlaying = playing === r.file;
                 return (
-                  <li className="bp-rec-row" key={`${r.file}-${i}`}>
-                    <button
-                      type="button"
-                      className="bp-play"
-                      data-active={isPlaying ? 'true' : undefined}
-                      aria-label={isPlaying ? 'Pause recording' : 'Play recording'}
-                      onClick={() => playRow(r.file)}
-                    >
-                      {isPlaying ? '❚❚' : '▶'}
-                    </button>
-                    <span className="bp-when">
-                      {fmtRelative(r.d, r.t)}
-                      <small>{fmtDateLine(r.d, r.t)}</small>
-                    </span>
-                    <span className="bp-conf">{Math.round((r.conf || 0) * 100)}%</span>
+                  <li
+                    className="bp-rec-row"
+                    data-open={isOpen ? 'true' : undefined}
+                    ref={isOpen ? openRowRef : undefined}
+                    key={`${r.file}-${i}`}
+                  >
+                    <div className="bp-rec-main" onClick={() => toggleRow(r.file)}>
+                      <button
+                        type="button"
+                        className="bp-play"
+                        data-active={isPlaying ? 'true' : undefined}
+                        aria-label={isPlaying ? 'Pause recording' : 'Play recording'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playPause(r.file);
+                        }}
+                      >
+                        {isPlaying ? '❚❚' : '▶'}
+                      </button>
+                      <span className="bp-when">
+                        {fmtRelative(r.d, r.t)}
+                        <small>{fmtDateLine(r.d, r.t)}</small>
+                      </span>
+                      <span className="bp-conf">{Math.round((r.conf || 0) * 100)}%</span>
+                    </div>
+
+                    {isOpen && (
+                      <div
+                        className="bp-spectro"
+                        ref={bandRef}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.currentTarget.setPointerCapture(e.pointerId);
+                          draggingRef.current = true;
+                          seek(e.clientX);
+                        }}
+                        onPointerMove={(e) => {
+                          if (draggingRef.current) seek(e.clientX);
+                        }}
+                        onPointerUp={(e) => {
+                          draggingRef.current = false;
+                          e.currentTarget.releasePointerCapture(e.pointerId);
+                        }}
+                        onPointerCancel={() => {
+                          draggingRef.current = false;
+                        }}
+                      >
+                        {!specFailed.has(r.file) && (
+                          <img
+                            className="bp-spectro-img"
+                            alt=""
+                            src={`${API_BASE}/spectrogram.php?file=${encodeURIComponent(r.file)}`}
+                            onError={() =>
+                              setSpecFailed((prev) => new Set(prev).add(r.file))
+                            }
+                          />
+                        )}
+                        <div className="bp-spectro-played" style={{ width: `${progress * 100}%` }} />
+                        <div className="bp-spectro-cursor" style={{ left: `${progress * 100}%` }} />
+                      </div>
+                    )}
                   </li>
                 );
               })}
