@@ -2207,6 +2207,7 @@
       document.getElementById('modalWindowLbl').textContent = windowLabel(currentHours);
     }
     document.getElementById('modalFirstSeen').textContent = '-';
+    document.getElementById('modalLastHeard').textContent = '-';
     document.getElementById('modalRarity').textContent = '-';
     document.getElementById('modalRarity').classList.remove('rare');
     document.getElementById('modalDesc').textContent = 'Loading description...';
@@ -2243,6 +2244,7 @@
       var winRow = ((DATA.recent && DATA.recent.species) || []).filter(function (x) { return x.sci === sci; })[0];
       document.getElementById('modalWindow').textContent = (winRow ? +winRow.n : 0).toLocaleString();
       document.getElementById('modalFirstSeen').textContent = s.first_seen ? fmtRecTime(s.first_seen.split(' ')[0], s.first_seen.split(' ')[1]) : '-';
+      document.getElementById('modalLastHeard').textContent = s.last_seen ? fmtRecTime(s.last_seen.split(' ')[0], s.last_seen.split(' ')[1]) : '-';
       var rarEl = document.getElementById('modalRarity');
       rarEl.innerHTML = tierBadge(sci, +s.total || 0);
       var dets = j.detections || [];
