@@ -1344,7 +1344,7 @@
     color: var(--ink-2); margin: 5px 0 18px;
   }
   .modal-stats {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px;
     margin-bottom: 18px;
   }
   .modal-stats > div {
