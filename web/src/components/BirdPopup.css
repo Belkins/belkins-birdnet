@@ -271,18 +271,77 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 268px;
+  max-height: 360px;
   overflow-y: auto;
 }
+/* The row is now a column: a clickable header line (.bp-rec-main) with, when
+   expanded, the spectrogram band beneath it. */
 .bp-rec-row {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 4px;
+  flex-direction: column;
+  align-items: stretch;
   border-bottom: 1px solid var(--line-2);
 }
 .bp-rec-row:last-child {
   border-bottom: none;
+}
+.bp-rec-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 4px;
+  cursor: pointer;
+}
+.bp-rec-main:hover .bp-when {
+  color: var(--ink);
+}
+
+/* ── inline spectrogram band + scrubber ────────────────────── */
+/* A full-row-width grey strip: the clip's spectrogram PNG (greyscaled to read
+   in both themes, inverted in night so the traces stay light on the charcoal
+   ground), a played-ink wash, and a thin amber playhead. All colours resolve
+   from theme vars. If the PNG 404s the <img> is dropped and the bare strip
+   still scrubs. */
+.bp-spectro {
+  position: relative;
+  height: 100px;
+  margin: 2px 4px 10px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--card-2);
+  border: 1px solid var(--line-2);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.bp-spectro-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  filter: grayscale(1) contrast(1.05) opacity(0.85);
+  pointer-events: none;
+  user-select: none;
+}
+:root:not([data-theme='day']) .bp-spectro-img {
+  filter: grayscale(1) invert(1) contrast(1.05) opacity(0.8);
+}
+.bp-spectro-played {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0.05));
+  pointer-events: none;
+}
+.bp-spectro-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--amber);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 .bp-play {
   flex: none;
