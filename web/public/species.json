@@ -1,0 +1,74 @@
+[
+  {
+    "sci_name": "Turdus migratorius",
+    "com_name": "American Robin",
+    "slug": "turdus-migratorius",
+    "first_confident": "2024-03-15",
+    "last_detected": "2026-06-28",
+    "detection_count": 1342,
+    "art_status": "ready"
+  },
+  {
+    "sci_name": "Zenaida macroura",
+    "com_name": "Mourning Dove",
+    "slug": "zenaida-macroura",
+    "first_confident": "2024-03-21",
+    "last_detected": "2026-06-29",
+    "detection_count": 908,
+    "art_status": "ready"
+  },
+  {
+    "sci_name": "Cardinalis cardinalis",
+    "com_name": "Northern Cardinal",
+    "slug": "cardinalis-cardinalis",
+    "first_confident": "2024-04-02",
+    "last_detected": "2026-06-30",
+    "detection_count": 517,
+    "art_status": "none"
+  },
+  {
+    "sci_name": "Spinus tristis",
+    "com_name": "American Goldfinch",
+    "slug": "spinus-tristis",
+    "first_confident": "2024-05-18",
+    "last_detected": "2026-06-27",
+    "detection_count": 264,
+    "art_status": "ready"
+  },
+  {
+    "sci_name": "Cyanocitta cristata",
+    "com_name": "Blue Jay",
+    "slug": "cyanocitta-cristata",
+    "first_confident": "2024-06-09",
+    "last_detected": "2026-06-20",
+    "detection_count": 173,
+    "art_status": "none"
+  },
+  {
+    "sci_name": "Bombycilla cedrorum",
+    "com_name": "Cedar Waxwing",
+    "slug": "bombycilla-cedrorum",
+    "first_confident": "2025-01-11",
+    "last_detected": "2026-05-30",
+    "detection_count": 88,
+    "art_status": "ready"
+  },
+  {
+    "sci_name": "Melospiza melodia",
+    "com_name": "Song Sparrow",
+    "slug": "melospiza-melodia",
+    "first_confident": "2025-09-03",
+    "last_detected": "2026-06-25",
+    "detection_count": 51,
+    "art_status": "ready"
+  },
+  {
+    "sci_name": "Catharus guttatus",
+    "com_name": "Hermit Thrush",
+    "slug": "catharus-guttatus",
+    "first_confident": null,
+    "last_detected": null,
+    "detection_count": 3,
+    "art_status": "none"
+  }
+]

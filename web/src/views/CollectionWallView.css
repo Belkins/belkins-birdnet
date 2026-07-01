@@ -1,0 +1,99 @@
+/* COLLECTION WALL (life-list) additions. Reuses the Atlas .acard / .acard-img /
+   .acard-sil / .acard-cn / .acard-ln specimen-plate system from App.css; this
+   file only adds the wall-specific chrome: the header row (catalogue no. + call
+   tally), the "first seen" caption, and the loading / empty gallery labels. All
+   theme-var driven so day + night both read. No motion → reduced-motion is
+   honored by construction (calm: collection, not streaks). */
+
+.wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+/* Header: catalogue number (life-list order) on the left, the all-time call
+   tally on the right. No Lifer/Heard pill — the wall is a collection, not a
+   streak board. */
+.wall-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wall-tally {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+.wall-tally b {
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+/* "first seen · <Month Year>" — the quiet dateline under the binomial.
+   margin-top:auto bottom-anchors it (the .acard is a flex column), mirroring
+   Atlas's .acard-f so the divider aligns across a grid row even when a common
+   name wraps to two lines. */
+.wall-first {
+  margin-top: auto;
+  padding-top: 11px;
+  border-top: 1px solid var(--line-2);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+
+/* Loading — a composed gallery label, never a spinner. */
+.wall-loading {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 46vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.wall-loading .word {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 30px;
+  color: var(--mut);
+}
+
+/* Day-zero empty state — the same "listening" register as the other views. */
+.wall-empty {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 46vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.wall-empty .word {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 44px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  max-width: 20ch;
+}
+.wall-empty .rule {
+  width: 64px;
+  height: 1px;
+  background: var(--line);
+  margin: 22px 0;
+}
+.wall-empty .cap {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--mut);
+}
