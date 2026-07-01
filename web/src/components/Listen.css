@@ -1,7 +1,11 @@
 /* Listen — mono glass pill wrapping one <audio> control. Reads in both night
    and day off the shared tokens: quiet glass at rest, amber ring while playing,
-   greyed + inert as the disabled "No audio" state. */
-.listen {
+   greyed + inert as the disabled "No audio" state.
+   NOTE: the root class is `.listen-btn`, NOT `.listen` — App.css owns a
+   fullscreen `.listen` (the N=0 "listening" pulse overlay). Sharing the bare
+   name let that overlay's `position:absolute; inset:0` leak onto this pill,
+   blowing it up to fill its positioned ancestor (the popup card / viewport). */
+.listen-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -23,18 +27,18 @@
     border-color 0.18s ease,
     background 0.18s ease;
 }
-.listen:hover:not(:disabled) {
+.listen-btn:hover:not(:disabled) {
   color: var(--ink);
   border-color: var(--mut);
 }
-.listen[data-status='playing'] {
+.listen-btn[data-status='playing'] {
   color: var(--amber);
   border-color: var(--amber);
 }
-.listen[data-status='loading'] {
+.listen-btn[data-status='loading'] {
   color: var(--mut);
 }
-.listen:disabled {
+.listen-btn:disabled {
   color: var(--mut-2);
   border-color: var(--line-2);
   background: transparent;
@@ -58,11 +62,11 @@
     opacity: 1;
   }
 }
-.listen[data-status='loading'] .listen-lab {
+.listen-btn[data-status='loading'] .listen-lab {
   animation: listen-pulse 1s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .listen[data-status='loading'] .listen-lab {
+  .listen-btn[data-status='loading'] .listen-lab {
     animation: none;
   }
 }

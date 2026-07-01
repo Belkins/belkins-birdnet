@@ -83,7 +83,7 @@ export function Listen({ sci, file }: { sci: string; file?: string }) {
   return (
     <button
       type="button"
-      className="listen"
+      className="listen-btn"
       data-status={status}
       disabled={disabled}
       aria-label={disabled ? 'No recording available' : `Play a recording of ${sci}`}

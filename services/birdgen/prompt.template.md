@@ -22,11 +22,11 @@ Generate a {pose} {com_name} ({sci_name}) as an Edo-period Japanese kachō-e woo
 
 Confident sumi-e ink linework with soft watercolor washes. Earthy, restrained palette: burnt umber, ochre, indigo, vermillion, muted greens. The body should look like flat painted paper - not a textured surface, not shaded volume. If the species has subtle plumage variation (streaking, mottling, fine barring), ABSTRACT it into 2-3 broad zones rather than rendering it literally. Eye, beak, and feet drawn with crisp ink - these are the only places where confident dark line is appropriate.
 
-The bird floats on a completely FLAT, UNIFORM, SOLID magenta background, hex #FF00FF (pure RGB 255,0,255). The background is a single flat fill of exactly this one color across the entire frame - NO texture, NO paper grain, NO mottling, NO aging, NO vignette, NO gradient, NO shadow, NO tonal variation. It must read like a solid digital chroma-key screen, not paper. This magenta color appears NOWHERE on the bird. This is the only background element: NO branch, NO twig, NO perch, NO leaves, NO foliage, NO substrate, NO scenery, NO sky, NO moon, NO water - only the bird floating against the flat magenta ground. The perch is purely implied by toe posture - it is NEVER rendered. NO border or frame, NO text or signature.
+The bird floats on a completely FLAT, UNIFORM, SOLID, UNTEXTURED background - a single warm off-white / pale cream studio ground filling the entire frame with exactly one color. NO paper texture, NO paper grain, NO mulberry paper, NO washi, NO aged or antique paper, NO mottling, NO speckling, NO fibers, NO stains, NO vignette, NO gradient, NO tonal variation, NO shadow, NO drop shadow, NO cast shadow beneath the bird. It must read like a single flat solid digital fill, not paper. This is the only background element: NO branch, NO twig, NO perch, NO leaves, NO foliage, NO substrate, NO scenery, NO sky, NO moon, NO water - only the bird floating against the flat cream ground. The perch is purely implied by toe posture - it is NEVER rendered. NO border or frame, NO text or signature.
 
-Composition: the bird occupies one-third to one-half of the frame. Leave generous negative space (just the flat magenta ground) around it. The image should feel sparse and confident, not packed with detail.
+Composition: the bird occupies one-third to one-half of the frame. Leave generous negative space (just the flat cream ground) around it. The image should feel sparse and confident, not packed with detail.
 
-The ENTIRE bird must fit within the image frame: head, both wings (fully extended for flight pose), full tail, both legs, both feet, beak. Do NOT crop the wings, tail, legs, or any body part at the edge of the frame. Leave generous padding on all sides.
+The ENTIRE bird must fit well within the image frame, comfortably centered: head, both wings (fully extended for flight pose), full tail, both legs, both feet, beak. The bird must NEVER touch or approach any edge of the frame - keep a wide, uniform margin of pure background on all four sides so every corner is clean, empty ground. Do NOT crop the wings, tail, legs, or any body part at the edge of the frame. Leave generous padding on all sides.
 
 ### Reference handling
 
@@ -57,4 +57,4 @@ Treat IMAGE 1 for anatomy and color information ONLY. If IMAGE 3 is attached, tr
 
 ### Output
 
-Render at high resolution. The bird is fully inside the frame with generous padding on all sides, painted over the flat solid #FF00FF magenta field described above. Do not attempt transparency, a drop shadow, or any paper texture - the magenta must stay a single flat solid color right up to the bird's edge so it keys out cleanly. No caption.
+Render at high resolution. The bird is fully inside the frame with generous padding on all sides, painted over the flat solid warm off-white / pale cream field described above. Do not attempt transparency, a drop shadow, or any paper texture - the background must stay a single flat, uniform, untextured solid color right up to the bird's edge, and every corner of the frame must be pure empty ground, so it keys out cleanly. No caption.

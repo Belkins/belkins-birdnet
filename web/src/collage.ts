@@ -442,6 +442,37 @@ export class CollageEngine {
     this.computeBiases();
     const next = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
     for (const t of this.grid.placed) next.placed.push(t);
+
+    // Re-centre the existing cluster into the resized viewport. Phase 0 keeps the
+    // relative arrangement (no re-pack / no re-spiral) — this is a pure TRANSLATION
+    // of every real + ambient tile by the same delta. Without it, a canvas that
+    // shrinks AFTER the seed centred on the taller size (mobile 100vh→dvh URL-bar
+    // collapse, a frame-mode layout change, an orientation flip) leaves the cluster
+    // jammed against an edge and clipped off-screen. Live placement then nests
+    // around the re-centred cluster (bounds + centre track the new viewport).
+    const on = next.onScreen();
+    if (on.length > 0) {
+      const b = bounds(on);
+      const dx = this.W / 2 - (b.L + b.R) / 2;
+      const dy = this.H / 2 - (b.T + b.B) / 2;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        for (const t of next.placed) {
+          if (t.x > -99998) {
+            t.x += dx;
+            t.y += dy;
+          }
+        }
+        if (this.ambientGrid) {
+          for (const t of this.ambientGrid.placed) {
+            if (t.x > -99998) {
+              t.x += dx;
+              t.y += dy;
+            }
+          }
+        }
+      }
+    }
+
     next.restamp();
     this.grid = next;
     this.syncTiles();
