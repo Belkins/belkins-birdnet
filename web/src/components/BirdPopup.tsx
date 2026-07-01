@@ -131,6 +131,9 @@ function Dialog({
   const [desc, setDesc] = useState<string | null>(null);
   const [pose, setPose] = useState<Pose>(1);
   const [imgErr, setImgErr] = useState(false);
+  // Gate the illustration on a real load so the in-flight <img> never paints a
+  // broken-glyph / alt speck in the plate's upper-left before it resolves.
+  const [imgLoaded, setImgLoaded] = useState(false);
   const [playing, setPlaying] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -155,6 +158,14 @@ function Dialog({
         const recordings: Recording[] = (data.detections ?? [])
           .filter((r): r is { file: string; d?: string; t?: string; conf?: number } => !!r.file)
           .map((r) => ({ file: r.file, d: r.d ?? '', t: r.t ?? '', conf: r.conf ?? 0 }));
+        // Consistent order regardless of what the API returns: newest first,
+        // then higher confidence as the tie-break within the same timestamp.
+        recordings.sort((a, b) => {
+          const ta = Date.parse(`${a.d}T${a.t || '00:00:00'}`) || 0;
+          const tb = Date.parse(`${b.d}T${b.t || '00:00:00'}`) || 0;
+          if (tb !== ta) return tb - ta;
+          return (b.conf || 0) - (a.conf || 0);
+        });
         setDetail({
           total: data.summary?.total ?? null,
           firstSeen: data.summary?.first_seen ?? null,
@@ -200,8 +211,12 @@ function Dialog({
   }, [onClose]);
 
   // Retry the illustration when the pose flips — a pose that 404s falls back to
-  // the plate, but flipping back should show the working pose again.
-  useEffect(() => setImgErr(false), [pose]);
+  // the plate, but flipping back should show the working pose again. The new
+  // pose's <img> starts hidden until it loads, so no speck flashes mid-swap.
+  useEffect(() => {
+    setImgErr(false);
+    setImgLoaded(false);
+  }, [pose]);
 
   // Pause + detach the single audio element on unmount so a closed modal goes
   // quiet (and never leaks a playing clip into the next open).
@@ -266,6 +281,8 @@ function Dialog({
                   className="bp-illus"
                   src={imgUrl}
                   alt={title}
+                  style={imgLoaded ? undefined : { opacity: 0 }}
+                  onLoad={() => setImgLoaded(true)}
                   onError={() => setImgErr(true)}
                 />
               ) : (

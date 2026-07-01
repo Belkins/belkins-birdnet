@@ -31,6 +31,12 @@ const RETRY_INTERVAL_MS = 30000; // ~30s between sweeps
 const RETRY_MAX_TRIES = 3; // 3 sweeps -> ~90s total, then give up
 const RETRY_WINDOW_MS = 90000; // only watch a live-new tile for ~90s after it lands
 
+// Vertical seat of the HERO inside the safe box (0 = top, 1 = bottom). Placed a
+// touch below middle so the hero still reads as the central anchor while the
+// cluster's mass settles into the lower half — with the title clear zone above,
+// this composes the scene top-to-bottom instead of floating it top-heavy.
+const HERO_Y_FRAC = 0.54;
+
 // Count-weighted tuning — ported verbatim from apt.js `tuning()`.
 function tuning(n: number) {
   return {
@@ -44,9 +50,10 @@ function tuning(n: number) {
     // N=1 window can't balloon into a canvas-filling plate.
     maxTileAreaFrac: n <= 2 ? 0.22 : n <= 6 ? 0.17 : n <= 12 ? 0.13 : 0.11,
     // Ellipse bias for the spiral nest. Dropped from 2.1 (a wide, shelf-like
-    // horizontal band that spread birds into an even top row) to 1.35 so the
-    // cluster grows as a rounded ORGANIC OVAL / ROSETTE around the hero.
-    ellipseAspectBias: 1.35,
+    // horizontal band that spread birds into an even top row) to 1.35 and now
+    // 1.18 so the cluster grows as a rounded ROSETTE that fills the composition
+    // top-to-bottom, not a wide shelf that stacks into a top-heavy band.
+    ellipseAspectBias: 1.18,
   };
 }
 
@@ -133,10 +140,12 @@ export class CollageEngine {
   private computeBiases(): void {
     const narrow = this.W <= 700;
     const T = tuning(20);
-    // Wide screens: a gently-wider-than-tall rosette. Narrow (portrait phone):
-    // a taller oval so the cluster uses the vertical room instead of a squat band.
+    // Wide screens: a rounded, slightly-taller-than-a-band ROSETTE so the cluster
+    // fills the composition top-to-bottom instead of stacking into a wide top
+    // shelf (the old top-heavy read). Narrow (portrait phone): a taller oval so
+    // the cluster uses the vertical room instead of a squat band.
     this.xBias = narrow ? 1 : T.ellipseAspectBias;
-    this.yBias = narrow ? 1.5 : 1;
+    this.yBias = narrow ? 1.5 : 1.2;
     this.pad = narrow ? Math.max(1, COLLAGE_PAD - 1) : COLLAGE_PAD;
   }
 
@@ -148,8 +157,14 @@ export class CollageEngine {
   private safeBox(): { L: number; T: number; R: number; B: number } {
     const { W, H } = this;
     const mx = Math.max(24, W * 0.05); // side gutters (clears parakeet-tail tangents)
-    const mt = Math.max(72, H * 0.16); // top: masthead title + filter/menu row
-    const mb = Math.max(64, H * 0.15); // bottom: nav + counter + colophon
+    // TITLE CLEAR ZONE: reserve the whole display-headline band at the top so no
+    // bird (parakeet head et al.) can tangent RECENTLY — in BOTH collage-landing
+    // and chrome-free frame modes. Deliberately generous: a large display title
+    // plus its top offset, so the clamp below keeps the cluster wholly beneath it.
+    const mt = Math.max(96, H * 0.2); // top: display title band + filter/menu row
+    // Bottom: nav + counter + colophon, but pulled in from the old 0.15 so the
+    // cluster's baseline extends into the lower third (kills the dead bottom zone).
+    const mb = Math.max(56, H * 0.12);
     return { L: mx, T: mt, R: W - mx, B: H - mb };
   }
 
@@ -166,9 +181,15 @@ export class CollageEngine {
     const on = grid.onScreen();
     if (!on.length) return { dx: 0, dy: 0 };
     const cxT = (safe.L + safe.R) / 2;
-    const cyT = (safe.T + safe.B) / 2;
+    const cyT = safe.T + (safe.B - safe.T) * HERO_Y_FRAC;
+    // Hero = the LARGEST DRAWN SPAN (longest edge), which the count→size engine
+    // guarantees is the most-heard bird. Selecting on edge (not raw area) keeps
+    // the anchor honest even when a rounder bird has more pixel area than a taller
+    // one of the same span.
     let hero = on[0];
-    for (const t of on) if (t.fullW * t.fullH > hero.fullW * hero.fullH) hero = t;
+    for (const t of on) {
+      if (Math.max(t.fullW, t.fullH) > Math.max(hero.fullW, hero.fullH)) hero = t;
+    }
     let dx = cxT - (hero.x + hero.fullW / 2);
     let dy = cyT - (hero.y + hero.fullH / 2);
     const b = bounds(on);
@@ -233,7 +254,7 @@ export class CollageEngine {
     // Step 1: count-weighted score (sub-linear so a loud bird doesn't drown).
     const scored = species.map((s) => {
       const n = !s.n || Number.isNaN(s.n) ? 1 : s.n;
-      return { s, score: Math.pow(Math.max(1, n), T.countExp), area: 0 };
+      return { s, score: Math.pow(Math.max(1, n), T.countExp), area: 0, edge: 0 };
     });
     // Step 2: normalise to budget, floor each at minArea.
     const sumScore = scored.reduce((a, t) => a + t.score, 0) || 1;
@@ -260,28 +281,44 @@ export class CollageEngine {
         if (t.area > minArea + 1e-9) t.area *= shrink;
       });
     }
-    // Step 2.5: enforce STRICT MONOTONICITY of area vs. call count. Rank by count
-    // (desc); each lower-count bird is clamped to be at least a step SMALLER than
-    // the next-louder, so a louder species is never rendered as large as (let
-    // alone larger than) a quieter one. The cap + squeeze above can otherwise let
-    // the top birds tie at maxArea (e.g. 91 vs 88 calls) — this guarantees the
-    // most-heard reads UNMISTAKABLY largest and size tracks calls as an honest
-    // ordinal. Equal counts may tie; the long tail plateaus at the minArea floor
-    // (all "smallest"), which is expected, not an inversion.
+    // Step 2.5: DRAWN-SIZE authority. The count-weighted AREA above is a good
+    // gradient but a poor size read, because a naturally long/wide bird (a long-
+    // tailed parakeet, a great tit) spans far more canvas than a rounder, louder
+    // bird of the same area — so it looks as big as, or bigger than, the hero.
+    // FIX: work in a square-equivalent EDGE (sqrt of area, aspect-INDEPENDENT) so
+    // size is decoupled from shape, then (a) rank by count and (b) CAP every non-
+    // hero's longest edge to a fraction of the hero's, stepping each quieter bird
+    // strictly shorter. The hero's longest drawn edge is therefore the ceiling no
+    // bird can reach — the most-heard reads UNMISTAKABLY largest, the 1–2 call
+    // birds smallest, and drawn size is a strict monotone read of call count.
     const cnt = (t: { s: SpeciesRow }): number =>
       !t.s.n || Number.isNaN(t.s.n) ? 1 : t.s.n;
+    const edgeFloor = Math.sqrt(minArea);
+    scored.forEach((t) => {
+      t.edge = Math.sqrt(t.area);
+    });
     const ranked = [...scored].sort((a, b) => cnt(b) - cnt(a) || a.s.sci.localeCompare(b.s.sci));
-    const STEP = 0.92; // a lower count is ≥8% smaller in area, until the floor
+    const heroEdge = ranked[0].edge;
+    const HERO_EDGE_FRAC = 0.7; // no non-hero's longest edge exceeds 70% of the hero's
+    const STEP = 0.92; // each strictly-quieter bird is ≥8% shorter, until the floor
+    let runningMax = heroEdge;
     for (let i = 1; i < ranked.length; i++) {
-      const ceil = cnt(ranked[i]) < cnt(ranked[i - 1]) ? ranked[i - 1].area * STEP : ranked[i - 1].area;
-      ranked[i].area = Math.max(minArea, Math.min(ranked[i].area, ceil));
+      let e = Math.min(ranked[i].edge, HERO_EDGE_FRAC * heroEdge);
+      e = cnt(ranked[i]) < cnt(ranked[i - 1]) ? Math.min(e, runningMax * STEP) : Math.min(e, runningMax);
+      e = Math.max(e, edgeFloor);
+      ranked[i].edge = e;
+      runningMax = e;
     }
-    // Step 3: area + aspect -> width/height -> tiles.
+    // Step 3: longest-edge + aspect -> width/height -> tiles. The tile BOX (not the
+    // image's natural aspect) is the size authority: max(fullW, fullH) === edge, so
+    // the hero cap above bounds every bird's on-screen span regardless of shape.
     const tiles = scored.map((t) => {
       const slug = slugify(t.s.sci);
       const ar = aspect(t.s.sci);
-      const fullW = Math.sqrt(t.area * ar);
-      return makeTile(t.s.sci, t.s.com, slug, fullW, fullW / ar);
+      const edge = t.edge;
+      const fullW = ar >= 1 ? edge : edge * ar;
+      const fullH = ar >= 1 ? edge / ar : edge;
+      return makeTile(t.s.sci, t.s.com, slug, fullW, fullH);
     });
 
     // Iterative shrink-to-fit into the composition-SAFE box (not the raw

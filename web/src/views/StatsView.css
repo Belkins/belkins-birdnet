@@ -3,11 +3,15 @@
    gallery label. All theme-var driven so day + night both read. Base ridge /
    panel rules live in App.css and are left untouched. */
 
-/* Bottom scroll clearance for the floating nav pill (position:absolute at
-   bottom:4.6vh, ~44px tall). Without it the Life List's last rows sit hidden
-   behind the pill in both themes; this lifts them clear with a small gap. */
+/* Bottom scroll clearance for the floating nav pill. The pill is
+   position:absolute in the stage (bottom:4.6% ≈ 4.6vh) and floats OVER this
+   overlay's scroll area — so it can never be cleared by the scroll itself, only
+   by padding the content out from under it. It sits ~44px tall, i.e. its top
+   edge is ~4.6vh + 44px above the fold; 4.6vh + 150px lifts the Life List's
+   last row (the "lifer · … ★" callout) fully clear with a ~106px safety gap in
+   both themes at 1512×945. */
 .view.stats-view {
-  padding-bottom: calc(4.6vh + 96px);
+  padding-bottom: calc(4.6vh + 150px);
 }
 
 /* Left column: a titled, captioned histogram so it anchors the column instead

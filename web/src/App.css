@@ -352,12 +352,14 @@
   margin: 0;
   padding: 0;
 }
-/* Rank | name | shared bar track | count. The track is a fixed grid column so
-   every bar is measured against the same width — #1 fills it, the tail reads
-   as a dramatic stub, and the magnitude gap is legible at a glance. */
+/* Rank | name | shared bar track | count. The name column is sized to its
+   content (max-content) so the FULL species name always fits — never an
+   ellipsis — and the bar takes the remaining width (minmax(80px,1fr)), so #1
+   fills it, the tail reads as a dramatic stub, and the magnitude gap stays
+   legible. The name gets its room first; the bar bends around it. */
 .idx-row {
   display: grid;
-  grid-template-columns: 26px minmax(5.5em, 1fr) minmax(80px, 1.7fr) 44px;
+  grid-template-columns: 24px max-content minmax(80px, 1fr) 40px;
   align-items: center;
   gap: 16px;
   border-top: 1px solid var(--line);
@@ -368,14 +370,13 @@
   font-size: 12px;
   color: var(--red);
 }
+/* The primary label is never ellipsized: the name column is max-content, so the
+   full name always fits on a single line. */
 .idx-nm {
-  min-width: 0;
   font-family: var(--display);
   font-size: 26px;
   font-weight: 500;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .idx-row.top .idx-nm {
   color: var(--amber);
@@ -537,6 +538,16 @@
   display: flex;
   flex-direction: column;
 }
+/* Night plates need more definition than the faint --line border gives them:
+   a brighter edge, a top inner highlight (the lit specimen-case lip) and a soft
+   drop shadow, so each plate floats off the obsidian ground instead of
+   dissolving into it. Day cards already read, so this is night-only. */
+:root:not([data-theme='day']) .acard {
+  border-color: rgba(241, 234, 217, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(241, 234, 217, 0.07),
+    0 12px 28px -14px rgba(0, 0, 0, 0.75);
+}
 .acard-h {
   display: flex;
   justify-content: space-between;
@@ -570,17 +581,22 @@
   background: var(--line);
   color: var(--ink-2);
 }
+/* A taller specimen zone (flex-grows in a stretched grid row) that centres the
+   illustration vertically instead of parking it high under the header. The
+   larger cap also scales the small-bodied species (Song Thrush, Great Tit) up
+   toward a consistent optical size, so the grid rhythm reads even. */
 .acard-img {
-  height: 124px;
+  flex: 1 1 auto;
+  min-height: 158px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  margin: 14px 0 12px;
+  margin: 16px 0 14px;
 }
 .acard-img img {
-  max-height: 124px;
-  max-width: 86%;
+  max-height: 158px;
+  max-width: 92%;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
 }
 :root[data-theme='night'] .acard-img img,
@@ -643,8 +659,10 @@
   color: var(--mut);
   margin-top: 2px;
 }
+/* No margin-top:auto here: the specimen zone (.acard-img, flex:1) absorbs the
+   slack in a stretched grid row and centres the illustration, and the footer
+   sits directly beneath the name — pushed to the card floor by that grown zone. */
 .acard-f {
-  margin-top: auto;
   padding-top: 13px;
   display: flex;
   justify-content: space-between;

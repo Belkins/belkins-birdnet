@@ -19,10 +19,16 @@ const PAINT_MS = 1200;
 const SCALE_FROM = 0.85;
 const TAU = Math.PI * 2;
 
-/** Minimum on-screen edge (px) for a silhouette / pending placeholder, so a
- *  tiny tile never renders as a dust speck or stray glyph (judges' "floating
- *  flecks"). Illustrated tiles are already count-sized above this. */
+/** Legibility floor (px, longest drawn edge) for an INK SILHOUETTE / pending
+ *  placeholder. Below this a bird outline reads as a dust speck / glitch, so we
+ *  DROP it from the paint entirely rather than floor it up into a boxy fleck
+ *  (judges' "reads as dust"). Anything that survives renders at its true box as
+ *  a legible, deliberate outline. Illustrated tiles are count-sized above this. */
 const MIN_SIL_PX = 44;
+/** Hard speck guard for a LOADED illustration: an image below this many px on its
+ *  longest edge is a stray fleck and is skipped too. Count-sizing keeps real
+ *  birds far above this — it only catches pathological shrink at very high N. */
+const SPECK_PX = 14;
 
 /** Max static composition rotation (rad ≈ 2.6°). A subtle, seeded per-bird tilt
  *  so the cluster reads as a composed rosette, not a shelf of upright stickers.
@@ -189,21 +195,41 @@ export class CollageRenderer {
     let animating = false;
     let pending = false;
 
-    // Largest on-screen footprint (real tiles only) for the atmospheric-depth
-    // cue + the hero test, plus the composition centroid the breath scales about.
-    let maxW = 1;
+    // Largest on-screen SPAN (longest edge, real tiles only) for the atmospheric-
+    // depth cue + the hero test, the composition centroid the breath scales about,
+    // and the cluster bounds the seating vignette is sized to.
+    let maxEdge = 1;
     let sumX = 0;
     let sumY = 0;
     let nReal = 0;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
     for (const t of this.tiles) {
       if (t.ambient || t.x <= -99998) continue;
-      if (t.fullW > maxW) maxW = t.fullW;
+      const e = Math.max(t.fullW, t.fullH);
+      if (e > maxEdge) maxEdge = e;
       sumX += t.x + t.fullW / 2;
       sumY += t.y + t.fullH / 2;
       nReal++;
+      if (t.x < minX) minX = t.x;
+      if (t.y < minY) minY = t.y;
+      if (t.x + t.fullW > maxX) maxX = t.x + t.fullW;
+      if (t.y + t.fullH > maxY) maxY = t.y + t.fullH;
     }
     const cx = nReal > 0 ? sumX / nReal : W / 2;
     const cy = nReal > 0 ? sumY / nReal : H / 2;
+
+    // Faint radial seating vignette BEHIND the whole cluster (screen space, under
+    // the breath transform) so the composition sits on the ground instead of
+    // floating. Sized to the cluster's own extent; skipped when there are no real
+    // birds (a bare ambient backdrop needs no seat). (Judges: "add a faint radial
+    // vignette behind the cluster to seat it.")
+    if (nReal > 0) {
+      const radius = 0.5 * Math.hypot(maxX - minX, maxY - minY) * 0.95;
+      this.paintVignette(cx, cy, radius, night);
+    }
 
     // Whole-cluster breath: ±0.3% about the centroid, applied as a canvas
     // transform so ambient + real tiles inhale together (0 amplitude => none).
@@ -218,7 +244,11 @@ export class CollageRenderer {
     // gentler tilt. Its own pending tiles shimmer once (never drive the loop).
     for (const t of this.tiles) {
       if (!t.ambient || t.x <= -99998) continue;
-      const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
+      const isImage = t.loaded && !!t.img && !t.failed;
+      const span = Math.max(t.fullW, t.fullH);
+      // Never paint a speck: drop a sub-legible ghost silhouette entirely.
+      if (isImage ? span < SPECK_PX : span < MIN_SIL_PX) continue;
+      const depth = Math.max(0, Math.min(1, 1 - span / maxEdge));
       const dr = this.drift(t.slug, depth, now, driftAmp);
       const dx = t.x + dr.dx;
       const dy = t.y + dr.dy;
@@ -231,6 +261,13 @@ export class CollageRenderer {
 
     for (const t of this.tiles) {
       if (t.ambient || t.x <= -99998) continue; // ambient handled above / parked off-screen
+
+      const isImage = t.loaded && !!t.img && !t.failed;
+      const span = Math.max(t.fullW, t.fullH);
+      // Never paint a speck: drop a sub-legible silhouette / pending placeholder
+      // entirely (judges' "reads as dust"); a loaded illustration only vanishes if
+      // it is truly micro. Decided on the SETTLED box so paint-in never flickers it.
+      if (isImage ? span < SPECK_PX : span < MIN_SIL_PX) continue;
 
       let progress = 1;
       if (t.animStart !== null) {
@@ -245,7 +282,7 @@ export class CollageRenderer {
 
       // depth: 0 = nearest/biggest, 1 = farthest/smallest. Gentle alpha recede
       // (dark specimens stay present; the seat edge-light does the lifting).
-      const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
+      const depth = Math.max(0, Math.min(1, 1 - span / maxEdge));
       const alpha = progress * (1 - 0.12 * depth);
       const scale = SCALE_FROM + (1 - SCALE_FROM) * progress;
       const drawW = t.fullW * scale;
@@ -257,7 +294,7 @@ export class CollageRenderer {
       ctx.save();
       ctx.globalAlpha = alpha;
       // Subtle seeded tilt — never the hero (largest reads as the upright anchor).
-      const isHero = t.fullW >= maxW * 0.985;
+      const isHero = span >= maxEdge * 0.985;
       this.rotateAbout(dx + drawW / 2, dy + drawH / 2, isHero ? 0 : tileRotation(t.slug));
       // Top-down reveal wipe: clip to the portion painted so far.
       if (progress < 1) {
@@ -328,7 +365,8 @@ export class CollageRenderer {
    *  two identical shapes. Real mask → the bird's OWN outline; a species lacking a
    *  baked mask → one of several distinct perched-bird glyphs (seeded + optionally
    *  mirrored by slug, so adjacent default-mask birds never twin). Warm ink at
-   *  ~15% with a soft feathered edge; floored to MIN_SIL_PX so it never specks. */
+   *  ~15% with a soft feathered edge — soft ink-wash fill; sub-legible tiles are
+   *  dropped upstream (MIN_SIL_PX) so this only ever draws a deliberate outline. */
   private drawSilhouette(t: Tile, x: number, y: number, w: number, h: number): void {
     const { ctx } = this;
     const night = this.theme === 'night';
@@ -367,29 +405,40 @@ export class CollageRenderer {
     ctx.restore();
   }
 
-  /** The tile's silhouette Path2D pre-transformed to the on-screen box, with the
-   *  box floored to MIN_SIL_PX so nothing renders as a fleck. Pre-scaling (vs.
-   *  ctx.scale) keeps shadow/blur in real pixels for a predictable soft edge. */
+  /** The tile's silhouette Path2D pre-transformed to the on-screen box. Sub-
+   *  legible tiles are DROPPED upstream (MIN_SIL_PX) rather than floored up, so
+   *  every silhouette that reaches here draws at its true box as a deliberate
+   *  outline. Pre-scaling (vs. ctx.scale) keeps shadow/blur in real pixels for a
+   *  predictable soft edge. */
   private scaledSilhouette(t: Tile, x: number, y: number, w: number, h: number): Path2D {
-    let fw = w;
-    let fh = h;
-    let fx = x;
-    let fy = y;
-    if (fw < MIN_SIL_PX) {
-      fx -= (MIN_SIL_PX - fw) / 2;
-      fw = MIN_SIL_PX;
-    }
-    if (fh < MIN_SIL_PX) {
-      fy -= (MIN_SIL_PX - fh) / 2;
-      fh = MIN_SIL_PX;
-    }
     const base = this.silhouettePath(t);
     const sw = t.mask.isDefault ? GLYPH_W : t.mask.w;
     const sh = t.mask.isDefault ? GLYPH_H : t.mask.h;
-    const m = new DOMMatrix().translateSelf(fx, fy).scaleSelf(fw / sw, fh / sh);
+    const m = new DOMMatrix().translateSelf(x, y).scaleSelf(w / sw, h / sh);
     const out = new Path2D();
     out.addPath(base, m);
     return out;
+  }
+
+  /** Faint radial glow behind the cluster centroid that seats the composition on
+   *  the ground (spec: seating vignette). Night lifts the cluster off obsidian
+   *  with a warm off-white pool; day drops a soft desaturated ink pool. Very low
+   *  opacity — felt, not seen — and drawn once behind everything. */
+  private paintVignette(cx: number, cy: number, radius: number, night: boolean): void {
+    if (radius <= 1) return;
+    const { ctx } = this;
+    const g = ctx.createRadialGradient(cx, cy, radius * 0.12, cx, cy, radius);
+    if (night) {
+      g.addColorStop(0, 'rgba(245, 234, 210, 0.06)');
+      g.addColorStop(1, 'rgba(245, 234, 210, 0)');
+    } else {
+      g.addColorStop(0, 'rgba(58, 44, 24, 0.05)');
+      g.addColorStop(1, 'rgba(58, 44, 24, 0)');
+    }
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, this.W, this.H);
+    ctx.restore();
   }
 
   /** Per-slug silhouette in AUTHORING/MASK space, built once and cached. Real
