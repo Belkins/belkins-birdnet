@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { API_BASE } from '../config';
 import { birdImageUrl } from '../img';
+import { useBirdImage } from '../useBirdImage';
 import './BirdPopup.css';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial — matches the
@@ -130,10 +131,12 @@ function Dialog({
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [desc, setDesc] = useState<string | null>(null);
   const [pose, setPose] = useState<Pose>(1);
-  const [imgErr, setImgErr] = useState(false);
-  // Gate the illustration on a real load so the in-flight <img> never paints a
-  // broken-glyph / alt speck in the plate's upper-left before it resolves.
-  const [imgLoaded, setImgLoaded] = useState(false);
+  // Readiness of the current pose's plate (reads cutout.php's X-Av-Real): a
+  // still-generating species shows the "painting" loader and auto-swaps to art;
+  // re-runs on every pose flip because imgUrl changes. `imgSrc` is the display
+  // url (cache-busted once after a pending→ready flip).
+  const imgUrl = birdImageUrl(bird.slug, bird.sci, pose);
+  const { phase: imgPhase, src: imgSrc } = useBirdImage(imgUrl);
   const [playing, setPlaying] = useState<string | null>(null);
   // The single expanded recording row (spectrogram band open). Opening another
   // collapses this one — one clip open/playing at a time. `progress` is the 0..1
@@ -219,14 +222,6 @@ function Dialog({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  // Retry the illustration when the pose flips — a pose that 404s falls back to
-  // the plate, but flipping back should show the working pose again. The new
-  // pose's <img> starts hidden until it loads, so no speck flashes mid-swap.
-  useEffect(() => {
-    setImgErr(false);
-    setImgLoaded(false);
-  }, [pose]);
 
   // Pause + detach the single audio element on unmount so a closed modal goes
   // quiet (and never leaks a playing clip into the next open).
@@ -340,7 +335,6 @@ function Dialog({
   const title = bird.com || bird.sci;
   const genus = bird.sci.split(' ')[0] || '—';
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
-  const imgUrl = birdImageUrl(bird.slug, bird.sci, pose);
   const recordings = detail?.recordings ?? [];
   const showWindowStat = windowLabel !== 'ALL';
 
@@ -361,15 +355,20 @@ function Dialog({
           {/* ── LEFT · illustration plate + pose toggle ───────────────── */}
           <div className="bp-left">
             <div className="bp-plate">
-              {imgUrl && !imgErr ? (
-                <img
-                  className="bp-illus"
-                  src={imgUrl}
-                  alt={title}
-                  style={imgLoaded ? undefined : { opacity: 0 }}
-                  onLoad={() => setImgLoaded(true)}
-                  onError={() => setImgErr(true)}
-                />
+              {imgPhase === 'ready' && imgSrc ? (
+                <img className="bp-illus" src={imgSrc} alt={title} />
+              ) : imgPhase === 'pending' ? (
+                <div className="bp-gen" role="img" aria-label={`Painting ${title}`}>
+                  <span className="bp-gen-sil" aria-hidden="true">
+                    <svg viewBox="0 0 84 60" fill="currentColor" role="img">
+                      <path d="M8 22 L30 31 L21 44 Z" />
+                      <ellipse cx="45" cy="34" rx="22" ry="16" />
+                      <circle cx="61" cy="21" r="12" />
+                      <path d="M71 15 L84 13 L72 25 Z" />
+                    </svg>
+                  </span>
+                  <span className="bp-gen-cap" aria-hidden="true">painting</span>
+                </div>
               ) : (
                 <div className="bp-sil" aria-hidden="true">
                   {title.slice(0, 1)}

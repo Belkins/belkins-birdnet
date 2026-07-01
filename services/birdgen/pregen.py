@@ -287,7 +287,17 @@ def fetch_wikipedia_thumb(sci: str, com: str) -> tuple[bytes, str] | None:
     1024-wide thumbnail via the REST summary endpoint (a few KB to MB,
     not the original-sized image).
     """
-    titles = [sci.replace(" ", "_"), com.replace(" ", "_"), com.split()[0]]
+    # com can be empty (e.g. a slug-only requeue), so build the candidate titles
+    # defensively — sci alone suffices; com and its genus are extra fallbacks.
+    # (Was an eager list including com.split()[0], which raised IndexError on an
+    # empty com and killed the whole anatomy-ref fetch → lower-quality, more
+    # hallucination-prone gens for exactly the species a requeue is trying to fix.)
+    titles = [sci.replace(" ", "_")]
+    if com:
+        titles.append(com.replace(" ", "_"))
+        com_parts = com.split()
+        if com_parts:
+            titles.append(com_parts[0])
     for title in titles:
         url = (
             "https://en.wikipedia.org/api/rest_v1/page/summary/"

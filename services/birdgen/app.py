@@ -18,7 +18,9 @@ Contract obligations honored here:
     pose-1-ONLY decision (was KILL 6) now that the collage popup exposes a
     per-bird flight toggle for auto-generated species.
   - SQLite lease on the volume is the authoritative terminal state
-    (queued | generating | done | dead). dead after 4 consecutive fails.
+    (queued | generating | done | dead). Only a model *safety* refusal is
+    terminal-dead; other fails cool down after MAX_ATTEMPTS and retry in bursts
+    (stochastic gen eventually lands), so no species is a forever-silhouette.
   - Single-flight asyncio worker; MIN_SPACING = 6s between Gemini calls;
     exponential backoff on failure (gen_one does the per-call 429/5xx retry).
   - QA gate: chromakey opaque-fraction in [0.015, 0.75] PLUS a deterministic
@@ -71,9 +73,11 @@ WATCHER_WEBHOOK_SECRET = os.environ.get("WATCHER_WEBHOOK_SECRET", "")
 
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.80"))
 MIN_SPACING = float(os.environ.get("MIN_SPACING", "6"))          # s between Gemini calls
-MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "4"))          # consecutive fails -> dead
+MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "4"))          # fails -> cooldown burst (non-safety never permanent-dead)
+POSE2_TRIES = int(os.environ.get("POSE2_TRIES", "3"))            # inline flight-pose re-rolls per gen (~50% roll)
 BACKOFF_BASE = float(os.environ.get("BACKOFF_BASE", "900"))      # 15 min
 BACKOFF_MAX = float(os.environ.get("BACKOFF_MAX", "21600"))      # 6 h cap
+DEAD_COOLDOWN = float(os.environ.get("DEAD_COOLDOWN", "1800"))   # 30 min between bursts after MAX_ATTEMPTS (a first gen shouldn't wait 6h)
 # QA rejects are cheap stochastic misses (usually clean on the next roll), so
 # they re-queue on a SHORT backoff instead of the 15m+ network-transient one.
 QA_BACKOFF_BASE = float(os.environ.get("QA_BACKOFF_BASE", "30"))  # s
@@ -272,10 +276,23 @@ def mark_done(slug: str) -> None:
 def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
     """Apply the failure policy. Returns the resulting state."""
     now = int(time.time())
-    # safety refusals / un-generatable inputs are terminal immediately;
-    # otherwise dead after MAX_ATTEMPTS consecutive failures.
-    if fail_class == "safety" or attempts >= MAX_ATTEMPTS:
+    # Only a safety refusal is terminal-dead. Every other failure re-queues:
+    # short backoff within a burst, then a long cooldown + fresh burst at the cap
+    # (stochastic gen eventually lands — no species stays a forever-silhouette).
+    reset_attempts = False
+    if fail_class == "safety":
+        # a model safety refusal / genuinely un-generatable input is terminal.
         state, next_retry = "dead", 0
+    elif attempts >= MAX_ATTEMPTS:
+        # A burst of MAX_ATTEMPTS consecutive non-safety fails is spent — but gen
+        # is stochastic, so a species that missed today often lands on a later
+        # roll. Rather than a permanent 'dead' (which stranded greenfinch et al.
+        # as forever-silhouettes with no auto-recovery), cool down for
+        # DEAD_COOLDOWN then start a FRESH burst. Cost is bounded to MAX_ATTEMPTS
+        # gens / cooldown; a first gen recovers in ~30 min, not 6 h.
+        state = "queued"
+        next_retry = now + int(DEAD_COOLDOWN)
+        reset_attempts = True
     elif fail_class == "qa":
         # a dirty render is a cheap stochastic miss -> re-roll fast (30-120s),
         # not the 15m+ network-transient backoff.
@@ -286,15 +303,26 @@ def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
         state = "queued"
         backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
         next_retry = now + int(backoff)
+    reason_str = ("%s:%s" % (fail_class, reason))[:300]
     with _db_lock:
-        db().execute(
-            """
-            UPDATE species_jobs
-               SET state=?, next_retry=?, fail_reason=?, updated_ts=?
-             WHERE slug=?
-            """,
-            (state, next_retry, ("%s:%s" % (fail_class, reason))[:300], now, slug),
-        )
+        if reset_attempts:
+            db().execute(
+                """
+                UPDATE species_jobs
+                   SET state=?, next_retry=?, attempts=0, fail_reason=?, updated_ts=?
+                 WHERE slug=?
+                """,
+                (state, next_retry, reason_str, now, slug),
+            )
+        else:
+            db().execute(
+                """
+                UPDATE species_jobs
+                   SET state=?, next_retry=?, fail_reason=?, updated_ts=?
+                 WHERE slug=?
+                """,
+                (state, next_retry, reason_str, now, slug),
+            )
         db().commit()
     return state
 
@@ -381,6 +409,18 @@ def _delete_published(slug: str) -> None:
                 p.unlink()
         except OSError:
             pass
+
+
+def _delete_pose2(slug: str) -> None:
+    """Remove ONLY the flight pose (<slug>-2.png), preserving a clean perched
+    pose-1 — used by /requeue keep_pose1 to backfill a missing/duplicate flight
+    without re-rolling an already-good perched render."""
+    p = ASSETS_DIR / ("%s-2.png" % slug)
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -565,7 +605,12 @@ def _qa_verify(slug: str, sci: str, com: str, cut_path: Path) -> None:
     if (not v["matches_target"]) and v["guess_confidence"] == "high":
         raise QAReject("verify: reads as %s (conf=high), not %s"
                        % (v.get("guessed_species_com", "?"), com))
-    if v["wing_count"] != 2:
+    # A perched bird's folded wings routinely read as a single visible wing, so
+    # only an EXTRA wing (>2) is an unambiguous hallucination — 1–2 is fine. (Was
+    # !=2, which false-rejected valid perched renders and stranded species like
+    # the greenfinch in an endless regen loop: no image at all, the worse outcome
+    # the gate was supposed to prevent.)
+    if v["wing_count"] > 2:
         raise QAReject("verify: wing_count=%s" % v["wing_count"])
     if v["leg_count"] > 2:
         raise QAReject("verify: leg_count=%s" % v["leg_count"])
@@ -627,14 +672,27 @@ def _generate_sync(slug: str, sci: str, com: str) -> float:
     MIN_SPACING is honored before each Gemini call inside _gen_pose."""
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     pos, anti, anti_key = _resolve_species_refs(slug, sci, com)
-    # POSE-1 (perched) — required; a failure raises to the worker's fail policy.
-    frac = _gen_pose(slug, sci, com, 1, pos, anti, anti_key)
-    # POSE-2 (flight) — best-effort; MUST NOT block/dead the species on failure.
-    try:
-        f2 = _gen_pose(slug, sci, com, 2, pos, anti, anti_key)
-        log.info("gen-pose2-done slug=%s opaque=%.1f%%", slug, f2 * 100)
-    except Exception as e:  # noqa: BLE001 — pose-2 is optional, never fatal
-        log.warning("gen-pose2-skip slug=%s err=%s", slug, e)
+    # POSE-1 (perched) — required. Skip the gen when a clean pose-1 already
+    # exists (a keep_pose1 flight-backfill requeue): never re-roll an already-good
+    # perched render — just (re)make the flight below.
+    if (ASSETS_DIR / ("%s.png" % slug)).exists():
+        frac = -1.0  # sentinel: pose-1 preserved, not regenerated this run
+        log.info("gen-pose1-kept slug=%s", slug)
+    else:
+        frac = _gen_pose(slug, sci, com, 1, pos, anti, anti_key)
+    # POSE-2 (flight) — best-effort but RETRIED: pose-2 gen/QA is a ~50%
+    # stochastic roll, so try up to POSE2_TRIES times before giving up (was one
+    # shot, which left ~half of species with a flight toggle that fell back to
+    # perched). A final miss is logged + swallowed — the species stays done on
+    # pose-1 and /asset serves the perched fallback, never blocking the species.
+    for attempt in range(1, POSE2_TRIES + 1):
+        try:
+            f2 = _gen_pose(slug, sci, com, 2, pos, anti, anti_key)
+            log.info("gen-pose2-done slug=%s opaque=%.1f%% try=%d", slug, f2 * 100, attempt)
+            break
+        except Exception as e:  # noqa: BLE001 — pose-2 is optional, never fatal
+            log.warning("gen-pose2-miss slug=%s try=%d/%d err=%s",
+                        slug, attempt, POSE2_TRIES, e)
     return frac
 
 
@@ -696,8 +754,9 @@ async def worker() -> None:
             frac = await asyncio.to_thread(_generate_sync, slug, job["sci"], job["com"])
             await asyncio.to_thread(mark_done, slug)
             log.info(
-                "gen-done slug=%s pose1-opaque=%.1f%% dur=%.1fs cost-estimate>=$%.3f",
-                slug, frac * 100, time.monotonic() - t0, COST_PER_GEN_USD,
+                "gen-done slug=%s pose1=%s dur=%.1fs cost-estimate>=$%.3f",
+                slug, ("kept" if frac < 0 else "%.1f%%" % (frac * 100)),
+                time.monotonic() - t0, COST_PER_GEN_USD,
             )
         except Exception as e:  # noqa: BLE001 - classify + persist, never crash the worker
             fail_class = _classify(e)
@@ -873,11 +932,19 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
         targets = [s for s in requested if _valid_slug(s)]
     else:
         targets = [s for s in slugs_in_states(("dead", "done")) if _valid_slug(s)]
+    # keep_pose1=true => backfill ONLY the flight pose, preserving a clean
+    # perched pose-1 (used to fill in missing/duplicate flights without re-rolling
+    # good perched renders). Combined with _generate_sync's pose-1-kept skip, the
+    # requeued run regenerates just <slug>-2.png.
+    keep_pose1 = bool(body.get("keep_pose1")) if isinstance(body, dict) else False
 
     # 3. delete PNG + reset row + wake worker for each target.
     requeued = []
     for slug in targets:
-        _delete_published(slug)
+        if keep_pose1:
+            _delete_pose2(slug)
+        else:
+            _delete_published(slug)
         requeue_row(slug)
         if _wakeup is not None:
             try:

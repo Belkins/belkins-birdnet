@@ -1,17 +1,17 @@
 // BIRD THUMB — the shared image well used by the Atlas plates, the Collection
-// Wall and the bird popup. A three-step chain so a missing or still-generating
-// illustration never shows a broken <img> (nor a flat gray letter disc):
+// Wall and elsewhere. Four phases so a missing or still-generating illustration
+// never shows a broken <img> nor a flat grey disc:
 //
-//   loading  →  shimmer skeleton in the bounded frame  (URL in flight)
-//   loaded   →  kachō-e illustration (birdImageUrl)
-//   error    →  a quiet bird SILHOUETTE (never a letter monogram)
+//   loading  →  gentle shimmer sweep       (first readiness probe in flight)
+//   ready    →  the kachō-e illustration
+//   pending  →  a "painting" loader — the species is heard but its plate is
+//               still being generated on Railway; auto-swaps to art when ready
+//   none     →  a quiet bird SILHOUETTE    (probe failed / gen genuinely stuck)
 //
-// cutout.php resolves its own fallback chain server-side; the client only has
-// to bridge the gap while a newly-heard species is generating on Railway.
-import { useState } from 'react';
+// Readiness comes from useBirdImage, which reads cutout.php's X-Av-Real header;
+// the client only bridges the gap while a newly-heard species is being painted.
 import { birdImageUrl } from '../img';
-
-type ThumbState = 'loading' | 'photo' | 'plate';
+import { useBirdImage } from '../useBirdImage';
 
 // The fallback specimen mark: a quiet bird silhouette for a species with no
 // bundled illustration (or one that failed to load). Deliberately NOT a letter
@@ -29,9 +29,6 @@ function BirdSilhouette() {
   );
 }
 
-// The illustration paints once it loads; while it is in flight a gentle shimmer
-// fills the frame; on a load error it collapses to the bird silhouette — the
-// structural floor that can never show a broken <img>.
 export function BirdThumb({
   slug,
   sci,
@@ -44,26 +41,37 @@ export function BirdThumb({
   feature?: boolean;
 }) {
   const url = birdImageUrl(slug, sci);
-  const [state, setState] = useState<ThumbState>('loading');
+  const { phase, src } = useBirdImage(url);
   const well = feature ? 'acard-img feat' : 'acard-img';
-  if (!url || state === 'plate') {
+
+  if (phase === 'ready' && src) {
+    return (
+      <div className={well}>
+        <img src={src} alt={com || sci} />
+      </div>
+    );
+  }
+  if (phase === 'pending') {
+    // A heard-but-not-yet-painted species: the breathing ink silhouette under a
+    // warm sweep + a caption reads as "developing", never as "missing".
+    return (
+      <div className={`${well} acard-gen`} role="img" aria-label={`Painting ${com || sci}`}>
+        <BirdSilhouette />
+        <span className="acard-gen-cap" aria-hidden="true">painting</span>
+      </div>
+    );
+  }
+  if (phase === 'none' || !src) {
     return (
       <div className={well}>
         <BirdSilhouette />
       </div>
     );
   }
+  // loading — the brief first probe
   return (
     <div className={well}>
-      {state === 'loading' && <span className="acard-shimmer" aria-hidden="true" />}
-      <img
-        src={url}
-        alt={com || sci}
-        loading="lazy"
-        style={state === 'loading' ? { opacity: 0 } : undefined}
-        onLoad={() => setState('photo')}
-        onError={() => setState('plate')}
-      />
+      <span className="acard-shimmer" aria-hidden="true" />
     </div>
   );
 }

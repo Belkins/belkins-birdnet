@@ -642,6 +642,89 @@
     background: var(--line-2);
   }
 }
+/* GENERATING — a species heard but whose plate is still being painted on the
+   Railway gen service. A breathing ink silhouette under a slow warm sweep + a
+   mono caption, so a brand-new bird reads as "developing", not "missing"; it
+   auto-swaps to the illustration the moment cutout.php reports real art. */
+.acard-gen {
+  overflow: hidden;
+}
+.acard-gen .acard-sil svg {
+  color: var(--amber);
+  opacity: 0.5;
+  animation: acard-gen-breathe 2.4s ease-in-out infinite;
+}
+.acard-gen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    color-mix(in srgb, var(--amber) 20%, transparent) 50%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  animation: acard-gen-sweep 2s ease-in-out infinite;
+  pointer-events: none;
+}
+.acard-gen-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  opacity: 0.8;
+}
+.acard-gen-cap::after {
+  content: '';
+  animation: acard-gen-dots 1.6s steps(1, end) infinite;
+}
+@keyframes acard-gen-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.62;
+  }
+}
+@keyframes acard-gen-sweep {
+  0% {
+    background-position: 170% 0;
+  }
+  100% {
+    background-position: -70% 0;
+  }
+}
+@keyframes acard-gen-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '·';
+  }
+  50% {
+    content: '··';
+  }
+  75% {
+    content: '···';
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acard-gen .acard-sil svg,
+  .acard-gen::before {
+    animation: none;
+  }
+}
 .acard-cn {
   font-family: var(--display);
   font-size: 21px;
