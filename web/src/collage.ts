@@ -8,22 +8,28 @@
 // ONE bird at a time onto the persistent occupancy grid (no re-wipe / no
 // re-pack), per the Phase 0 contract.
 
-import type { BirdEvent, EventStream, RosterRow, SpeciesRow, Tile } from './types';
+import type { BirdEvent, EventStream, LiveState, RosterRow, SpeciesRow, Tile } from './types';
 import type { Theme } from './theme';
+import type { Settings } from './settings';
 import { CollageGrid, COLLAGE_PAD, GRID_STRIDE } from './packer';
 import { CollageRenderer } from './renderer';
 import { aspect, loadData, loadMask, slugify } from './data';
 import { fetchSnapshot } from './snapshot';
+import { ambientRoster } from './ambient';
 import { MockStream, SseStream } from './events';
 import { EVENTS_URL, MOCK } from './config';
+import { PROFILE } from './profile';
 import { birdImageUrl } from './img';
 
 // Failed-tile retry loop (auto-gen watcher, CONTRACT.md "Live-update Phase A").
 // A brand-new species' cutout.php 302s to Railway, which 404s until the PNG is
-// generated (~30s). We retry each failed tile's <img> on an interval with a
-// cache-buster so the next 302 -> 200 paints it in without a page refresh.
-const RETRY_INTERVAL_MS = 20000; // ~20s between sweeps
-const RETRY_MAX_TRIES = 15; // ~15 sweeps -> ~5 min total, then give up
+// generated (~30s). We retry ONLY a live-added new species' <img> (flagged
+// `retryable`, within a short window) with a cache-buster so the next 302 -> 200
+// paints it in without a page refresh. Seed / ambient / null-url tiles are never
+// retried — that unbounded sweep is what turned the console into a 404 storm.
+const RETRY_INTERVAL_MS = 30000; // ~30s between sweeps
+const RETRY_MAX_TRIES = 3; // 3 sweeps -> ~90s total, then give up
+const RETRY_WINDOW_MS = 90000; // only watch a live-new tile for ~90s after it lands
 
 // Count-weighted tuning — ported verbatim from apt.js `tuning()`.
 function tuning(n: number) {
@@ -66,6 +72,11 @@ export interface EngineCallbacks {
   onLatest?: (com: string) => void;
   /** The live species roster (snapshot + live increments), for the React views. */
   onData?: (rows: RosterRow[]) => void;
+  /** Live SSE connection state — drives the counter's live/idle/offline dot. */
+  onLive?: (s: LiveState) => void;
+  /** Fired at most once after the seed's illustrations settle, so the frame /
+   *  print path can call markFrameReady() (spec §5.4). */
+  onReady?: () => void;
 }
 
 export class CollageEngine {
@@ -88,6 +99,17 @@ export class CollageEngine {
   private readonly cb: EngineCallbacks;
   /** species roster (snapshot counts + live increments) → React views. */
   private readonly roster = new Map<string, RosterRow>();
+  /** ambient backdrop tiles on their OWN grid — painted behind the real birds
+   *  and NEVER counted (the honesty firewall). */
+  private ambientGrid: CollageGrid | null = null;
+  private ambientMode: Settings['ambientFill'] = 'roster';
+  private ambientDensity: Settings['density'] = 'balanced';
+  /** all-time life list, fetched lazily once for the `roster` ambient mode. */
+  private allTime: SpeciesRow[] = [];
+  private allTimeFetched = false;
+  private allTimePending = false;
+  /** cb.onReady fires at most once, after the first seed's images settle. */
+  private onReadyFired = false;
 
   constructor(canvas: HTMLCanvasElement, cb: EngineCallbacks = {}) {
     this.cb = cb;
@@ -113,7 +135,7 @@ export class CollageEngine {
     this.cb.onStatus?.('loading masks');
     await loadData();
     if (this.disposed) return;
-    this.renderer.setTiles(this.grid.placed);
+    this.syncTiles();
     this.renderer.resize(this.W, this.H);
 
     this.cb.onStatus?.('loading snapshot');
@@ -135,6 +157,13 @@ export class CollageEngine {
     if (!species.length) {
       this.cb.onStatus?.(MOCK ? 'mock — waiting for birds' : 'no birds in window');
       this.cb.onCount?.(0);
+      // Never barren: even with nothing in-window, paint the ambient cast and
+      // let the frame/print path settle (a listening screen is a valid capture).
+      this.populateAmbient();
+      // Emit the (now-cleared) roster so React's rows don't stay stale on the
+      // previous window — species=0 / calls=0 / LISTENING.
+      this.emitRoster();
+      this.fireReady();
       return;
     }
     const T = tuning(species.length);
@@ -225,15 +254,25 @@ export class CollageEngine {
     });
     this.emitRoster();
 
-    // Seed reveals instantly (no paint-in storm); live deltas paint in.
+    // Seed reveals instantly (no paint-in storm); live deltas paint in. Fire
+    // cb.onReady once every seed illustration has settled (decoded or errored)
+    // so the frame/print path can mark itself capture-ready (spec §5.4).
+    let pending = tiles.length;
+    const settle = (): void => {
+      pending -= 1;
+      if (pending <= 0) this.fireReady();
+    };
     tiles.forEach((t) => {
       t.animStart = null;
-      this.loadImage(t);
+      this.loadImage(t, false, settle);
     });
-    this.renderer.setTiles(this.grid.placed);
+    this.syncTiles();
     this.renderer.requestDraw();
     this.cb.onCount?.(this.grid.onScreen().length);
     this.cb.onStatus?.(MOCK ? 'mock live' : 'live');
+
+    // Never barren: paint the ambient backdrop cast behind the composed birds.
+    this.populateAmbient();
   }
 
   /** Add ONE bird incrementally — no re-wipe, no re-pack (contract). */
@@ -252,24 +291,52 @@ export class CollageEngine {
     const tile = makeTile(sci, ev.com, slug, fullW, fullW / ar);
     tile.animStart = this.renderer.reducedMotion ? null : performance.now();
 
+    // Only a live-added NEW species is worth retrying (its cutout PNG may still
+    // be generating). Flag it retryable + timestamp it so the bounded loop can
+    // stop watching after ~90s — seed / ambient / long-tail tiles never retry.
+    const isNewSpecies = !this.roster.has(sci);
+    if (isNewSpecies) {
+      tile.retryable = true;
+      tile.addedAt = performance.now();
+      // Re-arm the retry budget so a species detected long after boot still gets
+      // its cutout retried: resets the count (extends the budget if the loop is
+      // alive) and restarts the loop if it already gave up. The per-tile
+      // RETRY_WINDOW_MS guard still ages tiles out, so this stays bounded.
+      this.retryCount = 0;
+      this.startRetryLoop();
+    }
+
     this.grid.placeOne(tile, this.xBias, this.yBias);
     this.loadImage(tile);
 
-    const isNewSpecies = !this.roster.has(sci);
     this.bumpRoster(sci, ev.com, slug, 1, isNewSpecies);
 
-    this.renderer.setTiles(this.grid.placed);
+    // Evict this species' ambient GHOST so a live detection of a currently-ambient
+    // bird doesn't show as BOTH a counted live tile and an uncounted ghost. Mutate
+    // the placed list in place (it's readonly) — no populateAmbient, so the other
+    // ambient tiles keep their positions.
+    if (this.ambientGrid) {
+      const kept = this.ambientGrid.placed.filter(
+        (t) => t.sci.toLowerCase() !== sci.toLowerCase(),
+      );
+      this.ambientGrid.placed.length = 0;
+      this.ambientGrid.placed.push(...kept);
+    }
+
+    this.syncTiles();
     this.renderer.requestDraw();
     this.cb.onCount?.(this.grid.onScreen().length);
     this.cb.onLatest?.(ev.com || sci);
     this.emitRoster();
   }
 
-  private loadImage(tile: Tile, bust = false): void {
+  private loadImage(tile: Tile, bust = false, onSettle?: () => void): void {
     let url = birdImageUrl(tile.slug, tile.sci);
     if (!url) {
       tile.failed = true;
       tile.loaded = true; // settled (placeholder)
+      tile.retryable = false; // nothing to fetch — never retry a null-url tile
+      onSettle?.();
       return;
     }
     // Cache-buster ONLY on a retry (never on first load), so the browser
@@ -284,11 +351,13 @@ export class CollageEngine {
       tile.img = img;
       tile.loaded = true;
       this.renderer.requestDraw();
+      onSettle?.();
     };
     img.onerror = () => {
       tile.failed = true;
       tile.loaded = true;
       this.renderer.requestDraw();
+      onSettle?.();
     };
     img.src = url;
   }
@@ -299,6 +368,7 @@ export class CollageEngine {
       onHello: () => this.cb.onStatus?.(MOCK ? 'mock live' : 'live'),
       onBird: (ev) => this.addBird(ev),
       onError: () => this.cb.onStatus?.('reconnecting…'),
+      onState: (s) => this.cb.onLive?.(s),
     });
     this.startRetryLoop();
   }
@@ -306,7 +376,8 @@ export class CollageEngine {
   /** Periodically re-attempt any tile whose image failed to load. A brand-new
    *  species redirects (cutout.php 302) to Railway, which 404s until the asset
    *  is generated (~30s); retrying with a cache-buster paints it in once ready,
-   *  with no page refresh. Bounded to ~15 sweeps (~5 min) then gives up. */
+   *  with no page refresh. Bounded to ~3 sweeps (~90s) then gives up (re-armed by
+   *  addBird when a new species lands, so late detections still get retried). */
   private startRetryLoop(): void {
     if (this.retryTimer !== null) return;
     this.retryCount = 0;
@@ -316,12 +387,18 @@ export class CollageEngine {
         this.stopRetryLoop();
         return;
       }
+      const now = performance.now();
       for (const tile of this.grid.placed) {
-        if (tile.failed === true) {
-          tile.failed = false;
-          tile.loaded = false;
-          this.loadImage(tile, true);
+        // Only live-added NEW species are retryable; seed / ambient / null-url
+        // tiles are skipped so the console never storms on the long tail.
+        if (tile.retryable !== true || tile.failed !== true) continue;
+        if (tile.addedAt !== undefined && now - tile.addedAt > RETRY_WINDOW_MS) {
+          tile.retryable = false; // aged out — stop watching this tile
+          continue;
         }
+        tile.failed = false;
+        tile.loaded = false;
+        this.loadImage(tile, true);
       }
     }, RETRY_INTERVAL_MS);
   }
@@ -345,7 +422,7 @@ export class CollageEngine {
     for (const t of this.grid.placed) next.placed.push(t);
     next.restamp();
     this.grid = next;
-    this.renderer.setTiles(this.grid.placed);
+    this.syncTiles();
     this.renderer.resize(this.W, this.H);
   }
 
@@ -367,6 +444,101 @@ export class CollageEngine {
   /** Forward the active theme to the canvas renderer (glow vs contact shadow). */
   setTheme(theme: Theme): void {
     this.renderer.setTheme(theme);
+  }
+
+  /** Toggle idle ambient life (cluster breath + per-bird drift) on the renderer.
+   *  Reduced-motion / e-ink already zero the amplitudes inside the renderer. */
+  setMotion(on: boolean): void {
+    this.renderer.setMotion(on);
+  }
+
+  /** Set the never-barren ambient backdrop mode + density and rebuild it now.
+   *  Ambient tiles are a low-opacity "cast that has visited" painted behind the
+   *  real birds; they are NEVER counted (the honesty firewall). */
+  setAmbient(mode: Settings['ambientFill'], density: Settings['density']): void {
+    this.ambientMode = mode;
+    this.ambientDensity = density;
+    this.populateAmbient();
+  }
+
+  /** (Re)build the ambient backdrop for the current real roster + settings, on a
+   *  SEPARATE grid, and compose it behind the real birds. Skipped entirely on
+   *  e-ink prints, under reduced-motion, or when the fill is off. Never calls
+   *  bumpRoster — the counter must reflect real detections only. */
+  private populateAmbient(): void {
+    const disabled =
+      PROFILE.surface === 'eink' || this.renderer.reducedMotion || this.ambientMode === 'off';
+    if (disabled) {
+      if (this.ambientGrid) {
+        this.ambientGrid = null;
+        this.syncTiles();
+        this.renderer.requestDraw();
+      }
+      return;
+    }
+
+    // Lazily fetch the all-time life list once (guarded); it rebuilds on arrival.
+    this.ensureAllTime();
+
+    const cast = ambientRoster({
+      realRoster: [...this.roster.values()],
+      allTime: this.allTime,
+      mode: this.ambientMode,
+      density: this.ambientDensity,
+    });
+
+    const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
+    const base = this.areaHint || this.W * this.H * 0.012;
+    for (const a of cast) {
+      const slug = slugify(a.sci);
+      const ar = aspect(a.sci);
+      // Backdrop tiles sit a touch smaller than live birds so they recede.
+      const fullW = Math.sqrt(base * 0.9 * ar);
+      const tile = makeTile(a.sci, a.com, slug, fullW, fullW / ar);
+      tile.ambient = true;
+      tile.animStart = null; // backdrop never reveals
+      grid.placeOne(tile, this.xBias, this.yBias);
+      this.loadImage(tile); // honesty firewall: never bumpRoster for ambient
+    }
+    this.ambientGrid = grid;
+    this.syncTiles();
+    this.renderer.requestDraw();
+  }
+
+  /** Fetch the all-time roster ONCE for the `roster` ambient mode, then rebuild
+   *  ambient against it. Failure just leaves the legacy fallback (ambientRoster). */
+  private ensureAllTime(): void {
+    if (this.allTimeFetched || this.allTimePending) return;
+    this.allTimePending = true;
+    fetchSnapshot(1_000_000)
+      .then((rows) => {
+        this.allTimeFetched = true;
+        this.allTimePending = false;
+        if (this.disposed) return;
+        this.allTime = rows;
+        this.populateAmbient();
+      })
+      .catch(() => {
+        this.allTimeFetched = true;
+        this.allTimePending = false;
+      });
+  }
+
+  /** Compose the renderer's draw list: ambient backdrop first (so it paints
+   *  BEHIND), then the real placed tiles on top. With no ambient layer the real
+   *  list is passed as-is — identical to the pre-ambient behaviour. */
+  private syncTiles(): void {
+    const ambient = this.ambientGrid?.placed;
+    this.renderer.setTiles(
+      ambient && ambient.length ? [...ambient, ...this.grid.placed] : this.grid.placed,
+    );
+  }
+
+  /** Fire cb.onReady exactly once (idempotent), after the first seed settles. */
+  private fireReady(): void {
+    if (this.onReadyFired) return;
+    this.onReadyFired = true;
+    this.cb.onReady?.();
   }
 
   private bumpRoster(

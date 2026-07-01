@@ -5,6 +5,7 @@
   --bold: 'Archivo', var(--sans);
 
   /* ── NIGHT · Obsidian (default) ───────────────────────────── */
+  --page: #100f14;
   --bg0: #211f28;
   --bg1: #131219;
   --bg2: #0a090d;
@@ -31,6 +32,7 @@
 }
 
 :root[data-theme='day'] {
+  --page: #e3ddcf;
   --bg0: #fcfaf4;
   --bg1: #f3efe4;
   --bg2: #e8e1d1;

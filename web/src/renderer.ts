@@ -11,13 +11,63 @@
 
 import type { Tile } from './types';
 import { birdInk, type Theme } from './theme';
+import { PROFILE } from './profile';
 
 const PAINT_MS = 1200;
 const SCALE_FROM = 0.85;
+const TAU = Math.PI * 2;
+
+// Idle ambient-life motion (spec §7.2). Every amplitude/duration lives here so
+// reduced-motion and e-ink zero the piece deterministically to its phase-0 home.
+// This is ADDITIVE to the reveal above (PAINT_MS/SCALE_FROM stay the reveal's).
+const MOTION = {
+  /** whole-cluster breath: ±0.3% scale about the composition centroid, one sine. */
+  breathAmp: 0.003,
+  breathPeriodMs: 14_000,
+  /** per-bird seeded drift: sub-pixel Lissajous, ≤1.5px, decorrelated 18–42s. */
+  driftAmpPx: 1.5,
+  driftPeriodMinMs: 18_000,
+  driftPeriodSpanMs: 24_000, // 18s..42s
+  /** budget: ~10fps accumulator — ambient life is felt, not watched. */
+  frameMs: 100,
+} as const;
+
+/** Shared zero offset so the motion-off path never allocates. */
+const ZERO_DRIFT = { dx: 0, dy: 0 };
+
+/** Per-bird drift seed, derived once from the slug and cached (see `drift()`). */
+interface DriftSeed {
+  perX: number;
+  perY: number;
+  phX: number;
+  phY: number;
+}
 
 function easeOutCubic(t: number): number {
   const u = 1 - t;
   return 1 - u * u * u;
+}
+
+/** Stable 32-bit FNV-1a hash of a slug → a deterministic per-bird seed. */
+function hashSeed(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** mulberry32 PRNG — a deterministic [0,1) stream from a 32-bit seed. */
+function mulberry32(a: number): () => number {
+  let t = a >>> 0;
+  return () => {
+    t = (t + 0x6d2b79f5) >>> 0;
+    let x = t;
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 export class CollageRenderer {
@@ -31,6 +81,14 @@ export class CollageRenderer {
   private rafId = 0;
   private scheduled = false;
   private dead = false;
+  /** idle ambient-life loop: whether motion is switched on (setMotion). */
+  private motionOn = false;
+  /** rAF handle for the low-rate (~10fps) ambient loop, 0 when parked. */
+  private motionRafId = 0;
+  /** last ambient-tick timestamp, for the 100ms accumulator. */
+  private motionLast = 0;
+  /** per-slug drift seeds, computed lazily and reused across frames. */
+  private readonly drifts = new Map<string, DriftSeed>();
   /** instant reveals when the user prefers reduced motion. */
   readonly reducedMotion: boolean;
 
@@ -42,7 +100,18 @@ export class CollageRenderer {
     this.reducedMotion =
       typeof matchMedia === 'function' &&
       matchMedia('(prefers-reduced-motion: reduce)').matches;
+    // Ambient loop runs at 0fps while the tab is hidden (spec §7.2 budget).
+    document.addEventListener('visibilitychange', this.onVisibility);
   }
+
+  /** Pause the ambient loop when hidden; resume it when the tab returns. */
+  private readonly onVisibility = (): void => {
+    if (document.visibilityState === 'visible') {
+      if (this.motionActive()) this.startMotion();
+    } else {
+      this.stopMotion();
+    }
+  };
 
   setTiles(tiles: Tile[]): void {
     this.tiles = tiles;
@@ -52,6 +121,18 @@ export class CollageRenderer {
   setTheme(theme: Theme): void {
     if (theme === this.theme) return;
     this.theme = theme;
+    this.requestDraw();
+  }
+
+  /** Toggle idle ambient life (breath + per-bird drift). `false`, reduced-motion
+   *  or an e-ink surface all collapse to amplitude 0 — the composition snaps to
+   *  its phase-0 home and every printed still stays composed (spec §7.4). */
+  setMotion(on: boolean): void {
+    if (on === this.motionOn) return;
+    this.motionOn = on;
+    if (this.motionActive()) this.startMotion();
+    else this.stopMotion();
+    // Repaint once so amplitudes either begin or snap home this frame.
     this.requestDraw();
   }
 
@@ -84,16 +165,59 @@ export class CollageRenderer {
     const now = performance.now();
     const ink = birdInk(this.theme);
     const night = this.theme === 'night';
+    const motion = this.motionActive();
+    const driftAmp = motion ? MOTION.driftAmpPx : 0;
+    // Ambient backdrop tiles paint at a reduced, theme-aware alpha (spec §6.5).
+    const AMBIENT_ALPHA = night ? 0.22 : 0.18;
     let animating = false;
 
-    // Largest on-screen footprint, for the atmospheric-depth cue.
+    // Largest on-screen footprint (real tiles only) for the atmospheric-depth
+    // cue, plus the composition centroid the whole-cluster breath scales about.
     let maxW = 1;
+    let sumX = 0;
+    let sumY = 0;
+    let nReal = 0;
     for (const t of this.tiles) {
-      if (t.x > -99998 && t.fullW > maxW) maxW = t.fullW;
+      if (t.ambient || t.x <= -99998) continue;
+      if (t.fullW > maxW) maxW = t.fullW;
+      sumX += t.x + t.fullW / 2;
+      sumY += t.y + t.fullH / 2;
+      nReal++;
+    }
+    const cx = nReal > 0 ? sumX / nReal : W / 2;
+    const cy = nReal > 0 ? sumY / nReal : H / 2;
+
+    // Whole-cluster breath: ±0.3% about the centroid, applied as a canvas
+    // transform so ambient + real tiles inhale together (0 amplitude => none).
+    if (motion) {
+      const breath = 1 + MOTION.breathAmp * Math.sin((TAU * now) / MOTION.breathPeriodMs);
+      ctx.translate(cx, cy);
+      ctx.scale(breath, breath);
+      ctx.translate(-cx, -cy);
+    }
+
+    // Ambient layer first, behind the real birds: no reveal, reduced alpha.
+    for (const t of this.tiles) {
+      if (!t.ambient || t.x <= -99998) continue;
+      const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
+      const dr = this.drift(t.slug, depth, now, driftAmp);
+      const dx = t.x + dr.dx;
+      const dy = t.y + dr.dy;
+      ctx.save();
+      ctx.globalAlpha = AMBIENT_ALPHA;
+      if (t.loaded && t.img && !t.failed) {
+        ctx.shadowColor = ink.shadowColor;
+        ctx.shadowBlur = night ? ink.shadowBlur * (1 - 0.5 * depth) : ink.shadowBlur;
+        ctx.shadowOffsetY = ink.shadowOffsetY;
+        ctx.drawImage(t.img, dx, dy, t.fullW, t.fullH);
+      } else {
+        this.drawPlaceholder(t, dx, dy, t.fullW, t.fullH);
+      }
+      ctx.restore();
     }
 
     for (const t of this.tiles) {
-      if (t.x <= -99998) continue; // parked off-screen
+      if (t.ambient || t.x <= -99998) continue; // ambient handled above / parked off-screen
 
       let progress = 1;
       if (t.animStart !== null) {
@@ -112,8 +236,9 @@ export class CollageRenderer {
       const scale = SCALE_FROM + (1 - SCALE_FROM) * progress;
       const drawW = t.fullW * scale;
       const drawH = t.fullH * scale;
-      const dx = t.x + (t.fullW - drawW) / 2;
-      const dy = t.y + (t.fullH - drawH) / 2;
+      const dr = this.drift(t.slug, depth, now, driftAmp);
+      const dx = t.x + (t.fullW - drawW) / 2 + dr.dx;
+      const dy = t.y + (t.fullH - drawH) / 2 + dr.dy;
 
       ctx.save();
       ctx.globalAlpha = alpha;
@@ -160,9 +285,63 @@ export class CollageRenderer {
     ctx.fillText(truncate(label, w), x + w / 2, y + h / 2, w * 0.9);
   }
 
+  /** Motion runs only when explicitly on, motion-safe, and not an e-ink print. */
+  private motionActive(): boolean {
+    return this.motionOn && !this.reducedMotion && PROFILE.surface !== 'eink';
+  }
+
+  /** Drive the ambient composition at ~10fps (100ms accumulator) via rAF, which
+   *  also naturally quiesces to 0fps while the tab is hidden. */
+  private startMotion(): void {
+    if (this.dead || this.motionRafId) return;
+    this.motionLast = 0;
+    const tick = (ts: number): void => {
+      if (this.dead || !this.motionActive()) {
+        this.motionRafId = 0;
+        return;
+      }
+      if (ts - this.motionLast >= MOTION.frameMs) {
+        this.motionLast = ts;
+        this.requestDraw();
+      }
+      this.motionRafId = requestAnimationFrame(tick);
+    };
+    this.motionRafId = requestAnimationFrame(tick);
+  }
+
+  private stopMotion(): void {
+    if (this.motionRafId) cancelAnimationFrame(this.motionRafId);
+    this.motionRafId = 0;
+  }
+
+  /** Seeded sub-pixel drift for a tile at time `now`; ZERO_DRIFT when amp<=0 so
+   *  the motion-off / reduced-motion / e-ink paths snap to home with no cost.
+   *  Nearer (lower-depth) birds drift a touch more → a real parallax. */
+  private drift(slug: string, depth: number, now: number, amp: number): { dx: number; dy: number } {
+    if (amp <= 0) return ZERO_DRIFT;
+    let d = this.drifts.get(slug);
+    if (!d) {
+      const rnd = mulberry32(hashSeed(slug));
+      d = {
+        perX: MOTION.driftPeriodMinMs + rnd() * MOTION.driftPeriodSpanMs,
+        perY: MOTION.driftPeriodMinMs + rnd() * MOTION.driftPeriodSpanMs,
+        phX: rnd() * TAU,
+        phY: rnd() * TAU,
+      };
+      this.drifts.set(slug, d);
+    }
+    const a = amp * (1 - 0.35 * depth);
+    return {
+      dx: a * Math.sin((TAU * now) / d.perX + d.phX),
+      dy: a * Math.sin((TAU * now) / d.perY + d.phY),
+    };
+  }
+
   destroy(): void {
     this.dead = true;
     if (this.rafId) cancelAnimationFrame(this.rafId);
+    this.stopMotion();
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.scheduled = false;
   }
 }

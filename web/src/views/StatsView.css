@@ -1,0 +1,86 @@
+/* STATS view additions (spec §10.3): a permanent dawn/noon/dusk phase axis
+   under the hour ticks, a life-list hero above the ledger, and the N=0 composed
+   gallery label. All theme-var driven so day + night both read. Base ridge /
+   panel rules live in App.css and are left untouched. */
+
+/* dawn/noon/dusk annotation, aligned to hours 6 / 12 / 18 under the ridge axis.
+   Permanent — it frames the negative space even when the ridge is all-zero. */
+.ridge-phase {
+  position: relative;
+  height: 12px;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--mut-2);
+}
+.ridge-phase span {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.ridge-phase .dawn {
+  left: 25%;
+}
+.ridge-phase .noon {
+  left: 50%;
+}
+.ridge-phase .dusk {
+  left: 75%;
+}
+
+/* life-list hero — a serif tally above BY PERIOD */
+.life-hero {
+  margin-bottom: 4px;
+}
+.life-hero .n {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 42px;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: oldstyle-nums;
+}
+.life-hero .n .u {
+  font-size: 19px;
+  color: var(--ink-2);
+  letter-spacing: 0.01em;
+}
+.life-hero .cap {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+  margin-top: 3px;
+}
+
+/* N=0 — a composed gallery label, never a wall of dashes */
+.stats-empty {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 46vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.stats-empty .word {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 56px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.stats-empty .rule {
+  width: 64px;
+  height: 1px;
+  background: var(--line);
+  margin: 22px 0;
+}
+.stats-empty .cap {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--mut);
+}

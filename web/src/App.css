@@ -47,12 +47,34 @@
   border-color: var(--amber);
 }
 
-/* ── menu + theme toggle ───────────────────────────────────── */
+/* ── menu + quick theme toggle ─────────────────────────────── */
 .menu-wrap {
   position: absolute;
   top: 18px;
   right: 26px;
   z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.theme-quick {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  color: var(--ink-2);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: color 0.2s, border-color 0.2s;
+}
+.theme-quick:hover {
+  color: var(--ink);
+  border-color: var(--amber);
 }
 .menu {
   display: flex;
@@ -74,36 +96,6 @@
   height: 1.4px;
   background: var(--ink-2);
   box-shadow: 0 4px 0 var(--ink-2), 0 -4px 0 var(--ink-2);
-}
-.menu-pop {
-  position: absolute;
-  right: 0;
-  top: 46px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 6px;
-  min-width: 160px;
-  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.6);
-}
-.menu-pop button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-family: var(--sans);
-  font-size: 13px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  border-radius: 8px;
-  padding: 9px 11px;
-  cursor: pointer;
-}
-.menu-pop button:hover {
-  background: var(--glass);
-}
-:root[data-theme='day'] .menu-pop {
-  box-shadow: 0 18px 40px -20px rgba(60, 45, 25, 0.25);
 }
 
 /* ── masthead (collage) ────────────────────────────────────── */
@@ -160,34 +152,18 @@
   color: var(--on-fg);
 }
 
-/* ── live status pill (bottom-left) ────────────────────────── */
-.live {
+/* ── colophon (Belkins credit, bottom-right) ───────────────── */
+.colophon {
   position: absolute;
   bottom: 5%;
-  left: 26px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
+  right: 26px;
   z-index: 50;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--mut);
-}
-.live-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--mut-2);
-}
-.live-dot[data-live='true'] {
-  background: #5fd08a;
-  box-shadow: 0 0 8px rgba(95, 208, 138, 0.8);
-}
-.live-n {
-  color: var(--ink-2);
-}
-.live-latest {
-  color: var(--mut);
+  pointer-events: none;
 }
 
 /* ── listening (N=0) ───────────────────────────────────────── */
@@ -326,6 +302,7 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--mut);
+  font-variant-numeric: oldstyle-nums;
 }
 .idx-list {
   list-style: none;
@@ -367,6 +344,39 @@
   font-size: 13px;
   width: 36px;
   text-align: right;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* N=0 composed label + N=1 "a beginning" close — the ledger never reads barren. */
+.idx-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0;
+}
+.idx-empty-lead {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 40px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.idx-empty-note {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.idx-begin {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--mut);
+  border-top: 1px solid var(--line);
+  margin-top: 2px;
+  padding-top: 14px;
 }
 
 /* STATS */
@@ -563,6 +573,74 @@
   color: var(--mut);
   text-decoration: none;
 }
+/* wiki + eBird sit side by side on the right of the footer. */
+.acard-links {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+/* Catalogue number (life-list order, No. NNN) sits above the call count. */
+.acard-hl {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.acard-no {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+/* Knockout ink-ghost silhouette — the tier between the illustration and the
+   letter plate (spec §10.4). Higher specificity than the glow rules above so it
+   wins in both themes; a smaller footprint than a full illustration. */
+.acard-img.knockout img {
+  max-height: 72px;
+}
+:root[data-theme='night'] .acard-img.knockout img,
+:root:not([data-theme='day']) .acard-img.knockout img {
+  filter: brightness(0) invert(1) opacity(0.16);
+}
+:root[data-theme='day'] .acard-img.knockout img {
+  filter: brightness(0) opacity(0.14);
+}
+
+/* ATLAS — single centered "first specimen" feature plate at N≤2 (spec §10.4). */
+.atlas-feature {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.acard.feat {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 30px 34px;
+}
+.acard.feat .acard-img.feat {
+  height: 210px;
+  margin: 20px 0 12px;
+}
+.acard.feat .acard-img.feat img {
+  max-height: 210px;
+  max-width: 82%;
+}
+.acard.feat .feat-kicker {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--mut);
+  text-align: center;
+}
+.acard.feat .acard-cn {
+  font-size: 30px;
+  text-align: center;
+  margin-top: 3px;
+}
+.acard.feat .acard-ln {
+  font-size: 15px;
+  text-align: center;
+}
 
 @media (max-width: 760px) {
   .idx,
@@ -573,4 +651,42 @@
   .mast-t {
     font-size: 30px;
   }
+}
+
+/* ── frame / wall mode (spec §5) ───────────────────────────────
+   Chrome dissolves; the wall keeps the masthead + canvas, a corner tombstone
+   (bottom-left, FrameOverlay), a compact data line (repositioned bottom-right),
+   the colophon (bottom-right, above the counter) and the exit pill. Every rule
+   is theme-var driven, so day + night both read. */
+.stage.frame .filter,
+.stage.frame .menu-wrap,
+.stage.frame .nav {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.24s ease;
+}
+/* Enlarge the masthead so it carries the wall from across the room. */
+.stage.frame .mast {
+  top: 7%;
+}
+.stage.frame .mast .eyebrow {
+  font-size: 1.5vw;
+}
+.stage.frame .mast-t {
+  font-size: 4.6vw;
+}
+/* Move the compact counter to bottom-right so it clears the bottom-left
+   tombstone; lift the colophon just above it in the same corner. */
+.stage.frame .live-counter.compact {
+  left: auto;
+  right: 26px;
+}
+.stage.frame .colophon {
+  bottom: calc(5% + 22px);
+}
+
+/* ── lifer red tick (opt-in; spec §4-#11, default OFF = "pure world") ──
+   Gate the Atlas red "new" tag off unless the user enables the lifer tick. */
+.stage[data-lifer='false'] .tg.l {
+  display: none;
 }

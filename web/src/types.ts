@@ -72,13 +72,23 @@ export interface Tile {
   failed: boolean;
   /** paint-in animation start time (performance.now) or null when settled. */
   animStart: number | null;
+  /** ambient/never-counted backdrop layer (does not feed the live counter). */
+  ambient?: boolean;
+  /** eligible for the bounded image retry after a load failure. */
+  retryable?: boolean;
+  /** performance.now() when this tile entered the collage (drives retry timing). */
+  addedAt?: number;
 }
+
+/** Live connection state surfaced by an event stream (drives the counter dot). */
+export type LiveState = 'connecting' | 'live' | 'idle' | 'reconnecting' | 'offline';
 
 /** Handlers a caller registers on an event stream. */
 export interface StreamHandlers {
   onHello?: (cursor: number) => void;
   onBird: (ev: BirdEvent) => void;
   onError?: (err: unknown) => void;
+  onState?: (s: LiveState) => void;
 }
 
 /** Pluggable event source: real SSE or the mock generator. */

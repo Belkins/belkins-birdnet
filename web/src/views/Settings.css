@@ -1,0 +1,233 @@
+/* SETTINGS drawer (spec §4). Right-side panel over a dismiss scrim; every colour
+   reads from the theme vars in index.css so it renders in both night and day. */
+
+.set-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--scrim);
+  backdrop-filter: blur(4px);
+  animation: set-fade 0.2s ease;
+}
+
+.set-panel {
+  position: relative;
+  width: min(380px, 92vw);
+  height: 100%;
+  overflow-y: auto;
+  background: var(--card);
+  border-left: 1px solid var(--line);
+  padding: 24px 24px 40px;
+  box-shadow: -22px 0 60px -34px rgba(0, 0, 0, 0.7);
+  animation: set-slide 0.28s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+:root[data-theme='day'] .set-panel {
+  box-shadow: -22px 0 60px -34px rgba(60, 45, 25, 0.28);
+}
+
+/* ── header ────────────────────────────────────────────────── */
+.set-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+.set-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--ink);
+}
+.set-x {
+  font-family: var(--display);
+  font-size: 22px;
+  line-height: 1;
+  color: var(--mut);
+  background: none;
+  border: 0;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+.set-x:hover {
+  color: var(--ink);
+}
+
+/* ── body / sections ───────────────────────────────────────── */
+.set-body {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.set-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.set-h {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+/* ── rows / fields ─────────────────────────────────────────── */
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.set-field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.set-row-l {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ── segmented control ─────────────────────────────────────── */
+.set-seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.set-field .set-seg {
+  display: flex;
+  width: 100%;
+}
+.set-field .set-seg button {
+  flex: 1;
+}
+.set-seg button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+.set-seg button.on {
+  background: var(--on-bg);
+  color: var(--on-fg);
+}
+
+/* ── toggle switch (whole row is the hit target) ───────────── */
+.set-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.set-sw {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  transition: background 0.2s, border-color 0.2s;
+}
+.set-sw i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--mut);
+  transition: transform 0.2s, background 0.2s;
+}
+.set-sw.on {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+.set-sw.on i {
+  transform: translateX(16px);
+  background: var(--on-fg);
+}
+
+/* ── primary action (Enter frame mode) ─────────────────────── */
+.set-primary {
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--on-fg);
+  background: var(--on-bg);
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 16px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.set-primary:hover {
+  opacity: 0.88;
+}
+
+/* ── about / colophon ──────────────────────────────────────── */
+.set-colophon {
+  margin: 0;
+  font-family: var(--display);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.set-legacy {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--mut);
+  text-decoration: none;
+}
+.set-legacy:hover {
+  color: var(--ink);
+}
+
+/* ── focus-visible a11y rings ──────────────────────────────── */
+.set-panel button:focus-visible,
+.set-panel a:focus-visible {
+  outline: 1.5px solid var(--amber);
+  outline-offset: 2px;
+}
+
+@keyframes set-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes set-slide {
+  from {
+    transform: translateX(22px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .set-scrim,
+  .set-panel {
+    animation: none;
+  }
+}

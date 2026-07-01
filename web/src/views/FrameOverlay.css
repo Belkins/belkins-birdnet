@@ -1,0 +1,99 @@
+/* Frame/Wall-mode chrome. Self-contained, theme-var driven — reads in both
+   night (obsidian) and day (cream) because every colour resolves from the
+   :root / [data-theme] custom properties, never a literal. Sits above the
+   masthead (z 40) and any residual chrome (z 50). */
+
+.frame-ov {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+}
+
+/* ── exit pill (top-right, mono, glass) ────────────────────── */
+.exit-frame {
+  position: absolute;
+  top: 18px;
+  right: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 9px 16px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.24s ease, transform 0.24s ease, color 0.2s, border-color 0.2s;
+}
+.exit-frame.show {
+  pointer-events: auto;
+  opacity: 1;
+  transform: translateY(0);
+}
+.exit-frame:hover {
+  color: var(--ink);
+  border-color: var(--amber);
+}
+.exit-frame-x {
+  font-size: 12px;
+  color: var(--mut);
+  transition: color 0.2s;
+}
+.exit-frame:hover .exit-frame-x {
+  color: var(--amber);
+}
+
+/* ── wall tombstone (corner placard, bottom-left) ──────────── */
+.wall-tomb {
+  position: absolute;
+  left: 26px;
+  bottom: 5%;
+  max-width: 40vw;
+  pointer-events: none;
+}
+.wall-tomb-eyebrow {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: 0.95vw;
+  color: var(--amber-2);
+  letter-spacing: 0.01em;
+}
+.wall-tomb-t {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 2vw;
+  line-height: 1.05;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin-top: 0.1em;
+}
+.wall-tomb-sub {
+  font-family: var(--mono);
+  font-size: 0.8vw;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  margin-top: 0.45em;
+}
+
+/* Respect reduced-motion / e-ink: no slide, just presence (spec §7.4). */
+@media (prefers-reduced-motion: reduce) {
+  .exit-frame {
+    transition: none;
+    transform: none;
+  }
+  .exit-frame.show {
+    transform: none;
+  }
+}

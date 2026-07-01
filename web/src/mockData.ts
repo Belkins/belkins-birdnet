@@ -30,7 +30,7 @@ export const MOCK_SPECIES: MockSpecies[] = [
   { sci: 'Accipiter cooperii', com: "Cooper's Hawk", hasAsset: true },
   { sci: 'Archilochus alexandri', com: 'Black-chinned Hummingbird', hasAsset: true },
   // No mask, no PNG: proves the default-bbox fallback + placeholder render.
-  { sci: 'Defaultus exemplum', com: 'Unknown Species (default mask)', hasAsset: false },
+  { sci: 'Catharus guttatus', com: 'Hermit Thrush', hasAsset: false },
 ];
 
 /** Bundled initial snapshot for mock mode (species-collapsed, with counts). */

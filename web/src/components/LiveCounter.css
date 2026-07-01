@@ -1,0 +1,123 @@
+/* ── live counter (bottom-left of the stage; replaces the tiny .live HUD) ──
+   Stacked, left-aligned: serif lining figures over mono micro-labels, then a
+   quiet LIVE state row. Theme-var driven so it reads in both night and day. */
+.live-counter {
+  position: absolute;
+  bottom: 5%;
+  left: 26px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+/* one figure block: big number with its mono label tucked beneath */
+.lc-fig {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lc-n {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 0.9;
+  color: var(--ink);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.lc-fig-2 .lc-n {
+  font-size: 23px;
+  color: var(--ink-2);
+}
+.lc-lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+/* LIVE row: breathing dot + state word + ephemeral just-heard ticker */
+.lc-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.lc-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--mut);
+  background: transparent;
+}
+.lc-dot[data-live='live'] {
+  border-color: var(--amber);
+  background: var(--amber);
+  box-shadow: 0 0 10px var(--amber);
+  animation: lc-breath 2.4s ease-in-out infinite;
+}
+.lc-dot[data-live='idle'],
+.lc-dot[data-live='connecting'] {
+  border-color: var(--mut);
+  background: transparent;
+}
+.lc-dot[data-live='reconnecting'],
+.lc-dot[data-live='offline'] {
+  border-color: var(--mut-2);
+  background: transparent;
+}
+@keyframes lc-breath {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lc-dot[data-live='live'] {
+    animation: none;
+    opacity: 1;
+  }
+}
+.lc-state {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  color: var(--mut);
+}
+.lc-dot[data-live='live'] + .lc-state {
+  color: var(--amber);
+}
+
+/* just-heard ticker: fades in beside the block, then dissolves over 0.6s */
+.lc-tick {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.lc-tick[data-on='true'] {
+  opacity: 1;
+}
+
+/* compact: a single static mono footer line for frame / e-ink */
+.live-counter.compact {
+  flex-direction: row;
+  gap: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--mut);
+}
