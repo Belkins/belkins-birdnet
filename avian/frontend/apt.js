@@ -571,7 +571,23 @@
       btn.style.top    = r.y + 'px';
       btn.style.width  = r.fullW + 'px';
       btn.style.height = r.fullH + 'px';
-      btn.innerHTML = '<img loading="lazy" decoding="async" src="' + img + '" alt="' + s.com + '">';
+      // Build the <img> in the DOM (not via innerHTML) so we can wire an
+      // onerror silhouette fallback. A species Railway hasn't generated yet
+      // 302s to a 404, which would otherwise leave a broken glyph; on the first
+      // error we re-request the SAME cutout URL once — cutout.php serves its
+      // 200 ink silhouette on the repeat hit (its railway_pending marker is now
+      // warm) — so the tile degrades to a silhouette, never a broken image.
+      var imgEl = document.createElement('img');
+      imgEl.loading = 'lazy';
+      imgEl.decoding = 'async';
+      imgEl.alt = s.com;
+      imgEl.onerror = function () {
+        if (imgEl.dataset.fb) { imgEl.style.visibility = 'hidden'; return; }
+        imgEl.dataset.fb = '1';
+        imgEl.src = img + '&fb=1';
+      };
+      imgEl.src = img;
+      btn.appendChild(imgEl);
       r.el = btn;
       collage.appendChild(btn);
     });
@@ -1378,7 +1394,7 @@
     host.innerHTML = top.map(function (s, i) {
       var n = +s.n || 0;
       var w = 20 + (n / max) * 60;                       // 20-80% proportional bar
-      return '<li class="idx-row' + (i === 0 ? ' top' : '') +
+      return '<li class="idx-row' + (i === 0 ? ' is-top' : '') +
                '" data-sci="' + (s.sci || '').replace(/"/g, '&quot;') + '">' +
         '<span class="idx-no">' + pad(i + 1) + '</span>' +
         '<span class="idx-nm">' + (s.com || s.sci) + '</span>' +
