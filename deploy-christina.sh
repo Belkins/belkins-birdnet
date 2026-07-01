@@ -75,6 +75,10 @@ elif command -v npm >/dev/null; then
 else
   warn "no web/dist committed and no npm on PATH — collage skipped (commit a /collage-based dist, or install node)"
 fi
+# Serve the nightly species catalog under /collage/ so the life-list "wall" tab
+# reads ${BASE}species.json. Overrides the bundled dev fixture that shipped in
+# web/dist; a no-op if the collage dir wasn't built above.
+[ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/species.json" "$EXTRACTED/collage/species.json" && ok "species.json -> scripts/species.json (served at /collage/species.json)"
 
 say "5. regenerate collage silhouette masks (so any new illustration is placeable)"
 if ( cd "$HERE/avian/scripts" && "$PY" build_masks.py ) >/dev/null 2>&1; then ok "masks rebuilt"; else warn "build_masks failed (Pillow missing?)"; fi

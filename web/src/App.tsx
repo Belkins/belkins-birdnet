@@ -15,8 +15,9 @@ import { FRAME_AT_BOOT, markFrameReady, PROFILE } from './profile';
 import { IndexView } from './views/IndexView';
 import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
+import { CollectionWallView } from './views/CollectionWallView';
 
-type Tab = 'collage' | 'index' | 'stats' | 'atlas';
+type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall';
 
 const PERIODS: { label: string; hours: number }[] = [
   { label: '1H', hours: 1 },
@@ -25,7 +26,7 @@ const PERIODS: { label: string; hours: number }[] = [
   { label: '7D', hours: 168 },
   { label: 'ALL', hours: 1_000_000 },
 ];
-const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas'];
+const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas', 'wall'];
 
 /** Active-window label for the given hours (falls back to 24H). */
 function windowLabelFor(hours: number): string {
@@ -38,7 +39,7 @@ const TAB_STORAGE_KEY = 'belkins-birdnet-tab';
 function loadTab(): Tab {
   try {
     const v = localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas') return v;
+    if (v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas' || v === 'wall') return v;
   } catch {
     /* storage unavailable — fall through to the default */
   }
@@ -173,12 +174,12 @@ export default function App() {
     }
   }, [tab]);
 
-  // Global keys App owns: 1–4 switch tabs, ←/→ cycle the window. `F` (toggle) and
+  // Global keys App owns: 1–5 switch tabs, ←/→ cycle the window. `F` (toggle) and
   // `Esc` (exit) stay owned by useFrameMode; the Settings drawer owns its own Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.length === 1 && e.key >= '1' && e.key <= '4') {
+      if (e.key.length === 1 && e.key >= '1' && e.key <= '5') {
         if (!framed) setTab(TABS[Number(e.key) - 1]);
         return;
       }
@@ -268,6 +269,11 @@ export default function App() {
       {shownTab === 'atlas' && (
         <Overlay>
           <AtlasView rows={rows} />
+        </Overlay>
+      )}
+      {shownTab === 'wall' && (
+        <Overlay>
+          <CollectionWallView />
         </Overlay>
       )}
 

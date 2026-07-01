@@ -17,6 +17,12 @@ export const MOCK: boolean = env.VITE_MOCK === '1';
 /** Vite-managed base path; '/' in dev, configurable for sub-path deploys. */
 export const BASE: string = env.BASE_URL ?? '/';
 
+/** All-time species catalog (the life-list "wall" source), served under
+ *  /collage/ — mirrors the `${BASE}data/masks.json` convention. On the Pi this
+ *  path is a symlink to the nightly scripts/species.json; in dev it resolves to
+ *  the bundled public/species.json fixture. Overridable via VITE_CATALOG_URL. */
+export const CATALOG_URL: string = env.VITE_CATALOG_URL ?? `${BASE}species.json`;
+
 /** Window (hours) for the initial snapshot. Matches the legacy default. */
 export const SNAPSHOT_HOURS = 24;
 
