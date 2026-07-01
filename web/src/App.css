@@ -13,6 +13,43 @@
   height: 100%;
 }
 
+/* ── hover-stats tooltip (follows the cursor over the collage) ──
+   Positioned via a raw transform write on the ref (top/left pinned to 0,0);
+   content flips only on species change. Glass pill, theme-var driven so it
+   reads in both night + day. */
+.bird-hover {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  pointer-events: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.bird-hover[data-show='true'] {
+  opacity: 1;
+}
+.bh-name {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+.bh-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
+
 .eyebrow {
   font-family: var(--display);
   font-style: italic;

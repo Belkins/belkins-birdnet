@@ -97,6 +97,13 @@ export default function App() {
   // The bird-detail modal target (C5). null = closed; a click on the collage
   // canvas or an Atlas plate sets it, and BirdPopup enriches it on open.
   const [popup, setPopup] = useState<BirdRef | null>(null);
+  // Hover affordance: a cursor-following tooltip over the collage canvas. Its
+  // POSITION is written straight to the ref's transform on every mousemove (no
+  // re-render); its CONTENT changes state only when the hovered species flips —
+  // hoverSlugRef guards that so the canvas doesn't re-render every pixel.
+  const [hovered, setHovered] = useState<{ com: string; n: number } | null>(null);
+  const hoverElRef = useRef<HTMLDivElement | null>(null);
+  const hoverSlugRef = useRef<string | null>(null);
 
   const theme = settings.theme;
 
@@ -223,6 +230,28 @@ export default function App() {
           const hit = engineRef.current?.hitTest(e.clientX - rect.left, e.clientY - rect.top);
           setPopup(hit ?? null);
         }}
+        onMouseMove={(e) => {
+          if (framed) return;
+          // Move the tooltip via a raw transform write — never through React, so
+          // tracking the cursor is jank-free and re-render-free.
+          const el = hoverElRef.current;
+          if (el) el.style.transform = `translate(${e.clientX + 14}px, ${e.clientY + 16}px)`;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const hit = engineRef.current?.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+          e.currentTarget.style.cursor = hit ? 'pointer' : 'default';
+          // Content is state, but only flip it when the species under the cursor
+          // actually changes — otherwise a moving cursor would re-render the app
+          // (and the canvas) on every pixel.
+          const slug = hit?.slug ?? null;
+          if (slug !== hoverSlugRef.current) {
+            hoverSlugRef.current = slug;
+            setHovered(hit ? { com: hit.com, n: hit.n } : null);
+          }
+        }}
+        onMouseLeave={() => {
+          hoverSlugRef.current = null;
+          setHovered(null);
+        }}
       />
 
       <div className="filter">
@@ -318,6 +347,22 @@ export default function App() {
       )}
 
       {framed && <FrameOverlay onExit={exitFrame} />}
+
+      <div
+        className="bird-hover"
+        ref={hoverElRef}
+        data-show={!framed && hovered ? 'true' : 'false'}
+        aria-hidden="true"
+      >
+        {hovered && (
+          <>
+            <span className="bh-name">{hovered.com}</span>
+            <span className="bh-n">
+              {hovered.n} {hovered.n === 1 ? 'call' : 'calls'}
+            </span>
+          </>
+        )}
+      </div>
 
       <BirdPopup bird={popup} windowLabel={windowLabel} onClose={() => setPopup(null)} />
 
