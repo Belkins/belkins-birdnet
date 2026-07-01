@@ -37,10 +37,16 @@ function tuning(n: number) {
     packingBudgetFrac: n <= 4 ? 0.46 : n <= 12 ? 0.4 : n <= 24 ? 0.34 : 0.28,
     countExp: 0.65,
     minTileAreaFrac: n <= 8 ? 0.01 : n <= 20 ? 0.0075 : 0.0055,
-    // Hero cap: no single bird exceeds this fraction of the viewport, so a loud
-    // species (or an N=1 window) can't balloon into a giant plate that overlaps.
-    maxTileAreaFrac: n <= 2 ? 0.17 : n <= 6 ? 0.13 : 0.1,
-    ellipseAspectBias: 2.1,
+    // Hero cap: no single bird exceeds this fraction of the viewport. Raised from
+    // the old 0.17/0.13/0.10 so the most-heard species reads as UNMISTAKABLY the
+    // largest plate at optical centre — the old cap flattened the top of the
+    // gradient and let the #1 and #2 birds tie in size. Still bounded so a lone
+    // N=1 window can't balloon into a canvas-filling plate.
+    maxTileAreaFrac: n <= 2 ? 0.22 : n <= 6 ? 0.17 : n <= 12 ? 0.13 : 0.11,
+    // Ellipse bias for the spiral nest. Dropped from 2.1 (a wide, shelf-like
+    // horizontal band that spread birds into an even top row) to 1.35 so the
+    // cluster grows as a rounded ORGANIC OVAL / ROSETTE around the hero.
+    ellipseAspectBias: 1.35,
   };
 }
 
@@ -127,9 +133,59 @@ export class CollageEngine {
   private computeBiases(): void {
     const narrow = this.W <= 700;
     const T = tuning(20);
+    // Wide screens: a gently-wider-than-tall rosette. Narrow (portrait phone):
+    // a taller oval so the cluster uses the vertical room instead of a squat band.
     this.xBias = narrow ? 1 : T.ellipseAspectBias;
-    this.yBias = narrow ? 1.7 : 1;
+    this.yBias = narrow ? 1.5 : 1;
     this.pad = narrow ? Math.max(1, COLLAGE_PAD - 1) : COLLAGE_PAD;
+  }
+
+  /** The composition-safe rectangle: the region the cluster may occupy so no
+   *  bird tangents the canvas edge or the chrome (top masthead + filter/menu,
+   *  bottom nav + live counter + colophon). Insets are generous enough to clear
+   *  the worst-case (collage-mode) chrome, and harmless in frame mode where the
+   *  cluster simply sits a touch inboard of the hidden chrome. */
+  private safeBox(): { L: number; T: number; R: number; B: number } {
+    const { W, H } = this;
+    const mx = Math.max(24, W * 0.05); // side gutters (clears parakeet-tail tangents)
+    const mt = Math.max(72, H * 0.16); // top: masthead title + filter/menu row
+    const mb = Math.max(64, H * 0.15); // bottom: nav + counter + colophon
+    return { L: mx, T: mt, R: W - mx, B: H - mb };
+  }
+
+  /** Translate a packed cluster so its HERO (largest = most-heard tile) sits at
+   *  the safe box's optical centre, then CLAMP the translation so the whole
+   *  cluster still fits inside the safe box (fit wins over a perfectly-centred
+   *  hero if the cluster is lopsided). Restamps the occupancy grid to the moved
+   *  positions so live placement collides against the right cells. Returns the
+   *  applied delta so a caller can shift a parallel layer (ambient) in step. */
+  private centreCluster(
+    grid: CollageGrid,
+    safe: { L: number; T: number; R: number; B: number },
+  ): { dx: number; dy: number } {
+    const on = grid.onScreen();
+    if (!on.length) return { dx: 0, dy: 0 };
+    const cxT = (safe.L + safe.R) / 2;
+    const cyT = (safe.T + safe.B) / 2;
+    let hero = on[0];
+    for (const t of on) if (t.fullW * t.fullH > hero.fullW * hero.fullH) hero = t;
+    let dx = cxT - (hero.x + hero.fullW / 2);
+    let dy = cyT - (hero.y + hero.fullH / 2);
+    const b = bounds(on);
+    if (b.R + dx > safe.R) dx = safe.R - b.R;
+    if (b.L + dx < safe.L) dx = safe.L - b.L;
+    if (b.B + dy > safe.B) dy = safe.B - b.B;
+    if (b.T + dy < safe.T) dy = safe.T - b.T;
+    if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+      for (const t of grid.placed) {
+        if (t.x > -99998) {
+          t.x += dx;
+          t.y += dy;
+        }
+      }
+      grid.restamp();
+    }
+    return { dx, dy };
   }
 
   async start(): Promise<void> {
@@ -204,6 +260,22 @@ export class CollageEngine {
         if (t.area > minArea + 1e-9) t.area *= shrink;
       });
     }
+    // Step 2.5: enforce STRICT MONOTONICITY of area vs. call count. Rank by count
+    // (desc); each lower-count bird is clamped to be at least a step SMALLER than
+    // the next-louder, so a louder species is never rendered as large as (let
+    // alone larger than) a quieter one. The cap + squeeze above can otherwise let
+    // the top birds tie at maxArea (e.g. 91 vs 88 calls) — this guarantees the
+    // most-heard reads UNMISTAKABLY largest and size tracks calls as an honest
+    // ordinal. Equal counts may tie; the long tail plateaus at the minArea floor
+    // (all "smallest"), which is expected, not an inversion.
+    const cnt = (t: { s: SpeciesRow }): number =>
+      !t.s.n || Number.isNaN(t.s.n) ? 1 : t.s.n;
+    const ranked = [...scored].sort((a, b) => cnt(b) - cnt(a) || a.s.sci.localeCompare(b.s.sci));
+    const STEP = 0.92; // a lower count is ≥8% smaller in area, until the floor
+    for (let i = 1; i < ranked.length; i++) {
+      const ceil = cnt(ranked[i]) < cnt(ranked[i - 1]) ? ranked[i - 1].area * STEP : ranked[i - 1].area;
+      ranked[i].area = Math.max(minArea, Math.min(ranked[i].area, ceil));
+    }
     // Step 3: area + aspect -> width/height -> tiles.
     const tiles = scored.map((t) => {
       const slug = slugify(t.s.sci);
@@ -212,21 +284,26 @@ export class CollageEngine {
       return makeTile(t.s.sci, t.s.com, slug, fullW, fullW / ar);
     });
 
-    // Iterative shrink-to-fit: re-pack into a fresh grid until everything
-    // lands on screen (apt.js scale-to-fit loop). Keep the final grid.
+    // Iterative shrink-to-fit into the composition-SAFE box (not the raw
+    // viewport): re-pack into a fresh grid until the whole cluster fits inside
+    // the margins that clear the chrome, so nothing tangents an edge or the
+    // masthead/nav/counter. (apt.js scale-to-fit loop, retargeted to safeBox.)
+    const safe = this.safeBox();
+    const boxW = Math.max(1, safe.R - safe.L);
+    const boxH = Math.max(1, safe.B - safe.T);
     let grid = new CollageGrid(W, H, GRID_STRIDE, this.pad);
     grid.seed(tiles, this.xBias, this.yBias);
-    for (let iter = 0; iter < 10; iter++) {
+    for (let iter = 0; iter < 12; iter++) {
       const b = bounds(grid.onScreen());
       const missing = tiles.some((t) => t.x <= -99998);
-      const overflow = b.L < 0 || b.T < 0 || b.R > W || b.B > H;
+      const clW = b.R - b.L;
+      const clH = b.B - b.T;
+      const overflow = clW > boxW || clH > boxH;
       if (!missing && !overflow) break;
       let scale = 0.93;
       if (overflow) {
-        const clW = b.R - b.L;
-        const clH = b.B - b.T;
-        const sx = (W * 0.96) / Math.max(clW, W * 0.96);
-        const sy = (H * 0.94) / Math.max(clH, H * 0.94);
+        const sx = boxW / Math.max(clW, 1);
+        const sy = boxH / Math.max(clH, 1);
         scale = Math.min(scale, sx, sy);
       }
       tiles.forEach((t) => {
@@ -237,20 +314,10 @@ export class CollageEngine {
       grid.seed(tiles, this.xBias, this.yBias);
     }
 
-    // Re-centre the cluster, then resync the grid to the moved positions so
-    // live placement collides against the right cells.
-    const b = bounds(grid.onScreen());
-    const dx = W / 2 - (b.L + b.R) / 2;
-    const dy = H / 2 - (b.T + b.B) / 2;
-    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-      grid.placed.forEach((t) => {
-        if (t.x > -99998) {
-          t.x += dx;
-          t.y += dy;
-        }
-      });
-      grid.restamp();
-    }
+    // Centre the HERO (largest = most-heard) at the safe box's optical centre,
+    // then clamp the translation so the cluster still fits inside the safe box.
+    // Result: Robin sits at optical centre AND no bird tangents an edge/chrome.
+    this.centreCluster(grid, safe);
 
     this.grid = grid;
     // Representative area for live additions: median seeded tile area.
@@ -443,32 +510,20 @@ export class CollageEngine {
     const next = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
     for (const t of this.grid.placed) next.placed.push(t);
 
-    // Re-centre the existing cluster into the resized viewport. Phase 0 keeps the
-    // relative arrangement (no re-pack / no re-spiral) — this is a pure TRANSLATION
-    // of every real + ambient tile by the same delta. Without it, a canvas that
-    // shrinks AFTER the seed centred on the taller size (mobile 100vh→dvh URL-bar
-    // collapse, a frame-mode layout change, an orientation flip) leaves the cluster
-    // jammed against an edge and clipped off-screen. Live placement then nests
-    // around the re-centred cluster (bounds + centre track the new viewport).
-    const on = next.onScreen();
-    if (on.length > 0) {
-      const b = bounds(on);
-      const dx = this.W / 2 - (b.L + b.R) / 2;
-      const dy = this.H / 2 - (b.T + b.B) / 2;
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
-        for (const t of next.placed) {
-          if (t.x > -99998) {
-            t.x += dx;
-            t.y += dy;
-          }
-        }
-        if (this.ambientGrid) {
-          for (const t of this.ambientGrid.placed) {
-            if (t.x > -99998) {
-              t.x += dx;
-              t.y += dy;
-            }
-          }
+    // Re-centre the existing cluster into the resized viewport's SAFE box. Phase 0
+    // keeps the relative arrangement (no re-pack / no re-spiral) — this is a pure
+    // TRANSLATION of every real + ambient tile by the same delta. Without it, a
+    // canvas that shrinks AFTER the seed centred on the taller size (mobile
+    // 100vh→dvh URL-bar collapse, a frame-mode layout change, an orientation flip)
+    // leaves the cluster jammed against an edge and clipped off-screen. Using the
+    // safe box keeps the re-centred cluster clear of the chrome, and live placement
+    // then nests around it (bounds + centre track the new viewport).
+    const { dx, dy } = this.centreCluster(next, this.safeBox());
+    if ((Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) && this.ambientGrid) {
+      for (const t of this.ambientGrid.placed) {
+        if (t.x > -99998) {
+          t.x += dx;
+          t.y += dy;
         }
       }
     }
@@ -537,8 +592,16 @@ export class CollageEngine {
    *  e-ink prints, under reduced-motion, or when the fill is off. Never calls
    *  bumpRoster — the counter must reflect real detections only. */
   private populateAmbient(): void {
+    // The Frame/Wall surface (kiosk) keeps its STATIC backdrop even under
+    // reduced-motion: reduced-motion silences MOTION (drift/breath), not the
+    // painting's presence — so a wall never collapses to "2 stragglers on black."
+    // e-ink (a print) and an explicit `off` still suppress it; a normal reduced-
+    // motion SCREEN is unchanged (backdrop off, honest cold-start tiers).
+    const isWall = PROFILE.surface === 'kiosk';
     const disabled =
-      PROFILE.surface === 'eink' || this.renderer.reducedMotion || this.ambientMode === 'off';
+      PROFILE.surface === 'eink' ||
+      this.ambientMode === 'off' ||
+      (this.renderer.reducedMotion && !isWall);
     if (disabled) {
       if (this.ambientGrid) {
         this.ambientGrid = null;
@@ -556,6 +619,10 @@ export class CollageEngine {
       allTime: this.allTime,
       mode: this.ambientMode,
       density: this.ambientDensity,
+      // Wall/kiosk density floor: fill to a fuller target so the marquee wall
+      // always reads as a composed painting, never empty/still-loading. Screens
+      // keep the honest density tier (undefined → the DENSITY_CAP default).
+      targetTotal: isWall ? 16 : undefined,
     });
 
     const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);

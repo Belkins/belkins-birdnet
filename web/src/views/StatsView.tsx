@@ -33,8 +33,18 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
   const maxHour = Math.max(1, ...byHour);
   const fmt = (n: number | undefined) => (n === undefined ? '—' : n);
 
+  // Left-column framing for the ridge: a title + a peak/volume caption, so the
+  // histogram anchors a considered column instead of floating in empty space.
+  const dayTotal = byHour.reduce((a, v) => a + v, 0);
+  const hasHours = byHour.some((v) => v > 0);
+  const peakHour = hasHours ? byHour.indexOf(Math.max(...byHour)) : -1;
+  // When the record is younger than a week, WEEK and ALL genuinely coincide —
+  // annotate it so identical numbers don't read as a duplicated/broken row.
+  const weekEqualsAll =
+    stats != null && stats.all.detections > 0 && stats.week.detections === stats.all.detections;
+
   return (
-    <div className="view">
+    <div className="view stats-view">
       <div className="view-mast">
         <div className="eyebrow">your window</div>
         <div className="t">THE RECORD</div>
@@ -49,7 +59,11 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
         </div>
       ) : (
         <div className="stats-grid">
-          <div>
+          <div className="stats-hours">
+            <div className="sb ridge-head">
+              <div className="sh">By Hour</div>
+              <div className="ss">detections across the day, last 24h</div>
+            </div>
             <div className="ridge">
               {byHour.map((v, h) => (
                 <div
@@ -73,6 +87,12 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
               <span className="dawn">dawn</span>
               <span className="noon">noon</span>
               <span className="dusk">dusk</span>
+            </div>
+            {/* quiet caption — balances the column and reads the chart's shape */}
+            <div className="ridge-cap">
+              {hasHours
+                ? `Peak around ${String(peakHour).padStart(2, '0')}:00 · ${dayTotal} today`
+                : 'Awaiting today’s first detection'}
             </div>
           </div>
           <div className="stats-panels">
@@ -107,6 +127,11 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
                 <span className="v">all time</span>
                 <span className="num">{fmt(stats?.all.detections)}</span>
               </div>
+              {weekEqualsAll && (
+                <div className="period-note">
+                  the record is younger than a week — 7-day and all-time still coincide
+                </div>
+              )}
             </div>
             <div className="sb">
               <div className="sh">Top Species</div>

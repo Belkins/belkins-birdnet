@@ -12,18 +12,19 @@ import { Listen } from '../components/Listen';
 // code needed) — always resolves, unlike the auth-gated /species/<code> pages.
 const EBIRD_SEARCH = 'https://media.ebird.org/catalog?q=';
 
-// Header: the catalogue number (life-list order) over the call count, with the
-// Lifer / Heard tag pill on the right.
+// Header: the catalogue number (life-list order) over the call count. The Lifer
+// pill shows only for a genuine first (isNew) — never an always-true "Heard"
+// badge (every plate was, by definition, heard).
 function CardHead({ cat, n, isNew }: { cat: string; n: number; isNew: boolean }) {
   return (
     <div className="acard-h">
       <div className="acard-hl">
         <span className="acard-no">{cat}</span>
         <span>
-          <b>{n}</b> calls
+          <b>{n}</b> {n === 1 ? 'call' : 'calls'}
         </span>
       </div>
-      <span className={isNew ? 'tg l' : 'tg n'}>{isNew ? 'Lifer' : 'Heard'}</span>
+      {isNew && <span className="tg l">Lifer</span>}
     </div>
   );
 }
@@ -69,7 +70,7 @@ export function AtlasView({ rows, onOpen }: { rows: RosterRow[]; onOpen?: (r: Ro
       <div className="view">
         <div className="view-mast">
           <div className="eyebrow">your window</div>
-          <div className="t">Atlas Belkins BirdNET</div>
+          <div className="t">Atlas BirdNet</div>
         </div>
         <div className="atlas-feature">
           <div className="acard feat" role="button" tabIndex={0} onClick={() => onOpen?.(r)}>
@@ -90,7 +91,7 @@ export function AtlasView({ rows, onOpen }: { rows: RosterRow[]; onOpen?: (r: Ro
     <div className="view">
       <div className="view-mast">
         <div className="eyebrow">your window</div>
-        <div className="t">Atlas Belkins BirdNET</div>
+        <div className="t">Atlas BirdNet</div>
       </div>
       <div className="atlas-grid">
         {cards.map((r, i) => (

@@ -295,7 +295,7 @@
 .view-mast .t {
   font-family: var(--display);
   font-weight: 500;
-  /* 34px keeps the longer "Atlas Belkins BirdNET" heading on one line at the
+  /* 34px keeps the view headings (e.g. "Atlas BirdNet") on one line at the
      760px card-grid breakpoint. */
   font-size: 34px;
   letter-spacing: 0.12em;
@@ -311,12 +311,15 @@
   max-width: 1180px;
   margin: 0 auto;
 }
+/* Display type is one deliberate serif system: "HEARD TODAY" and the giant
+   total are Cormorant (like the view mastheads and the Stats life-hero), not a
+   second grotesque — so the surface reads as considered, not split. */
 .idx-head .idx-big {
-  font-family: var(--bold);
-  font-weight: 800;
-  font-size: 52px;
-  line-height: 0.96;
-  letter-spacing: -0.02em;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 58px;
+  line-height: 0.98;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   margin-top: 0.1em;
 }
@@ -328,12 +331,13 @@
   margin-top: 14px;
 }
 .idx-head .idx-total {
-  font-family: var(--bold);
-  font-weight: 800;
-  font-size: 96px;
-  line-height: 0.85;
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 108px;
+  line-height: 0.82;
   color: var(--amber);
-  margin-top: 36px;
+  margin-top: 30px;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .idx-head .idx-totl {
   font-family: var(--mono);
@@ -341,15 +345,19 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--mut);
-  font-variant-numeric: oldstyle-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .idx-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+/* Rank | name | shared bar track | count. The track is a fixed grid column so
+   every bar is measured against the same width — #1 fills it, the tail reads
+   as a dramatic stub, and the magnitude gap is legible at a glance. */
 .idx-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 26px minmax(5.5em, 1fr) minmax(80px, 1.7fr) 44px;
   align-items: center;
   gap: 16px;
   border-top: 1px solid var(--line);
@@ -359,29 +367,43 @@
   font-family: var(--mono);
   font-size: 12px;
   color: var(--red);
-  width: 26px;
 }
 .idx-nm {
-  flex: 1;
+  min-width: 0;
   font-family: var(--display);
   font-size: 26px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .idx-row.top .idx-nm {
   color: var(--amber);
 }
+/* Shared track: a faint full-width rail; the bar fills a count-proportional
+   slice of it (width set inline against the top species = 100%). */
+.idx-track {
+  position: relative;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--line-2);
+  overflow: hidden;
+}
 .idx-bar {
-  height: 5px;
-  max-width: 40%;
+  display: block;
+  height: 100%;
+  min-width: 4px;
   background: var(--amber);
-  border-radius: 3px;
-  opacity: 0.85;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+.idx-row.top .idx-bar {
+  opacity: 1;
 }
 .idx-ct {
   font-family: var(--mono);
   font-weight: 700;
   font-size: 13px;
-  width: 36px;
   text-align: right;
   font-variant-numeric: tabular-nums lining-nums;
 }
@@ -430,7 +452,7 @@
   display: flex;
   align-items: flex-end;
   gap: 3px;
-  height: 300px;
+  height: 340px;
   border-bottom: 1px solid var(--line);
 }
 .ridge-b {
@@ -493,7 +515,7 @@
   font-family: var(--display);
   font-size: 18px;
   color: var(--ink);
-  font-variant-numeric: oldstyle-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .sb .num.am {
   color: var(--amber);
@@ -549,33 +571,58 @@
   color: var(--ink-2);
 }
 .acard-img {
-  height: 110px;
+  height: 124px;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   margin: 14px 0 12px;
 }
 .acard-img img {
-  max-height: 110px;
-  max-width: 78%;
+  max-height: 124px;
+  max-width: 86%;
   filter: drop-shadow(0 8px 12px rgba(0, 0, 0, 0.4));
 }
 :root[data-theme='night'] .acard-img img,
 :root:not([data-theme='day']) .acard-img img {
   filter: drop-shadow(0 0 18px rgba(240, 214, 160, 0.16)) drop-shadow(0 8px 12px rgba(0, 0, 0, 0.5));
 }
+/* Fallback specimen mark: a quiet bird silhouette (BirdThumb), not a letter
+   monogram disc. Sized to sit comfortably in the bounded well; theme-driven. */
 .acard-sil {
-  width: 90px;
-  height: 90px;
-  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--display);
-  font-size: 40px;
   color: var(--mut);
-  background: var(--glass);
-  border: 1px solid var(--line);
+}
+.acard-sil svg {
+  width: 66px;
+  height: auto;
+  opacity: 0.85;
+}
+/* Loading skeleton: a gentle sweep in the bounded well while a still-generating
+   illustration is in flight — never a spinner, never a broken-image glyph. */
+.acard-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(100deg, var(--line-2) 30%, var(--glass) 50%, var(--line-2) 70%);
+  background-size: 220% 100%;
+  animation: acard-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes acard-shimmer {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acard-shimmer {
+    animation: none;
+    background: var(--line-2);
+  }
 }
 .acard-cn {
   font-family: var(--display);
@@ -666,12 +713,15 @@
   padding: 30px 34px;
 }
 .acard.feat .acard-img.feat {
-  height: 210px;
+  height: 235px;
   margin: 20px 0 12px;
 }
 .acard.feat .acard-img.feat img {
-  max-height: 210px;
-  max-width: 82%;
+  max-height: 235px;
+  max-width: 88%;
+}
+.acard-img.feat .acard-sil svg {
+  width: 128px;
 }
 .acard.feat .feat-kicker {
   font-family: var(--mono);

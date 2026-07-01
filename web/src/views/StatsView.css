@@ -3,6 +3,43 @@
    gallery label. All theme-var driven so day + night both read. Base ridge /
    panel rules live in App.css and are left untouched. */
 
+/* Bottom scroll clearance for the floating nav pill (position:absolute at
+   bottom:4.6vh, ~44px tall). Without it the Life List's last rows sit hidden
+   behind the pill in both themes; this lifts them clear with a small gap. */
+.view.stats-view {
+  padding-bottom: calc(4.6vh + 96px);
+}
+
+/* Left column: a titled, captioned histogram so it anchors the column instead
+   of floating tiny in empty space beside the taller panel stack. */
+.stats-hours {
+  display: flex;
+  flex-direction: column;
+}
+.ridge-head {
+  margin-bottom: 16px;
+}
+/* quiet reading of the ridge's shape — peak hour + today's volume */
+.ridge-cap {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* By-Period footnote — shown only when 7-day == all-time, so identical numbers
+   read as an honest coincidence, not a duplicated/broken row. */
+.period-note {
+  margin-top: 9px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--mut);
+}
+
 /* dawn/noon/dusk annotation, aligned to hours 6 / 12 / 18 under the ridge axis.
    Permanent — it frames the negative space even when the ridge is all-zero. */
 .ridge-phase {
@@ -39,7 +76,7 @@
   font-size: 42px;
   line-height: 1;
   color: var(--ink);
-  font-variant-numeric: oldstyle-nums;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .life-hero .n .u {
   font-size: 19px;

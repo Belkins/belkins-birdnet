@@ -61,16 +61,22 @@ export function ambientRoster(opts: {
   allTime: SpeciesRow[];
   mode: Settings['ambientFill'];
   density: Settings['density'];
+  /** Optional TARGET TOTAL override (real + ambient). The Frame/Wall surface
+   *  passes a fuller floor so the marquee never reads empty; screens omit it and
+   *  fall back to the density tier's DENSITY_CAP. */
+  targetTotal?: number;
 }): AmbientSpecies[] {
-  const { realRoster, allTime, mode, density } = opts;
+  const { realRoster, allTime, mode, density, targetTotal } = opts;
 
   if (mode === 'off') return [];
 
-  // Density is now a TARGET TOTAL population, not an additive ghost count. As
-  // real detections grow the ambient deficit shrinks to zero — so at 5-13 real
-  // species the backdrop all but disappears and cannot collide with the real
-  // birds. A young/empty install still fills to the target.
-  const cap = Math.max(0, DENSITY_CAP[density] - realRoster.length);
+  // Density is a TARGET TOTAL population, not an additive ghost count. As real
+  // detections grow the ambient deficit shrinks to zero — so at 5-13 real species
+  // the backdrop all but disappears and cannot collide with the real birds. A
+  // young/empty install still fills to the target. A caller may raise the target
+  // (the Wall floor); we never let it fall below the tier's own cap.
+  const target = Math.max(DENSITY_CAP[density], targetTotal ?? 0);
+  const cap = Math.max(0, target - realRoster.length);
   if (cap === 0) return [];
   // Honesty firewall: never echo a species the live counter is already counting
   // (seed with the counted set, then dedupe as we fill).
