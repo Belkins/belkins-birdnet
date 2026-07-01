@@ -4,11 +4,14 @@
 // Lookup chain for /avian/api/cutout.php?sci=Calypte+anna:
 //   1. ../assets/illustrations/<slug>.png   (450+ bundled kachō-e renders)
 //   2. ../assets/cutouts/<slug>.png         (background-removed photo)
-//   3. cached rembg of a Wikipedia photo at $HOME/BirdSongs/Extracted/cutouts/
-//   4. fresh Wikipedia -> rembg -> cache (skipped gracefully if rembg unset)
+//   3. cached rembg / Railway-proxy result at $HOME/BirdSongs/Extracted/cutouts/
+//   4. Railway auto-gen (proxied + cached server-side), else Wikipedia -> rembg
 //
-// The frontend's <img src> points here for every species - bundled
-// hits return instantly; cold misses fall through to the dynamic path.
+// The frontend's <img src> points here for every species - bundled and
+// once-cached hits return instantly; cold misses fall through to the dynamic
+// path. Every response is a 200 image/png; a genuine asset carries
+// X-Av-Real:1, an intentional placeholder carries X-Av-Real:0 (the modal's
+// pose toggle reads this so it never lights up a pose that isn't really there).
 //
 // Default LAN deploy ships without auth. To expose publicly, gate
 // /avian/api/* with basic_auth in your Caddyfile - see avian/forwarding/.
@@ -39,7 +42,20 @@ $pose = (int)($_GET['pose'] ?? 1);
 if ($pose < 1 || $pose > 99) $pose = 1;
 $poseSuffix = $pose === 1 ? '' : "-$pose";
 
-function serve_png(string $path, int $maxAge = 86400): void {
+// Explicit silhouette request. The collage's onerror fallback (?fb=1) and any
+// caller that wants the intentional placeholder hits ?sil=1 to get the ink
+// silhouette directly and deterministically - bypassing the whole miss chain
+// and never touching Railway. The function defs below are hoisted, so calling
+// serve_silhouette() here (before its textual definition) is valid.
+if (!empty($_GET['sil']) || !empty($_GET['fb'])) {
+    serve_silhouette();
+}
+
+// Serve a PNG file. $real marks whether these are genuine species bytes
+// (X-Av-Real:1) or an intentional placeholder/substitute (X-Av-Real:0). The
+// modal's pose probe reads X-Av-Real to decide which pose toggles are real.
+function serve_png(string $path, int $maxAge = 86400, bool $real = true): void {
+    header('X-Av-Real: ' . ($real ? '1' : '0'));
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=' . $maxAge);
     header('Content-Length: ' . (string)filesize($path));
@@ -47,8 +63,8 @@ function serve_png(string $path, int $maxAge = 86400): void {
     exit;
 }
 
-// Terminal fallback - ALWAYS a 200 image/png, never a 4xx/5xx (spec §8
-// tiers 5/6). A long-tail miss, an upstream failure, or the collage's
+// Terminal fallback - ALWAYS a 200 image/png X-Av-Real:0, never a 4xx/5xx
+// (spec §8 tiers 5/6). A long-tail miss, an upstream failure, or the collage's
 // isDefault aspect-1.4 bbox must still resolve to an intentional ink
 // silhouette so the browser logs no failed-resource error and the e-ink
 // capture never shows a broken glyph. Resolution order:
@@ -64,7 +80,7 @@ function serve_silhouette(): void {
     // a. Designer drop-in override.
     $bundled = dirname(__DIR__) . '/assets/silhouette.png';
     if (is_file($bundled) && filesize($bundled) > 0) {
-        serve_png($bundled, $maxAge);
+        serve_png($bundled, $maxAge, false);
     }
 
     // b/c. Cached, or freshly generated, generic silhouette. Kept in its
@@ -72,17 +88,20 @@ function serve_silhouette(): void {
     $silDir  = dirname(__DIR__, 3) . '/BirdSongs/Extracted/silhouettes';
     $silPath = "$silDir/_generic.png";
     if (is_file($silPath) && filesize($silPath) > 0) {
-        serve_png($silPath, $maxAge);
+        serve_png($silPath, $maxAge, false);
     }
     if (function_exists('imagecreatetruecolor') && make_silhouette($silDir, $silPath)) {
-        serve_png($silPath, $maxAge);
+        serve_png($silPath, $maxAge, false);
     }
 
     // d. Last-ditch: a 1x1 transparent PNG (GD absent, or the render failed).
-    //    Still a clean 200 image/png, so no console error is logged.
+    //    Still a clean 200 image/png X-Av-Real:0, so no console error is logged
+    //    and the pose probe treats it as unavailable. Install php-gd so this
+    //    degrades to a real ink silhouette (b/c) rather than an invisible pixel.
     $px = base64_decode(
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNgAAIAAAUAAen63NgAAAAASUVORK5CYII='
     );
+    header('X-Av-Real: 0');
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=' . $maxAge);
     header('Content-Length: ' . (string)strlen($px));
@@ -120,42 +139,19 @@ function make_silhouette(string $dir, string $path): bool {
     return $ok && is_file($path) && filesize($path) > 0;
 }
 
-// First-touch detector for the Railway generator. Returns true the first
-// time a slug is seen inside a short window (recording a marker so the 302
-// fires once to kick off generation), and false on repeat hits within that
-// window - the caller then serves the 200 silhouette instead of redirecting
-// again to a still-pending, and thus 404-ing, Railway asset. Once the marker
-// lapses the asset is almost certainly on Railway's volume and the next
-// request 302s straight to the finished illustration. If the marker can't be
-// persisted we treat every miss as pending (preserves the original
-// always-redirect behavior).
-function railway_pending(string $slug): bool {
-    // Must stay < the frontend's 30s RETRY_INTERVAL so a retry sweep landing
-    // inside a still-pending window re-fires the 302 to Railway, instead of
-    // hitting a "fresh" marker and being served the 200 silhouette forever
-    // (which would permanently defeat live-paint of a new species).
-    $ttl = 20;
-    $marker = sys_get_temp_dir() . '/avbn-railway-' . $slug . '.pending';
-    $mtime = @filemtime($marker);
-    if ($mtime !== false && (time() - $mtime) < $ttl) {
-        return false; // generation already kicked off; still pending
-    }
-    @touch($marker);
-    return true;      // first touch (or unpersisted marker): redirect to generate
-}
-
 // 1. Bundled illustration with pose suffix (the kachō-e PNG the repo
 //    ships with). 450+ species cover both perched + flight.
 $bundled = dirname(__DIR__) . "/assets/illustrations/{$slug}{$poseSuffix}.png";
 if (is_file($bundled) && filesize($bundled) > 1024) {
     serve_png($bundled);
 }
-// Pose-2 missing? Fall back to pose-1 so the flight tab still shows
-// the perched render instead of breaking to the photo fallback.
+// Pose-2 missing? Fall back to pose-1 so the flight tab still shows the
+// perched render - but mark it X-Av-Real:0 (a substitute, not a real flight
+// asset) so the modal's flight toggle correctly stays hidden.
 if ($pose !== 1) {
     $fallback = dirname(__DIR__) . "/assets/illustrations/$slug.png";
     if (is_file($fallback) && filesize($fallback) > 1024) {
-        serve_png($fallback);
+        serve_png($fallback, 86400, false);
     }
 }
 // 2. Bundled cutout (background-removed photo, fallback for species
@@ -165,38 +161,75 @@ if (is_file($cutout) && filesize($cutout) > 1024) {
     serve_png($cutout);
 }
 
-// 3. Dynamic cache from a previous Wikipedia + rembg run.
+// 3. Dynamic cache from a previous Railway-proxy or Wikipedia+rembg run. The
+//    key is pose-1 ($slug.png): Railway only ever generates pose-1 (flight is
+//    wasted spend), so a pose>1 request serves this same cached asset as a
+//    SUBSTITUTE (X-Av-Real:0). This is the hot path once an asset is warmed:
+//    every re-render / modal open / pose probe short-circuits here, instantly,
+//    so it can NEVER collapse to a repeat-hit silhouette.
 $cacheDir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';
 $cachePath = "$cacheDir/$slug.png";
 if (is_file($cachePath) && filesize($cachePath) > 1024) {
-    serve_png($cachePath);
+    serve_png($cachePath, 86400, $pose === 1);
 }
 
-// 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, redirect
-//    long-tail misses to the Railway service, which generates the kachō-e
-//    illustration on demand and serves it from its volume. This MUST be the
-//    FIRST miss-handler (after all bundled/cached lookups, before the
-//    rembg/Wikipedia branch) so the long tail prefers the generated kachō-e
-//    over a background-removed photo. Pose-1 only (the live collage hardcodes
-//    pose=1; generating pose-2 is wasted spend). $slug is already slug-sanitized
-//    above, so no path-traversal reaches the redirect target.
-//    Unset env -> fall through to the existing behavior (graceful degrade,
-//    fully backward-compatible).
-//    The 302 fires ONLY while generation is genuinely pending (the first
-//    miss for a slug, per railway_pending()); repeat hits inside that window
-//    fall through to the 200 silhouette default so a still-generating asset's
-//    404 can't storm the browser console.
+// 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, PROXY the
+//    asset server-side (GET, ignore_errors) so PHP sees the true HTTP status:
+//    on a genuine 200 we write the bytes into the tier-3 cache above and stream
+//    them as real (X-Av-Real:1) - so from the SECOND hit onward every request
+//    short-circuits at tier 3 and this branch is never re-entered for that
+//    species. That structurally eliminates the old repeat-hit 1x1 (which came
+//    from serving a silhouette on the 2nd..Nth hit while the browser re-drew
+//    the tile). The GET still kicks off Railway's on-demand generation. A miss
+//    (still generating / 404 / timeout) records a short negative-cache marker
+//    and serves the 200 silhouette, so a poll/modal storm can't hammer Railway
+//    or the php-fpm pool. Unset env -> fall through to the rembg/Wikipedia path.
 $railwayBase = getenv('AV_RAILWAY_ASSET_BASE');
-if ($railwayBase && railway_pending($slug)) {
-    header('Location: ' . rtrim($railwayBase, '/') . '/asset/' . $slug . '.png', true, 302);
-    exit;
-}
-// When Railway is configured it is the SOLE long-tail handler. On a repeat miss
-// inside the pending window, serve the 200 silhouette rather than falling through
-// to the rembg/Wikipedia branch below - a cached photo cutout there would
-// permanently shadow the Railway kachō-e once it finishes generating.
-// serve_silhouette() always exits.
 if ($railwayBase) {
+    $isReal  = ($pose === 1);
+    $railUrl = rtrim($railwayBase, '/') . '/asset/' . $slug . '.png';   // pose-1 only
+
+    // Negative cache: if we confirmed this slug isn't generated yet within the
+    // last ~28s (< the frontend's 30s poll, so each poll re-checks exactly
+    // once), serve the silhouette immediately instead of re-proxying Railway on
+    // every re-render / modal HEAD probe. Bounds fpm + Railway egress load.
+    $missMarker = sys_get_temp_dir() . '/avbn-railmiss-' . $slug;
+    $mt = @filemtime($missMarker);
+    if ($mt !== false && (time() - $mt) < 28) {
+        serve_silhouette();
+    }
+
+    $rctx = stream_context_create(['http' => [
+        'method'        => 'GET',
+        'timeout'       => 6,
+        'ignore_errors' => true,   // read the body even on a 404 status line
+    ]]);
+    $bytes = @file_get_contents($railUrl, false, $rctx);
+    $code  = 0;
+    if (isset($http_response_header[0]) &&
+        preg_match('{\s(\d{3})\b}', $http_response_header[0], $m)) {
+        $code = (int)$m[1];
+    }
+    if ($bytes !== false && $code === 200 && strlen($bytes) > 1024) {
+        @unlink($missMarker);                       // resolved - clear negative cache
+        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+        $tmp = $cachePath . '.tmp' . getmypid();
+        if (@file_put_contents($tmp, $bytes) !== false && @rename($tmp, $cachePath)) {
+            serve_png($cachePath, 86400, $isReal);  // cached: instant on every future hit
+        }
+        @unlink($tmp);
+        // Cache write failed (read-only FS) - still stream the real bytes.
+        header('X-Av-Real: ' . ($isReal ? '1' : '0'));
+        header('Content-Type: image/png');
+        header('Cache-Control: public, max-age=86400');
+        header('Content-Length: ' . (string)strlen($bytes));
+        echo $bytes;
+        exit;
+    }
+    // Not generated yet, or the fetch failed: record the miss + serve a real
+    // 200 silhouette (never a 404, never a 1x1 once php-gd is installed). The
+    // GET above already kicked off Railway's on-demand generation.
+    @touch($missMarker);
     serve_silhouette();
 }
 

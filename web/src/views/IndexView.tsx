@@ -33,7 +33,14 @@ export function IndexView({ rows }: { rows: RosterRow[] }) {
               <li className={i === 0 ? 'idx-row top' : 'idx-row'} key={r.sci}>
                 <span className="idx-no">{String(i + 1).padStart(2, '0')}</span>
                 <span className="idx-nm">{r.com || r.sci}</span>
-                <span className="idx-bar" style={{ width: `${20 + (r.n / max) * 60}%` }} />
+                {/* Length is count-proportional against the top species (=100%);
+                    a 6% floor keeps the tail visible without flattening the gap. */}
+                <span className="idx-track">
+                  <span
+                    className="idx-bar"
+                    style={{ width: `${Math.max(6, Math.round((r.n / max) * 100))}%` }}
+                  />
+                </span>
                 <span className="idx-ct">{r.n}</span>
               </li>
             ))}

@@ -74,4 +74,20 @@ body {
   color: var(--ink);
   overflow: hidden;
   transition: background 0.35s ease, color 0.35s ease;
+  /* Data-first figures everywhere: lining + tabular so a "1" never renders as a
+     small-cap "I" (Cormorant defaults to oldstyle) in counts, ranks and
+     tallies. Inherited, so it reaches every number context — counter, index,
+     stats, atlas, wall, popup. Reserve oldstyle for running prose via
+     `.prose-nums`. */
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* Number-context utility (data / counts / ranks). Applied globally on <body>;
+   kept as an explicit hook for one-off number slots. */
+.tnum {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* Opt a run of prose back into elegant oldstyle proportional figures. */
+.prose-nums {
+  font-variant-numeric: oldstyle-nums proportional-nums;
 }

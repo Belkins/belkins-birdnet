@@ -5,17 +5,30 @@
 // fade 0->1 + scale 0.85->1 + a cheap top-down reveal wipe over ~1.2s. With
 // prefers-reduced-motion the bird appears instantly (no motion).
 //
-// Theme (night/day) adds a per-bird Canvas shadow — a warm spotlight glow on
-// the dark Obsidian ground, a soft contact shadow on the cream Day ground —
-// plus a light atmospheric depth cue (smaller/farther birds recede).
+// Theme (night/day) adds ONE unified per-bird "seat" ink (seatInk) — a faint
+// luminous edge-light that lifts dark specimens off the Obsidian ground at
+// night, and a soft ink-wash contact shadow that grounds each bird by day.
+// Consistent radius/opacity across birds (no uneven "Photoshop drop-glow"), so
+// every specimen sits INTO the painting instead of floating like a sticker.
 
 import type { Tile } from './types';
-import { birdInk, type Theme } from './theme';
+import type { Theme } from './theme';
 import { PROFILE } from './profile';
 
 const PAINT_MS = 1200;
 const SCALE_FROM = 0.85;
 const TAU = Math.PI * 2;
+
+/** Minimum on-screen edge (px) for a silhouette / pending placeholder, so a
+ *  tiny tile never renders as a dust speck or stray glyph (judges' "floating
+ *  flecks"). Illustrated tiles are already count-sized above this. */
+const MIN_SIL_PX = 44;
+
+/** Max static composition rotation (rad ≈ 2.6°). A subtle, seeded per-bird tilt
+ *  so the cluster reads as a composed rosette, not a shelf of upright stickers.
+ *  Kept tiny so the axis-aligned hitTest bbox stays accurate. The hero (largest)
+ *  is never tilted — it reads as the deliberate anchor. */
+const MAX_ROT = 0.045;
 
 // Idle ambient-life motion (spec §7.2). Every amplitude/duration lives here so
 // reduced-motion and e-ink zero the piece deterministically to its phase-0 home.
@@ -165,16 +178,19 @@ export class CollageRenderer {
     ctx.clearRect(0, 0, W, H);
 
     const now = performance.now();
-    const ink = birdInk(this.theme);
     const night = this.theme === 'night';
     const motion = this.motionActive();
     const driftAmp = motion ? MOTION.driftAmpPx : 0;
+    // A pending tile pulses only where motion is honest (not e-ink / reduced-
+    // motion); elsewhere it draws one steady shimmer frame.
+    const canPulse = !this.reducedMotion && PROFILE.surface !== 'eink';
     // Ambient backdrop tiles paint at a reduced, theme-aware alpha (spec §6.5).
     const AMBIENT_ALPHA = night ? 0.22 : 0.18;
     let animating = false;
+    let pending = false;
 
     // Largest on-screen footprint (real tiles only) for the atmospheric-depth
-    // cue, plus the composition centroid the whole-cluster breath scales about.
+    // cue + the hero test, plus the composition centroid the breath scales about.
     let maxW = 1;
     let sumX = 0;
     let sumY = 0;
@@ -198,7 +214,8 @@ export class CollageRenderer {
       ctx.translate(-cx, -cy);
     }
 
-    // Ambient layer first, behind the real birds: no reveal, reduced alpha.
+    // Ambient layer first, behind the real birds: no reveal, reduced alpha, a
+    // gentler tilt. Its own pending tiles shimmer once (never drive the loop).
     for (const t of this.tiles) {
       if (!t.ambient || t.x <= -99998) continue;
       const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
@@ -207,14 +224,8 @@ export class CollageRenderer {
       const dy = t.y + dr.dy;
       ctx.save();
       ctx.globalAlpha = AMBIENT_ALPHA;
-      if (t.loaded && t.img && !t.failed) {
-        ctx.shadowColor = ink.shadowColor;
-        ctx.shadowBlur = night ? ink.shadowBlur * (1 - 0.5 * depth) : ink.shadowBlur;
-        ctx.shadowOffsetY = ink.shadowOffsetY;
-        ctx.drawImage(t.img, dx, dy, t.fullW, t.fullH);
-      } else {
-        this.drawSilhouette(t, dx, dy, t.fullW, t.fullH);
-      }
+      this.rotateAbout(dx + t.fullW / 2, dy + t.fullH / 2, tileRotation(t.slug) * 0.8);
+      this.paintTile(t, dx, dy, t.fullW, t.fullH, night, true, now, canPulse);
       ctx.restore();
     }
 
@@ -232,9 +243,10 @@ export class CollageRenderer {
         }
       }
 
-      // depth: 0 = nearest/biggest, 1 = farthest/smallest.
+      // depth: 0 = nearest/biggest, 1 = farthest/smallest. Gentle alpha recede
+      // (dark specimens stay present; the seat edge-light does the lifting).
       const depth = Math.max(0, Math.min(1, 1 - t.fullW / maxW));
-      const alpha = progress * (1 - 0.2 * depth);
+      const alpha = progress * (1 - 0.12 * depth);
       const scale = SCALE_FROM + (1 - SCALE_FROM) * progress;
       const drawW = t.fullW * scale;
       const drawH = t.fullH * scale;
@@ -244,6 +256,9 @@ export class CollageRenderer {
 
       ctx.save();
       ctx.globalAlpha = alpha;
+      // Subtle seeded tilt — never the hero (largest reads as the upright anchor).
+      const isHero = t.fullW >= maxW * 0.985;
+      this.rotateAbout(dx + drawW / 2, dy + drawH / 2, isHero ? 0 : tileRotation(t.slug));
       // Top-down reveal wipe: clip to the portion painted so far.
       if (progress < 1) {
         ctx.beginPath();
@@ -251,43 +266,150 @@ export class CollageRenderer {
         ctx.clip();
       }
 
-      if (t.loaded && t.img && !t.failed) {
-        ctx.shadowColor = ink.shadowColor;
-        ctx.shadowBlur = night ? ink.shadowBlur * (1 - 0.5 * depth) : ink.shadowBlur;
-        ctx.shadowOffsetY = ink.shadowOffsetY;
-        ctx.drawImage(t.img, dx, dy, drawW, drawH);
-      } else {
-        this.drawSilhouette(t, dx, dy, drawW, drawH);
-      }
+      this.paintTile(t, dx, dy, drawW, drawH, night, false, now, canPulse);
       ctx.restore();
+
+      // A loading tile (has a URL, not yet decoded, not failed) keeps the loop
+      // alive so its shimmer breathes until the cutout paints in.
+      if (!t.loaded && !t.failed && canPulse) pending = true;
     }
 
-    if (animating) this.requestDraw();
+    if (animating || pending) this.requestDraw();
   }
 
-  /** A tasteful ink SILHOUETTE for a bird with no cutout yet (pending Railway
-   *  gen) or no illustration at all — never a labeled grey card. Real mask →
-   *  the bird's own shape; default-bbox species → a generic perched-bird glyph.
-   *  Theme-aware ink so it reads on both grounds. */
+  /** Rotate the context about a point (no-op at 0). Caller has already saved. */
+  private rotateAbout(px: number, py: number, rot: number): void {
+    if (!rot) return;
+    const { ctx } = this;
+    ctx.translate(px, py);
+    ctx.rotate(rot);
+    ctx.translate(-px, -py);
+  }
+
+  /** Paint one tile in its current state, with the caller's alpha/clip/rotation
+   *  already applied:
+   *   - decoded illustration → drawImage under the UNIFIED seat ink;
+   *   - loading (has URL, not decoded, not failed) → soft pulsing shimmer;
+   *   - failed / no illustration → the species silhouette.
+   *  `ambient` softens the seat ink for the recessed backdrop layer. */
+  private paintTile(
+    t: Tile,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    night: boolean,
+    ambient: boolean,
+    now: number,
+    canPulse: boolean,
+  ): void {
+    const { ctx } = this;
+    if (t.loaded && t.img && !t.failed) {
+      const ink = seatInk(Math.max(w, h), night);
+      ctx.shadowColor = ink.color;
+      ctx.shadowBlur = ambient ? ink.blur * 0.6 : ink.blur;
+      ctx.shadowOffsetY = ink.offsetY;
+      ctx.drawImage(t.img, x, y, w, h);
+      // Reset so the halo never bleeds onto a subsequent primitive.
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetY = 0;
+      return;
+    }
+    if (!t.loaded && !t.failed) {
+      this.drawPending(t, x, y, w, h, night, now, canPulse);
+      return;
+    }
+    this.drawSilhouette(t, x, y, w, h);
+  }
+
+  /** A tasteful SPECIES-SPECIFIC ink silhouette for a bird with a failed cutout
+   *  or no illustration at all — never a labeled grey card, never a letter, never
+   *  two identical shapes. Real mask → the bird's OWN outline; a species lacking a
+   *  baked mask → one of several distinct perched-bird glyphs (seeded + optionally
+   *  mirrored by slug, so adjacent default-mask birds never twin). Warm ink at
+   *  ~15% with a soft feathered edge; floored to MIN_SIL_PX so it never specks. */
   private drawSilhouette(t: Tile, x: number, y: number, w: number, h: number): void {
     const { ctx } = this;
     const night = this.theme === 'night';
-    ctx.fillStyle = night ? 'rgba(241,234,217,0.32)' : 'rgba(26,22,18,0.28)';
-    const path = this.silhouettePath(t);
+    const p = this.scaledSilhouette(t, x, y, w, h);
     ctx.save();
-    ctx.translate(x, y);
-    if (t.mask.isDefault) ctx.scale(w / 100, h / 72);        // glyph authoring box
-    else ctx.scale(w / t.mask.w, h / t.mask.h);              // real mask space
-    ctx.fill(path);
+    ctx.fillStyle = night ? 'rgba(238,228,205,0.15)' : 'rgba(34,26,16,0.15)';
+    ctx.shadowColor = night ? 'rgba(238,228,205,0.10)' : 'rgba(34,26,16,0.10)';
+    ctx.shadowBlur = 3; // real px (path is pre-scaled) → a soft, non-boxy edge
+    ctx.fill(p);
     ctx.restore();
   }
 
+  /** A "still generating" placeholder in the bird's footprint: the species
+   *  silhouette, gently breathing (alpha + halo) so a pending Railway cutout
+   *  clearly reads as LOADING rather than as a static failed silhouette. On
+   *  e-ink / reduced-motion it draws one steady low-alpha frame (no pulse). */
+  private drawPending(
+    t: Tile,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    night: boolean,
+    now: number,
+    canPulse: boolean,
+  ): void {
+    const { ctx } = this;
+    const p = this.scaledSilhouette(t, x, y, w, h);
+    const wave = canPulse ? 0.5 + 0.5 * Math.sin((TAU * now) / 1500) : 0.5;
+    const a = 0.07 + 0.1 * wave; // 0.07 .. 0.17 breathing body
+    ctx.save();
+    ctx.fillStyle = night ? `rgba(245,236,214,${a})` : `rgba(40,30,18,${a})`;
+    ctx.shadowColor = night ? `rgba(255,214,150,${0.05 + 0.1 * wave})` : `rgba(40,30,18,${0.05 + 0.06 * wave})`;
+    ctx.shadowBlur = 6 + 6 * wave; // a soft, pulsing "generating" halo
+    ctx.fill(p);
+    ctx.restore();
+  }
+
+  /** The tile's silhouette Path2D pre-transformed to the on-screen box, with the
+   *  box floored to MIN_SIL_PX so nothing renders as a fleck. Pre-scaling (vs.
+   *  ctx.scale) keeps shadow/blur in real pixels for a predictable soft edge. */
+  private scaledSilhouette(t: Tile, x: number, y: number, w: number, h: number): Path2D {
+    let fw = w;
+    let fh = h;
+    let fx = x;
+    let fy = y;
+    if (fw < MIN_SIL_PX) {
+      fx -= (MIN_SIL_PX - fw) / 2;
+      fw = MIN_SIL_PX;
+    }
+    if (fh < MIN_SIL_PX) {
+      fy -= (MIN_SIL_PX - fh) / 2;
+      fh = MIN_SIL_PX;
+    }
+    const base = this.silhouettePath(t);
+    const sw = t.mask.isDefault ? GLYPH_W : t.mask.w;
+    const sh = t.mask.isDefault ? GLYPH_H : t.mask.h;
+    const m = new DOMMatrix().translateSelf(fx, fy).scaleSelf(fw / sw, fh / sh);
+    const out = new Path2D();
+    out.addPath(base, m);
+    return out;
+  }
+
+  /** Per-slug silhouette in AUTHORING/MASK space, built once and cached. Real
+   *  mask → the union of its opaque cells (the bird's own outline). Default-bbox
+   *  species → a distinct perched-bird glyph chosen (and optionally mirrored) by
+   *  the slug hash, so no two default-mask birds share a shape. */
   private silhouettePath(t: Tile): Path2D {
     const cached = this.silhouettes.get(t.slug);
     if (cached) return cached;
     let p: Path2D;
     if (t.mask.isDefault) {
-      p = genericBirdPath();
+      const seed = hashSeed(t.slug);
+      const glyph = GENERIC_BIRDS[seed % GENERIC_BIRDS.length]();
+      if ((seed >>> 8) & 1) {
+        // Mirror within the GLYPH_W box so left/right-facing variants coexist.
+        p = new Path2D();
+        p.addPath(glyph, new DOMMatrix([-1, 0, 0, 1, GLYPH_W, 0]));
+      } else {
+        p = glyph;
+      }
     } else {
       p = new Path2D();
       for (const c of t.mask.cells) p.rect(c[0], c[1], 1.02, 1.02); // union of mask cells
@@ -357,14 +479,92 @@ export class CollageRenderer {
   }
 }
 
-/** A generic perched-bird silhouette in a 100x72 authoring box — used when a
- *  species has no baked mask, so an un-illustrated bird still reads as a bird,
- *  never a box. */
-function genericBirdPath(): Path2D {
-  const p = new Path2D();
-  p.ellipse(52, 44, 30, 19, -0.18, 0, TAU);   // body
-  p.ellipse(26, 30, 12, 12, 0, 0, TAU);        // head
-  p.moveTo(15, 27); p.lineTo(2, 31); p.lineTo(16, 34); p.closePath();  // beak
-  p.moveTo(78, 42); p.lineTo(99, 31); p.lineTo(82, 52); p.closePath(); // tail
-  return p;
+/** Authoring box for the generic glyphs (width × height). */
+const GLYPH_W = 100;
+const GLYPH_H = 72;
+
+/** One UNIFIED per-bird "seat" ink, sized so the treatment is visually
+ *  consistent across birds (radius scales with the bird → the rim reads the same
+ *  thickness on a hero and on a small tile). Night: a faint luminous off-white
+ *  edge-light that lifts even a jackdaw/swift/hummingbird off pure obsidian and
+ *  seats it. Day: a soft desaturated ink-wash contact shadow, offset down to
+ *  ground the bird. Low opacity throughout — a contact shadow, not a drop-glow. */
+function seatInk(size: number, night: boolean): { color: string; blur: number; offsetY: number } {
+  // Mildly size-linked but tightly CLAMPED, so the rim reads as one consistent,
+  // faint contact ink across a hero and a small tile — never a wide drop-glow.
+  if (night) {
+    return {
+      color: 'rgba(245, 234, 210, 0.18)',
+      blur: clamp(size * 0.09, 12, 30),
+      offsetY: clamp(size * 0.02, 1, 8),
+    };
+  }
+  return {
+    color: 'rgba(38, 28, 16, 0.20)',
+    blur: clamp(size * 0.07, 8, 22),
+    offsetY: clamp(size * 0.05, 3, 16),
+  };
 }
+
+/** Clamp `v` into [lo, hi]. */
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Deterministic per-slug composition tilt in [-MAX_ROT, MAX_ROT]. */
+function tileRotation(slug: string): number {
+  const r = (hashSeed(slug) & 0xffff) / 0xffff; // 0..1
+  return (r * 2 - 1) * MAX_ROT;
+}
+
+/** A SET of distinct perched-bird silhouettes in the GLYPH_W×GLYPH_H box — used
+ *  when a species has no baked mask, so an un-illustrated bird still reads as a
+ *  bird (never a box, never a letter) and adjacent default-mask birds never twin
+ *  (the slug hash picks + mirrors one). None is duck-shaped; all read upright. */
+const GENERIC_BIRDS: Array<() => Path2D> = [
+  // Round-bodied songbird, short cocked tail (wren/robin feel).
+  () => {
+    const p = new Path2D();
+    p.ellipse(54, 46, 26, 20, -0.15, 0, TAU); // body
+    p.ellipse(30, 28, 13, 13, 0, 0, TAU); // head
+    p.moveTo(19, 26); p.lineTo(4, 30); p.lineTo(20, 33); p.closePath(); // beak
+    p.moveTo(76, 44); p.lineTo(97, 30); p.lineTo(80, 56); p.closePath(); // tail up
+    return p;
+  },
+  // Slim finch, long tail dropping down.
+  () => {
+    const p = new Path2D();
+    p.ellipse(48, 40, 20, 16, -0.1, 0, TAU); // body
+    p.ellipse(30, 24, 11, 11, 0, 0, TAU); // head
+    p.moveTo(21, 22); p.lineTo(7, 25); p.lineTo(22, 29); p.closePath(); // beak
+    p.moveTo(56, 48); p.lineTo(70, 71); p.lineTo(48, 58); p.closePath(); // long tail down
+    return p;
+  },
+  // Upright standing bird (thrush/starling), head stacked on the body.
+  () => {
+    const p = new Path2D();
+    p.ellipse(52, 46, 21, 25, 0.05, 0, TAU); // tall body
+    p.ellipse(52, 17, 14, 14, 0, 0, TAU); // head on top
+    p.moveTo(40, 14); p.lineTo(24, 17); p.lineTo(41, 21); p.closePath(); // beak
+    p.moveTo(66, 60); p.lineTo(83, 70); p.lineTo(60, 62); p.closePath(); // short tail
+    return p;
+  },
+  // Plump dove, small head, long sweeping tail.
+  () => {
+    const p = new Path2D();
+    p.ellipse(46, 42, 27, 19, -0.12, 0, TAU); // plump body
+    p.ellipse(24, 30, 10, 10, 0, 0, TAU); // small head
+    p.moveTo(16, 29); p.lineTo(5, 31); p.lineTo(16, 34); p.closePath(); // beak
+    p.moveTo(64, 46); p.lineTo(96, 52); p.lineTo(66, 56); p.closePath(); // long tail
+    return p;
+  },
+  // Little big-headed tit, tiny tail (flitty).
+  () => {
+    const p = new Path2D();
+    p.ellipse(53, 47, 19, 17, 0, 0, TAU); // small body
+    p.ellipse(38, 28, 15, 14, 0, 0, TAU); // big head
+    p.moveTo(26, 26); p.lineTo(12, 29); p.lineTo(27, 32); p.closePath(); // beak
+    p.moveTo(70, 49); p.lineTo(86, 45); p.lineTo(72, 57); p.closePath(); // tiny tail
+    return p;
+  },
+];

@@ -3,15 +3,20 @@
 
 Phase A of the auto-gen watcher (see _plan/auto-gen-watcher/CONTRACT.md, the
 LOCKED single source of truth). A Pi-side forwarder POSTs first-hearings of an
-un-bundled species to /detected; this service generates exactly ONE perched
-(pose-1) illustration per new species, cream-keys it to a transparent PNG, runs
-a QA gate, and serves it from a Railway volume at /asset/<slug>.png.
+un-bundled species to /detected; this service generates BOTH poses per new
+species — a perched pose-1 (<slug>.png) and, best-effort, an in-flight pose-2
+(<slug>-2.png) — cream-keys each to a transparent PNG, runs a QA gate, and
+serves them from a Railway volume at /asset/<slug>.png and /asset/<slug>-2.png.
 
 Contract obligations honored here:
   - Bearer auth on /detected (Authorization: Bearer <WATCHER_WEBHOOK_SECRET>).
   - In-memory token-bucket rate-limit on /detected (429 over).
   - CONFIDENCE_THRESHOLD = 0.80 gate.
-  - pose-1 ONLY (generating pose-2 is 100% wasted spend per KILL 6).
+  - BOTH poses per species: pose-1 (perched) is required; pose-2 (flight) is
+    best-effort — a pose-2 gen/QA failure never blocks or deads the species, and
+    the species is "done" once pose-1 is published. This reverses the original
+    pose-1-ONLY decision (was KILL 6) now that the collage popup exposes a
+    per-bird flight toggle for auto-generated species.
   - SQLite lease on the volume is the authoritative terminal state
     (queued | generating | done | dead). dead after 4 consecutive fails.
   - Single-flight asyncio worker; MIN_SPACING = 6s between Gemini calls;
@@ -147,10 +152,21 @@ def _load_bundled() -> set:
 BUNDLED = _load_bundled()
 
 
+# Pose-2+ files are published as "<slug>-<N>.png". Bird scientific names never
+# contain digits, so a trailing "-<digits>" segment unambiguously marks a pose
+# variant (not a real species slug) — used to keep the manifest/dedup keyed on
+# the pose-1 slug only and to resolve a pose-2 miss back to its pose-1 file.
+_POSE_SUFFIX_RE = re.compile(r"-\d+$")
+
+
 def generated_slugs() -> set:
-    """Slugs whose PNG already exists on the volume (top-level *.png only)."""
+    """Species slugs whose pose-1 PNG exists on the volume (top-level *.png,
+    excluding pose-variant files like "<slug>-2.png"). This is the dedup unit —
+    a species is present once its perched pose-1 is published; pose-2 is an
+    optional companion file, not a species of its own."""
     try:
-        return {f[:-4] for f in os.listdir(ASSETS_DIR) if f.endswith(".png")}
+        return {f[:-4] for f in os.listdir(ASSETS_DIR)
+                if f.endswith(".png") and not _POSE_SUFFIX_RE.search(f[:-4])}
     except FileNotFoundError:
         return set()
 
@@ -355,14 +371,16 @@ def requeue_row(slug: str) -> None:
 
 
 def _delete_published(slug: str) -> None:
-    """Remove a published PNG from the volume (so a dirty render can't be
-    served while its regeneration is pending). Best-effort."""
-    p = ASSETS_DIR / ("%s.png" % slug)
-    try:
-        if p.exists():
-            p.unlink()
-    except OSError:
-        pass
+    """Remove a species' published PNGs (pose-1 <slug>.png AND pose-2
+    <slug>-2.png) from the volume so a dirty render of either pose can't be
+    served while its regeneration is pending. Best-effort."""
+    for name in ("%s.png" % slug, "%s-2.png" % slug):
+        p = ASSETS_DIR / name
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError:
+            pass
 
 
 # --------------------------------------------------------------------------- #
@@ -396,10 +414,10 @@ class QAReject(Exception):
     pass
 
 
-def _resolve_refs(slug: str, sci: str, com: str):
-    """Best-effort reference resolution. Wikipedia anatomy ref is fetched +
-    cached on the volume; style/anti refs only if a dir is mounted. All optional
-    — gen_one degrades gracefully when any is None."""
+def _resolve_species_refs(slug: str, sci: str, com: str):
+    """Species-level refs shared across BOTH poses. Wikipedia anatomy ref is
+    fetched + cached on the volume; the anti-ref (lookalike) only if a dir is
+    mounted. All optional — gen_one degrades gracefully when any is None."""
     pos = None
     if FETCH_REFS:
         try:
@@ -412,11 +430,17 @@ def _resolve_refs(slug: str, sci: str, com: str):
     if anti_key:
         anti = pregen.load_anti_ref(ANTI_DIR, anti_key)
     anti_key_for_call = anti_key if anti else None
-    style = None
+    return pos, anti, anti_key_for_call
+
+
+def _resolve_style_ref(sci: str, pose: int) -> Optional[Path]:
+    """Per-pose Edo kachō-e style ref (perched vs flight uses a different
+    print, via pregen.select_style_ref). Only when AV_STYLES_DIR is mounted;
+    None otherwise (the arg is optional in gen_one)."""
     if STYLES_DIR is not None:
-        sp = STYLES_DIR / pregen.select_style_ref(sci, 1)
-        style = sp if sp.exists() else None
-    return pos, anti, anti_key_for_call, style
+        sp = STYLES_DIR / pregen.select_style_ref(sci, pose)
+        return sp if sp.exists() else None
+    return None
 
 
 def _qa_islands(apx: list, w: int, h: int) -> None:
@@ -549,32 +573,37 @@ def _qa_verify(slug: str, sci: str, com: str, cut_path: Path) -> None:
         raise QAReject("verify: has stick/perch")
 
 
-def _generate_sync(slug: str, sci: str, com: str) -> float:
-    """gen_one(pose=1) -> creamkey cutout -> QA gate -> atomic publish.
-    Returns the opaque fraction. Raises QAReject / RuntimeError / urllib errors."""
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
-    pos, anti, anti_key, style = _resolve_refs(slug, sci, com)
-    # POSE-1 ONLY per CONTRACT (generating pose-2 is wasted spend, KILL 6).
+def _gen_pose(slug: str, sci: str, com: str, pose: int,
+              pos, anti, anti_key) -> float:
+    """One pose end-to-end: MIN_SPACING throttle -> gen_one(pose) -> creamkey
+    cutout -> QA gate -> atomic publish. pose 1 -> <slug>.png (perched),
+    pose N -> <slug>-N.png (flight). Returns the opaque fraction. Raises
+    QAReject / RuntimeError / urllib errors — the caller decides whether the
+    failure is fatal (pose-1) or swallowed (pose-2)."""
+    out_name = "%s.png" % slug if pose == 1 else "%s-%d.png" % (slug, pose)
+    tmp_tag = slug if pose == 1 else "%s-%d" % (slug, pose)
+    style = _resolve_style_ref(sci, pose)
+    _throttle_spacing()  # MIN_SPACING before every Gemini image call
     png = pregen.gen_one(
-        GEMINI_API_KEY, PROMPT, sci, com, 1,
+        GEMINI_API_KEY, PROMPT, sci, com, pose,
         positive_ref=pos, anti_ref=anti, anti_ref_key=anti_key,
         species_note=NOTES.get(sci), style_ref=style,
     )
-    tmp_raw = ASSETS_DIR / (".%s.raw.png" % slug)
-    tmp_cut = ASSETS_DIR / (".%s.cut.png" % slug)
+    tmp_raw = ASSETS_DIR / (".%s.raw.png" % tmp_tag)
+    tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
     try:
         tmp_raw.write_bytes(png)
         frac = chromakey(str(tmp_raw), str(tmp_cut))
         if not (QA_MIN <= frac <= QA_MAX):
             raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
         # deterministic dirty-output gate (torn-paper islands / leaked magenta /
-        # ragged alpha / border-contact / mangled aspect) -> QAReject re-queues.
+        # ragged alpha / border-contact / mangled aspect) -> QAReject.
         _qa_inspect(str(tmp_cut))
         # optional adversarial species/anatomy gate (one Gemini-Vision call).
         if AV_VERIFY:
             _qa_verify(slug, sci, com, tmp_cut)
         # atomic publish (same filesystem -> os.replace is atomic)
-        os.replace(str(tmp_cut), str(ASSETS_DIR / ("%s.png" % slug)))
+        os.replace(str(tmp_cut), str(ASSETS_DIR / out_name))
         return frac
     finally:
         for p in (tmp_raw, tmp_cut):
@@ -583,6 +612,30 @@ def _generate_sync(slug: str, sci: str, com: str) -> float:
                     p.unlink()
             except OSError:
                 pass
+
+
+def _generate_sync(slug: str, sci: str, com: str) -> float:
+    """Generate BOTH poses for a species so the collage's flight toggle works.
+
+    Pose-1 (perched, <slug>.png) is REQUIRED: its failure propagates so the
+    species stays un-done and retries per the backoff policy; its opaque
+    fraction is returned. Pose-2 (flight, <slug>-2.png) is BEST-EFFORT: it runs
+    the identical creamkey + QA pipeline, but ANY failure (gen/QA) is logged and
+    swallowed — the species is still marked done on pose-1 alone, and the /asset
+    endpoint falls a flight request back to pose-1 when <slug>-2.png is absent.
+    Species-level refs are resolved once and shared across both poses;
+    MIN_SPACING is honored before each Gemini call inside _gen_pose."""
+    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    pos, anti, anti_key = _resolve_species_refs(slug, sci, com)
+    # POSE-1 (perched) — required; a failure raises to the worker's fail policy.
+    frac = _gen_pose(slug, sci, com, 1, pos, anti, anti_key)
+    # POSE-2 (flight) — best-effort; MUST NOT block/dead the species on failure.
+    try:
+        f2 = _gen_pose(slug, sci, com, 2, pos, anti, anti_key)
+        log.info("gen-pose2-done slug=%s opaque=%.1f%%", slug, f2 * 100)
+    except Exception as e:  # noqa: BLE001 — pose-2 is optional, never fatal
+        log.warning("gen-pose2-skip slug=%s err=%s", slug, e)
+    return frac
 
 
 def _classify(exc: Exception) -> str:
@@ -605,8 +658,20 @@ _last_call = 0.0  # monotonic ts of the last Gemini call (MIN_SPACING throttle)
 _stopping = False
 
 
-async def worker() -> None:
+def _throttle_spacing() -> None:
+    """Block until MIN_SPACING has elapsed since the last Gemini call, then
+    stamp the clock. Called before EVERY Gemini image call (once per pose), so
+    the two-pose generation makes two spaced calls per species. The worker is
+    single-flight, so a plain module global needs no lock; this runs inside the
+    generation worker thread (asyncio.to_thread) and never touches the loop."""
     global _last_call
+    wait = MIN_SPACING - (time.monotonic() - _last_call)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call = time.monotonic()
+
+
+async def worker() -> None:
     log.info("worker started (MIN_SPACING=%ss, max_attempts=%s)", MIN_SPACING, MAX_ATTEMPTS)
     while not _stopping:
         job = await asyncio.to_thread(claim_one_due)
@@ -622,19 +687,16 @@ async def worker() -> None:
             continue
 
         slug = job["slug"]
-        # MIN_SPACING throttle between Gemini calls
-        wait = MIN_SPACING - (time.monotonic() - _last_call)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        _last_call = time.monotonic()
-
+        # MIN_SPACING throttling now lives in _gen_pose (_throttle_spacing),
+        # applied before EACH pose's Gemini call — two-pose generation makes two
+        # spaced calls per species.
         log.info("gen-start slug=%s attempt=%s", slug, job["attempts"])
         t0 = time.monotonic()
         try:
             frac = await asyncio.to_thread(_generate_sync, slug, job["sci"], job["com"])
             await asyncio.to_thread(mark_done, slug)
             log.info(
-                "gen-done slug=%s opaque=%.1f%% dur=%.1fs cost-estimate=$%.3f",
+                "gen-done slug=%s pose1-opaque=%.1f%% dur=%.1fs cost-estimate>=$%.3f",
                 slug, frac * 100, time.monotonic() - t0, COST_PER_GEN_USD,
             )
         except Exception as e:  # noqa: BLE001 - classify + persist, never crash the worker
@@ -714,11 +776,23 @@ async def manifest():
 async def asset(name: str):
     if not name.endswith(".png"):
         return JSONResponse({"error": "not found"}, status_code=404)
-    slug = name[:-4]
-    path = ASSETS_DIR / ("%s.png" % slug)
-    if not path.exists() or "/" in slug or slug in ("", ".", ".."):
+    key = name[:-4]  # "<slug>" (pose-1) or "<slug>-2" (pose-2 / flight)
+    if "/" in key or key in ("", ".", ".."):
         return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(str(path), media_type="image/png")
+    path = ASSETS_DIR / ("%s.png" % key)
+    if path.exists():
+        return FileResponse(str(path), media_type="image/png")
+    # Pose-2 miss -> fall back to the perched pose-1 file so the collage's
+    # flight toggle always renders something (never a broken image) even when
+    # pose-2 gen/QA failed (best-effort) or isn't generated yet. A pose variant
+    # is "<base>-<digits>"; its pose-1 companion is "<base>.png".
+    m = _POSE_SUFFIX_RE.search(key)
+    if m:
+        base = key[: m.start()]
+        p1 = ASSETS_DIR / ("%s.png" % base)
+        if base and "/" not in base and p1.exists():
+            return FileResponse(str(p1), media_type="image/png")
+    return JSONResponse({"error": "not found"}, status_code=404)
 
 
 @app.post("/detected")

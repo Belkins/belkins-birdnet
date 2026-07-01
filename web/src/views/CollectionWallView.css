@@ -13,16 +13,41 @@
   margin: 0 auto;
 }
 
-/* Header: catalogue number (life-list order) on the left, the all-time call
-   tally on the right. No Lifer/Heard pill — the wall is a collection, not a
-   streak board. */
+/* Section sort context — states that the wall (and its catalogue numbers) runs
+   in first-appearance order, so a "No." next to a call tally never reads as a
+   rank. Quiet italic under the masthead title. */
+.wall-note {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+  margin-top: 6px;
+}
+
+/* Header: the catalogue identity on the left — the number bound to its "first
+   seen" date — and the all-time call tally on the right. The pairing makes the
+   number's meaning explicit; no Lifer/Heard pill (collection, not streaks). */
 .wall-h {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
+.wall-cat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.wall-seen {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
 .wall-tally {
+  flex: none;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -32,21 +57,6 @@
   font-family: var(--display);
   font-size: 15px;
   color: var(--ink);
-}
-
-/* "first seen · <Month Year>" — the quiet dateline under the binomial.
-   margin-top:auto bottom-anchors it (the .acard is a flex column), mirroring
-   Atlas's .acard-f so the divider aligns across a grid row even when a common
-   name wraps to two lines. */
-.wall-first {
-  margin-top: auto;
-  padding-top: 11px;
-  border-top: 1px solid var(--line-2);
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mut-2);
 }
 
 /* Loading — a composed gallery label, never a spinner. */

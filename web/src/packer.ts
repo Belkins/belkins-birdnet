@@ -14,8 +14,11 @@ import type { Tile } from './types';
 
 /** viewport px per occupancy cell; smaller = tighter but slower (apt.js). */
 export const GRID_STRIDE = 4;
-/** breathing room (grid cells) around each bird (apt.js COLLAGE_PAD). */
-export const COLLAGE_PAD = 4;
+/** breathing room (grid cells) around each bird. Tight on purpose: the seed
+ *  reads as one composed ROSETTE (birds nesting into each other's concavities,
+ *  transparent illustration margins overlapping) rather than a spaced-out
+ *  sticker-sheet with dead voids. Was 4 (≈32px gap) → 2 (≈16px gap). */
+export const COLLAGE_PAD = 2;
 
 const OFFSCREEN = -99999;
 

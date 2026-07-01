@@ -4,12 +4,14 @@
 // is already a real wall. Aesthetic = "collection, not streaks" — no badges,
 // no streaks, no leaderboard framing; just the quiet accumulation of a life.
 //
-// Reuses the Atlas specimen-plate pattern (the .acard system + the illustration
-// → knockout → letter-plate image fallback), but fetches its own data on mount.
+// Reuses the Atlas specimen-plate pattern via the shared <BirdThumb>, so every
+// illustrated species shows its transparent cutout and un-illustrated ones show
+// the bird silhouette — never a flat gray letter disc. Fetches its own data on
+// mount (the all-time catalog, independent of the live engine roster).
 import { useEffect, useState } from 'react';
 import type { CatalogSpecies } from '../catalog';
 import { fetchCatalog } from '../catalog';
-import { birdImageUrl } from '../img';
+import { BirdThumb } from '../components/BirdThumb';
 import './CollectionWallView.css';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -39,41 +41,6 @@ function catalogOrder(a: CatalogSpecies, b: CatalogSpecies): number {
   return (a.com_name || a.sci_name).localeCompare(b.com_name || b.sci_name);
 }
 
-type ThumbState = 'photo' | 'knockout' | 'plate';
-
-// Specimen image well with the Atlas fallback chain (illustration → knockout
-// ink-ghost → letter plate). art_status optimization: a species the catalog
-// marks 'none' (or one with no resolvable URL) starts at the letter plate — we
-// skip a cutout.php request that, for art the catalog knows is unbundled, would
-// only resolve to the generic ink silhouette (or a still-pending Railway 302),
-// never the illustration (cutout.php always 200s/302s, it never 404s). 'ready'
-// loads the illustration and degrades gracefully on error.
-function WallThumb({ slug, sci, com, art }: { slug: string; sci: string; com: string; art: string }) {
-  const url = birdImageUrl(slug, sci);
-  const [state, setState] = useState<ThumbState>(!url || art !== 'ready' ? 'plate' : 'photo');
-  if (!url || state === 'plate') {
-    return (
-      <div className="acard-img">
-        <div className="acard-sil" aria-hidden="true">
-          {(com || sci).slice(0, 1)}
-        </div>
-      </div>
-    );
-  }
-  const knock = state === 'knockout';
-  return (
-    <div className={knock ? 'acard-img knockout' : 'acard-img'}>
-      <img
-        key={state}
-        src={url}
-        alt={com || sci}
-        loading="lazy"
-        onError={() => setState(knock ? 'plate' : 'knockout')}
-      />
-    </div>
-  );
-}
-
 export function CollectionWallView() {
   // null = still loading; [] = loaded but empty (day zero) or fetch failed.
   const [species, setSpecies] = useState<CatalogSpecies[] | null>(null);
@@ -98,6 +65,9 @@ export function CollectionWallView() {
       <div className="view-mast">
         <div className="eyebrow">all time</div>
         <div className="t">THE WALL</div>
+        {/* Explicit sort context so the catalogue number reads as chronological
+            first-appearance order, never a call-count rank. */}
+        <div className="wall-note">in order of first appearance</div>
       </div>
 
       {species === null ? (
@@ -116,16 +86,22 @@ export function CollectionWallView() {
         <div className="wall-grid">
           {[...species].sort(catalogOrder).map((s, i) => (
             <div className="acard wall-card" key={s.sci_name || s.com_name}>
+              {/* Catalogue number is bound to its "first seen" date, so the
+                  number is unmistakably first-appearance order; the call tally
+                  is a separate value on the right. Number and value agree. */}
               <div className="wall-h">
-                <span className="acard-no">No. {String(i + 1).padStart(3, '0')}</span>
+                <span className="wall-cat">
+                  <span className="acard-no">No. {String(i + 1).padStart(3, '0')}</span>
+                  <span className="wall-seen">first seen {firstSeenLabel(s.first_confident)}</span>
+                </span>
                 <span className="wall-tally">
-                  <b>{s.detection_count.toLocaleString()}</b> calls
+                  <b>{s.detection_count.toLocaleString()}</b>{' '}
+                  {s.detection_count === 1 ? 'call' : 'calls'}
                 </span>
               </div>
-              <WallThumb slug={s.slug} sci={s.sci_name} com={s.com_name} art={s.art_status} />
+              <BirdThumb slug={s.slug} sci={s.sci_name} com={s.com_name} />
               <div className="acard-cn">{s.com_name || s.sci_name}</div>
               <div className="acard-ln">{s.sci_name}</div>
-              <div className="wall-first">first seen {firstSeenLabel(s.first_confident)}</div>
             </div>
           ))}
         </div>
