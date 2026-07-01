@@ -1657,4 +1657,4 @@ body.av-local #dd-items  { display: block; }
     background: linear-gradient(145deg, #ffdc74, #c8971f); color: #3a2c05;
     box-shadow: 0 1px 5px rgba(180, 130, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.65);
   }
-  .bird-card .tier { margin: 6px 0 2px; }
+  .bird-card .tier { margin: 6px 0 2px; align-self: flex-start; width: fit-content; max-width: 100%; }
