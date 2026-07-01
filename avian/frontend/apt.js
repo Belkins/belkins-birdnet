@@ -1969,16 +1969,25 @@
   }
   function rarityLabel(total, firstSeenIso) {
     if (!total) return '-';
-    var days = 1;
-    if (firstSeenIso) {
-      var t = Date.parse((firstSeenIso || '').replace(' ', 'T'));
-      if (!isNaN(t)) days = Math.max(1, Math.ceil((Date.now() - t) / 86400000));
+    // Local-frequency tier: rank this species by all-time count against EVERY
+    // species you've heard. Honest ("...here") + drift-free (no time-decay that
+    // slowly demotes a bird to "rare"). Never claims global rarity — a common
+    // bird heard seldom reads "seldom here", not "rare". Cold-start (< 6
+    // species) can't form a distribution, so fall back to a first-seen label.
+    var counts = ((DATA.lifelist && DATA.lifelist.species) || [])
+      .map(function (s) { return +s.n || 0; })
+      .filter(function (n) { return n > 0; });
+    if (counts.length < 6) {
+      var t0 = firstSeenIso ? Date.parse((firstSeenIso || '').replace(' ', 'T')) : NaN;
+      return (!isNaN(t0) && (Date.now() - t0) < 2 * 86400000) ? 'new here' : 'here';
     }
-    var perDay = total / days;
-    if (perDay >= 5) return 'common';
-    if (perDay >= 1) return 'regular';
-    if (perDay >= 0.2) return 'occasional';
-    return 'rare';
+    var below = 0;
+    for (var i = 0; i < counts.length; i++) { if (counts[i] < total) below++; }
+    var pct = below / counts.length;                 // 0..1, higher = more-heard
+    if (pct >= 0.80) return 'often here';
+    if (pct >= 0.50) return 'regular here';
+    if (pct >= 0.20) return 'occasional here';
+    return 'seldom here';
   }
   // rAF-driven cursor smoothing. timeupdate fires ~4Hz which feels
   // janky; we sample audio.currentTime every animation frame and
