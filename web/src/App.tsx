@@ -17,6 +17,8 @@ import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 import { BirdPopup, type BirdRef } from './components/BirdPopup';
 import { CollectionWallView } from './views/CollectionWallView';
+import { LiveView } from './views/LiveView';
+import type { FeedRow } from './views/LiveView';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall';
 
@@ -104,6 +106,9 @@ export default function App() {
   const [hovered, setHovered] = useState<{ com: string; n: number } | null>(null);
   const hoverElRef = useRef<HTMLDivElement | null>(null);
   const hoverSlugRef = useRef<string | null>(null);
+  // Real-time feed for the 1H live dashboard, derived from roster deltas.
+  const [feed, setFeed] = useState<FeedRow[]>([]);
+  const feedBaseRef = useRef<{ hours: number; counts: Map<string, number> } | null>(null);
 
   const theme = settings.theme;
 
@@ -210,8 +215,38 @@ export default function App() {
   const windowLabel = windowLabelFor(settings.windowHours);
   const { species, calls } = counterFrom(rows, windowLabel);
 
+  // Real-time feed: only in the rolling-1H window. On entering 1H we snapshot the
+  // hour's backlog as the baseline (no feed spam); each later roster tick that
+  // raises a species' count emits a fresh detection row. Honesty firewall intact:
+  // the feed only ever mirrors real counted roster increments.
+  useEffect(() => {
+    if (settings.windowHours !== 1) {
+      feedBaseRef.current = null;
+      return;
+    }
+    const cur = new Map(rows.map((r) => [r.slug, r.n]));
+    const base = feedBaseRef.current;
+    if (!base || base.hours !== 1) {
+      feedBaseRef.current = { hours: 1, counts: cur };
+      setFeed([]);
+      return;
+    }
+    const t = new Date();
+    const time = t.toTimeString().slice(0, 8);
+    const fresh: FeedRow[] = [];
+    for (const r of rows) {
+      if (r.n > (base.counts.get(r.slug) ?? 0)) {
+        fresh.push({ key: `${r.slug}-${t.getTime()}-${r.n}`, com: r.com, sci: r.sci, slug: r.slug, isNew: r.isNew, time, at: t.getTime() });
+      }
+    }
+    feedBaseRef.current = { hours: 1, counts: cur };
+    if (fresh.length) setFeed((f) => [...fresh, ...f].slice(0, 40));
+  }, [rows, settings.windowHours]);
+
   // Tab is pinned to the collage while framed (the other tabs' chrome is hidden).
   const shownTab: Tab = framed ? 'collage' : tab;
+  // The rolling-1H window turns the collage surface into the live dashboard.
+  const liveActive = !framed && shownTab === 'collage' && settings.windowHours === 1;
 
   return (
     <div
@@ -280,14 +315,20 @@ export default function App() {
         </button>
       </div>
 
-      {shownTab === 'collage' && (
+      {shownTab === 'collage' && !liveActive && (
         <header className="mast">
           <div className="eyebrow">your window{MOCK ? ' · demo' : ''}</div>
           <div className="mast-t">{mastTitle(species)}</div>
         </header>
       )}
 
-      {shownTab === 'collage' && species === 0 && settings.listeningAnim && (
+      {liveActive && (
+        <Overlay>
+          <LiveView species={species} calls={calls} feed={feed} live={liveState} />
+        </Overlay>
+      )}
+
+      {shownTab === 'collage' && !liveActive && species === 0 && settings.listeningAnim && (
         <div className="listen">
           <div className="pulse">
             <span />
