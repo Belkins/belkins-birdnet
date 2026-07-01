@@ -46,10 +46,11 @@ const DENSITY_CAP: Record<Settings['density'], number> = {
  *  Pure: no DOM, no fetch, no mutation of the inputs.
  *   - `off`         → [] (pure composed cold-start tiers, no backdrop).
  *   - `placeholder` → the fixed 12-bird PLACEHOLDER set.
- *   - `roster`      → the all-time life list (fallback to PLACEHOLDER when empty).
+ *   - `roster`      → the all-time life list, TOPPED UP with PLACEHOLDER to fill.
  *  In every non-off mode, species already present in `realRoster` are excluded
  *  (case-insensitive sci match — the honesty firewall) and the result is capped
- *  to the density tier. */
+ *  to the density tier. A young install (little/no history) still reads full,
+ *  never barren, because the placeholder cast backfills the empty space. */
 export function ambientRoster(opts: {
   realRoster: RosterRow[];
   allTime: SpeciesRow[];
@@ -60,18 +61,23 @@ export function ambientRoster(opts: {
 
   if (mode === 'off') return [];
 
-  // Pick the source pool, dropping to the legacy fallback when the roster mode
-  // has nothing to show yet.
-  const pool: AmbientSpecies[] =
-    mode === 'placeholder'
-      ? PLACEHOLDER
-      : allTime.length > 0
-        ? allTime.map((s) => ({ sci: s.sci, com: s.com }))
-        : PLACEHOLDER;
+  const cap = DENSITY_CAP[density];
+  // Honesty firewall: never echo a species the live counter is already counting
+  // (seed with the counted set, then dedupe as we fill).
+  const seen = new Set(realRoster.map((r) => r.sci.toLowerCase()));
+  const out: AmbientSpecies[] = [];
+  const add = (b: AmbientSpecies): void => {
+    const k = b.sci.toLowerCase();
+    if (seen.has(k) || out.length >= cap) return;
+    seen.add(k);
+    out.push(b);
+  };
 
-  // Honesty firewall: never echo a species the live counter is already counting.
-  const counted = new Set(realRoster.map((r) => r.sci.toLowerCase()));
-  const filtered = pool.filter((b) => !counted.has(b.sci.toLowerCase()));
+  // `roster` prefers the real all-time life list; `placeholder` skips it. Then
+  // BOTH modes top up from the legacy placeholder cast so the backdrop stays
+  // full even when history is thin — capped to the density tier throughout.
+  if (mode === 'roster') for (const s of allTime) add({ sci: s.sci, com: s.com });
+  for (const b of PLACEHOLDER) add(b);
 
-  return filtered.slice(0, DENSITY_CAP[density]);
+  return out;
 }
