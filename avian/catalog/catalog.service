@@ -1,0 +1,22 @@
+[Unit]
+Description=Christina species catalog rebuild (christina.db from birds.db)
+# Build after birds.db has had time to exist on boot; ordering only, not a hard dep.
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Edit User= if BirdNET-Pi was installed under a different account.
+User=birdnet
+# Absolute ExecStart so the unit is location-explicit. rebuild_catalog.py derives
+# its own Pi defaults (birds.db, illustrations dir, christina.db) from this path,
+# so no flags are needed; --built-at is intentionally omitted so the live build
+# stamps meta.built_at with the real time.
+ExecStart=/usr/bin/python3 /home/birdnet/BirdNET-Pi/avian/catalog/rebuild_catalog.py
+# Optional: point at a non-default birds.db / manifest.
+# Environment=CHRISTINA_BIRDS_DB=/home/birdnet/BirdNET-Pi/scripts/birds.db
+# ExecStart=/usr/bin/python3 /home/birdnet/BirdNET-Pi/avian/catalog/rebuild_catalog.py --manifest-url http://127.0.0.1:8080/manifest.json
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
