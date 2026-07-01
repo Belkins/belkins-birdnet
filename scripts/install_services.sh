@@ -362,18 +362,16 @@ configure_caddy_php() {
   echo "Configuring PHP for Caddy"
   sed -i 's/www-data/caddy/g' /etc/php/*/fpm/pool.d/www.conf
   systemctl restart php\*-fpm.service
-  echo "Adding Caddy sudoers rule"
-  cat << EOF > /etc/sudoers.d/010_caddy-nopasswd
-caddy ALL=(ALL) NOPASSWD: ALL
-EOF
-  chmod 0440 /etc/sudoers.d/010_caddy-nopasswd
-  # Belkins BirdNET admin overlay needs to restart whitelisted units and
-  # tail their journal. The 010 rule above already covers everything via
-  # NOPASSWD: ALL - this 020 rule pins the exact commands we depend on
-  # so the admin overlay stays working even if a future upstream change
-  # tightens 010. See SECURITY.md for the longer story.
+  # SECURITY: caddy runs the PUBLIC PHP surface, so it gets a LEAST-PRIVILEGE
+  # sudoers allowlist — ONLY the exact `systemctl restart` + `journalctl -u`
+  # commands the admin overlay actually calls (see avian/api/birdnet-status.php
+  # and config.php). It must NEVER hold blanket root: a bug in any PHP endpoint
+  # would otherwise become a full-root RCE. Any prior blanket rule (the old
+  # 010_caddy-nopasswd `NOPASSWD: ALL`) is removed on every run, so an already
+  # -installed box self-heals the moment this re-runs. See SECURITY.md.
+  rm -f /etc/sudoers.d/010_caddy-nopasswd
   if [ -d $my_dir/avian ]; then
-    echo "Adding Belkins BirdNET admin allowlist"
+    echo "Adding Belkins BirdNET admin sudoers allowlist (least-privilege)"
     cat << EOF > /etc/sudoers.d/020_avian-admin
 caddy ALL=(root) NOPASSWD: \\
     /bin/systemctl restart birdnet_recording, \\
