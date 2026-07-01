@@ -20,6 +20,7 @@ import { MockStream, SseStream } from './events';
 import { EVENTS_URL, MOCK } from './config';
 import { PROFILE } from './profile';
 import { birdImageUrl } from './img';
+import { FLIGHT_ASPECT, rollPose } from './flight';
 
 // Failed-tile retry loop (auto-gen watcher, CONTRACT.md "Live-update Phase A").
 // A brand-new species' cutout.php 302s to Railway, which 404s until the PNG is
@@ -63,12 +64,18 @@ function makeTile(
   slug: string,
   fullW: number,
   fullH: number,
+  pose: 1 | 2 = 1,
 ): Tile {
-  const ar = aspect(sci);
+  // Flight tiles size their box to the MEASURED flight aspect so the wings-spread
+  // cutout fills it without distortion (the renderer stretches image -> box).
+  // Perched uses the bundled/DEFAULT aspect. The mask is a bbox at that aspect
+  // for species without a baked silhouette (all Railway species), same as perched.
+  const ar = pose === 2 ? (FLIGHT_ASPECT[slug] ?? aspect(sci)) : aspect(sci);
   return {
     sci,
     com,
     slug,
+    pose,
     mask: loadMask(slug, ar),
     ar,
     fullW,
@@ -314,11 +321,14 @@ export class CollageEngine {
     // the hero cap above bounds every bird's on-screen span regardless of shape.
     const tiles = scored.map((t) => {
       const slug = slugify(t.s.sci);
-      const ar = aspect(t.s.sci);
+      // Roll perched/flight per fresh seed (rerolls on every reload). Flight tiles
+      // size their box to the measured flight aspect so nothing is distorted.
+      const pose = rollPose(slug);
+      const ar = pose === 2 ? FLIGHT_ASPECT[slug] : aspect(t.s.sci);
       const edge = t.edge;
       const fullW = ar >= 1 ? edge : edge * ar;
       const fullH = ar >= 1 ? edge / ar : edge;
-      return makeTile(t.s.sci, t.s.com, slug, fullW, fullH);
+      return makeTile(t.s.sci, t.s.com, slug, fullW, fullH, pose);
     });
 
     // Iterative shrink-to-fit into the composition-SAFE box (not the raw
@@ -457,7 +467,7 @@ export class CollageEngine {
   }
 
   private loadImage(tile: Tile, bust = false, onSettle?: () => void): void {
-    let url = birdImageUrl(tile.slug, tile.sci);
+    let url = birdImageUrl(tile.slug, tile.sci, tile.pose);
     if (!url) {
       tile.failed = true;
       tile.loaded = true; // settled (placeholder)

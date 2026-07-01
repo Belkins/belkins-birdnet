@@ -57,6 +57,8 @@ export interface Tile {
   sci: string;
   com: string;
   slug: string;
+  /** 1 = perched (default), 2 = flight. Drives the cutout image + box aspect. */
+  pose: 1 | 2;
   mask: Mask;
   /** width/height aspect ratio from DIMS (or 1.4 default). */
   ar: number;
