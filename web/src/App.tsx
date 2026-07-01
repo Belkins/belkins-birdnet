@@ -15,6 +15,7 @@ import { FRAME_AT_BOOT, markFrameReady, PROFILE } from './profile';
 import { IndexView } from './views/IndexView';
 import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
+import { BirdPopup, type BirdRef } from './components/BirdPopup';
 import { CollectionWallView } from './views/CollectionWallView';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall';
@@ -93,6 +94,9 @@ export default function App() {
   const [latest, setLatest] = useState('');
   const [liveState, setLiveState] = useState<LiveState>('connecting');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The bird-detail modal target (C5). null = closed; a click on the collage
+  // canvas or an Atlas plate sets it, and BirdPopup enriches it on open.
+  const [popup, setPopup] = useState<BirdRef | null>(null);
 
   const theme = settings.theme;
 
@@ -209,7 +213,17 @@ export default function App() {
       data-reveal={settings.revealAnim ? 'true' : 'false'}
       data-lifer={settings.liferTick ? 'true' : 'false'}
     >
-      <canvas ref={canvasRef} className="collage-canvas" />
+      <canvas
+        ref={canvasRef}
+        className="collage-canvas"
+        onClick={(e) => {
+          // Frame mode is a chrome-free wall — a stray click never opens a modal.
+          if (framed) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const hit = engineRef.current?.hitTest(e.clientX - rect.left, e.clientY - rect.top);
+          setPopup(hit ?? null);
+        }}
+      />
 
       <div className="filter">
         {PERIODS.map((p) => (
@@ -268,7 +282,10 @@ export default function App() {
       )}
       {shownTab === 'atlas' && (
         <Overlay>
-          <AtlasView rows={rows} />
+          <AtlasView
+            rows={rows}
+            onOpen={(r) => setPopup({ sci: r.sci, com: r.com, slug: r.slug, n: r.n })}
+          />
         </Overlay>
       )}
       {shownTab === 'wall' && (
@@ -285,25 +302,24 @@ export default function App() {
         ))}
       </nav>
 
-      <LiveCounter
-        species={species}
-        calls={calls}
-        windowLabel={windowLabel}
-        live={liveState}
-        latest={latest}
-        compact={framed}
-      />
+      {!framed && (
+        <LiveCounter
+          species={species}
+          calls={calls}
+          windowLabel={windowLabel}
+          live={liveState}
+          latest={latest}
+          compact={framed}
+        />
+      )}
 
-      {settings.showColophon && shownTab === 'collage' && (
+      {settings.showColophon && shownTab === 'collage' && !framed && (
         <div className="colophon">Belkins BirdNET</div>
       )}
 
-      {framed && (
-        <FrameOverlay
-          onExit={exitFrame}
-          tombstone={{ title: mastTitle(species), sub: `${calls} calls · ${windowLabel}` }}
-        />
-      )}
+      {framed && <FrameOverlay onExit={exitFrame} />}
+
+      <BirdPopup bird={popup} windowLabel={windowLabel} onClose={() => setPopup(null)} />
 
       <SettingsPanel
         open={settingsOpen}

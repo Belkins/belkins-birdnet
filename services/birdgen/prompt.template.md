@@ -18,13 +18,13 @@ Three text placeholders get replaced per request:
 
 ## Prompt
 
-Generate a {pose} {com_name} ({sci_name}) in the style of an Edo-period Japanese kachō-e woodblock print, matching the painting technique of IMAGE 2 closely. Look at IMAGE 2: the bird is rendered with VERY FEW MARKS. The body is essentially 2-4 flat color zones with sharp boundaries. There is almost no internal texture on the body - no feather-by-feather rendering, no pen-line stippling, no gradient shading. The bird in IMAGE 2 looks like it was painted with maybe 30 brush strokes total. YOUR output should look the same: a few flat color zones, a few confident outline strokes, an accent stroke or two for major wing or tail markings, and that's it.
+Generate a {pose} {com_name} ({sci_name}) as an Edo-period Japanese kachō-e woodblock print. Render the bird with VERY FEW MARKS: the body is essentially 2-4 flat color zones with sharp boundaries, roughly 30 brush strokes total - no feather-by-feather rendering, no pen-line stippling, no gradient shading, no photographic texture. A few confident sumi-e outline strokes, one or two accent strokes for major wing or tail markings, and that's it. (If a woodblock-print style image is also attached, borrow only its painting technique - never its species, branches, leaves, water, or scenery.)
 
 Confident sumi-e ink linework with soft watercolor washes. Earthy, restrained palette: burnt umber, ochre, indigo, vermillion, muted greens. The body should look like flat painted paper - not a textured surface, not shaded volume. If the species has subtle plumage variation (streaking, mottling, fine barring), ABSTRACT it into 2-3 broad zones rather than rendering it literally. Eye, beak, and feet drawn with crisp ink - these are the only places where confident dark line is appropriate.
 
-The bird sits on a CONSISTENT WARM CREAM tonal background - like aged Japanese mulberry paper, a soft warm buff cream color. The cream ground fills the entire frame as the background and is identical across every print for visual consistency. This is the only background element: NO branch, NO twig, NO perch, NO leaves, NO foliage, NO substrate, NO scenery, NO sky, NO moon, NO water - only the bird floating against the cream paper ground. The perch is purely implied by toe posture - it is NEVER rendered. NO border or frame, NO text or signature.
+The bird floats on a completely FLAT, UNIFORM, SOLID magenta background, hex #FF00FF (pure RGB 255,0,255). The background is a single flat fill of exactly this one color across the entire frame - NO texture, NO paper grain, NO mottling, NO aging, NO vignette, NO gradient, NO shadow, NO tonal variation. It must read like a solid digital chroma-key screen, not paper. This magenta color appears NOWHERE on the bird. This is the only background element: NO branch, NO twig, NO perch, NO leaves, NO foliage, NO substrate, NO scenery, NO sky, NO moon, NO water - only the bird floating against the flat magenta ground. The perch is purely implied by toe posture - it is NEVER rendered. NO border or frame, NO text or signature.
 
-Composition: the bird occupies one-third to one-half of the frame. Leave generous negative space (just the cream ground) around it. The image should feel sparse and confident, not packed with detail.
+Composition: the bird occupies one-third to one-half of the frame. Leave generous negative space (just the flat magenta ground) around it. The image should feel sparse and confident, not packed with detail.
 
 The ENTIRE bird must fit within the image frame: head, both wings (fully extended for flight pose), full tail, both legs, both feet, beak. Do NOT crop the wings, tail, legs, or any body part at the edge of the frame. Leave generous padding on all sides.
 
@@ -32,9 +32,9 @@ The ENTIRE bird must fit within the image frame: head, both wings (fully extende
 
 - IMAGE 1 (positive, anatomy) IS {com_name}. Match its proportions, head color, throat, wing pattern, back color, tail pattern, leg color. If the reference shows non-breeding or worn plumage, render the brightest BREEDING (adult-summer) plumage instead - render the most diagnostic, recognizable version of the species.
 {anti_ref_line}
-- IMAGE 3 (positive, style) is a real Edo-period kachō-e woodblock print. The bird in IMAGE 3 is a DIFFERENT species - IGNORE its species, only borrow its painting style. Render the bird in IMAGE 3's painting style. DO NOT copy any compositional elements from IMAGE 3 (branches, leaves, water, moon, scenery).
+- IMAGE 3 (positive, style), if attached, is a real Edo-period kachō-e woodblock print. The bird in IMAGE 3 is a DIFFERENT species - IGNORE its species, only borrow its painting style. Render the bird in IMAGE 3's painting style. DO NOT copy any compositional elements from IMAGE 3 (branches, leaves, water, moon, scenery).
 
-Treat IMAGE 1 for anatomy and color information ONLY. Treat IMAGE 3 for style ONLY. The output should look like an Edo-period woodblock print of the species in IMAGE 1, painted by the artist of IMAGE 3.
+Treat IMAGE 1 for anatomy and color information ONLY. If IMAGE 3 is attached, treat it for style ONLY - the output should then look like an Edo-period woodblock print of the species in IMAGE 1, painted by the artist of IMAGE 3.
 
 ### Anatomy
 
@@ -57,4 +57,4 @@ Treat IMAGE 1 for anatomy and color information ONLY. Treat IMAGE 3 for style ON
 
 ### Output
 
-Render at high resolution on a fully transparent background. Cut the bird out cleanly. No shadow, no paper texture, no caption.
+Render at high resolution. The bird is fully inside the frame with generous padding on all sides, painted over the flat solid #FF00FF magenta field described above. Do not attempt transparency, a drop shadow, or any paper texture - the magenta must stay a single flat solid color right up to the bird's edge so it keys out cleanly. No caption.

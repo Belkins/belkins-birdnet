@@ -89,6 +89,8 @@ export class CollageRenderer {
   private motionLast = 0;
   /** per-slug drift seeds, computed lazily and reused across frames. */
   private readonly drifts = new Map<string, DriftSeed>();
+  /** per-slug silhouette Path2D (mask-space), built once and reused. */
+  private readonly silhouettes = new Map<string, Path2D>();
   /** instant reveals when the user prefers reduced motion. */
   readonly reducedMotion: boolean;
 
@@ -211,7 +213,7 @@ export class CollageRenderer {
         ctx.shadowOffsetY = ink.shadowOffsetY;
         ctx.drawImage(t.img, dx, dy, t.fullW, t.fullH);
       } else {
-        this.drawPlaceholder(t, dx, dy, t.fullW, t.fullH);
+        this.drawSilhouette(t, dx, dy, t.fullW, t.fullH);
       }
       ctx.restore();
     }
@@ -255,7 +257,7 @@ export class CollageRenderer {
         ctx.shadowOffsetY = ink.shadowOffsetY;
         ctx.drawImage(t.img, dx, dy, drawW, drawH);
       } else {
-        this.drawPlaceholder(t, dx, dy, drawW, drawH);
+        this.drawSilhouette(t, dx, dy, drawW, drawH);
       }
       ctx.restore();
     }
@@ -263,26 +265,35 @@ export class CollageRenderer {
     if (animating) this.requestDraw();
   }
 
-  /** Muted card + label so a missing image (or default-mask species) is
-   *  still visible — never an invisible gap. Theme-aware so the label reads
-   *  on both the dark and the cream ground. */
-  private drawPlaceholder(t: Tile, x: number, y: number, w: number, h: number): void {
+  /** A tasteful ink SILHOUETTE for a bird with no cutout yet (pending Railway
+   *  gen) or no illustration at all — never a labeled grey card. Real mask →
+   *  the bird's own shape; default-bbox species → a generic perched-bird glyph.
+   *  Theme-aware ink so it reads on both grounds. */
+  private drawSilhouette(t: Tile, x: number, y: number, w: number, h: number): void {
     const { ctx } = this;
     const night = this.theme === 'night';
-    ctx.fillStyle = night ? 'rgba(241,234,217,0.06)' : 'rgba(26,22,18,0.05)';
-    const r = Math.min(10, w * 0.12, h * 0.12);
-    roundRect(ctx, x, y, w, h, r);
-    ctx.fill();
-    ctx.strokeStyle = night ? 'rgba(241,234,217,0.16)' : 'rgba(26,22,18,0.18)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, x, y, w, h, r);
-    ctx.stroke();
-    const label = t.com || t.sci;
-    ctx.fillStyle = night ? 'rgba(207,199,182,0.78)' : 'rgba(40,32,22,0.7)';
-    ctx.font = `${Math.max(9, Math.min(14, w * 0.12))}px 'Cormorant Garamond', Georgia, serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(truncate(label, w), x + w / 2, y + h / 2, w * 0.9);
+    ctx.fillStyle = night ? 'rgba(241,234,217,0.32)' : 'rgba(26,22,18,0.28)';
+    const path = this.silhouettePath(t);
+    ctx.save();
+    ctx.translate(x, y);
+    if (t.mask.isDefault) ctx.scale(w / 100, h / 72);        // glyph authoring box
+    else ctx.scale(w / t.mask.w, h / t.mask.h);              // real mask space
+    ctx.fill(path);
+    ctx.restore();
+  }
+
+  private silhouettePath(t: Tile): Path2D {
+    const cached = this.silhouettes.get(t.slug);
+    if (cached) return cached;
+    let p: Path2D;
+    if (t.mask.isDefault) {
+      p = genericBirdPath();
+    } else {
+      p = new Path2D();
+      for (const c of t.mask.cells) p.rect(c[0], c[1], 1.02, 1.02); // union of mask cells
+    }
+    this.silhouettes.set(t.slug, p);
+    return p;
   }
 
   /** Motion runs only when explicitly on, motion-safe, and not an e-ink print. */
@@ -346,24 +357,14 @@ export class CollageRenderer {
   }
 }
 
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
-function truncate(s: string, w: number): string {
-  const max = Math.max(3, Math.floor(w / 7));
-  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+/** A generic perched-bird silhouette in a 100x72 authoring box — used when a
+ *  species has no baked mask, so an un-illustrated bird still reads as a bird,
+ *  never a box. */
+function genericBirdPath(): Path2D {
+  const p = new Path2D();
+  p.ellipse(52, 44, 30, 19, -0.18, 0, TAU);   // body
+  p.ellipse(26, 30, 12, 12, 0, 0, TAU);        // head
+  p.moveTo(15, 27); p.lineTo(2, 31); p.lineTo(16, 34); p.closePath();  // beak
+  p.moveTo(78, 42); p.lineTo(99, 31); p.lineTo(82, 52); p.closePath(); // tail
+  return p;
 }

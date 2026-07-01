@@ -55,9 +55,9 @@
   background: transparent;
 }
 .lc-dot[data-live='live'] {
-  border-color: var(--amber);
-  background: var(--amber);
-  box-shadow: 0 0 10px var(--amber);
+  border-color: var(--live);
+  background: var(--live);
+  box-shadow: 0 0 10px var(--live);
   animation: lc-breath 2.4s ease-in-out infinite;
 }
 .lc-dot[data-live='idle'],
@@ -95,7 +95,7 @@
   color: var(--mut);
 }
 .lc-dot[data-live='live'] + .lc-state {
-  color: var(--amber);
+  color: var(--live);
 }
 
 /* just-heard ticker: fades in beside the block, then dissolves over 0.6s */

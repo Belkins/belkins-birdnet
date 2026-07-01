@@ -35,11 +35,14 @@ export const PLACEHOLDER: AmbientSpecies[] = [
   { sci: 'Corvus brachyrhynchos', com: 'American Crow' },
 ];
 
-/** How many ambient birds each density tier targets (spec §4-C control 6). */
+/** Target TOTAL on-canvas population each density tier aims for — real species
+ *  plus ambient ghosts combined (spec §4-C control 6). The ambient cast fills
+ *  only the deficit below this target, so it recedes to nothing as real data
+ *  grows in. */
 const DENSITY_CAP: Record<Settings['density'], number> = {
-  sparse: 6,
-  balanced: 12,
-  cozy: 18,
+  sparse: 8,
+  balanced: 14,
+  cozy: 20,
 };
 
 /** Decide the ambient backdrop cast for the current real roster + settings.
@@ -49,8 +52,10 @@ const DENSITY_CAP: Record<Settings['density'], number> = {
  *   - `roster`      → the all-time life list, TOPPED UP with PLACEHOLDER to fill.
  *  In every non-off mode, species already present in `realRoster` are excluded
  *  (case-insensitive sci match — the honesty firewall) and the result is capped
- *  to the density tier. A young install (little/no history) still reads full,
- *  never barren, because the placeholder cast backfills the empty space. */
+ *  to the density tier's TARGET TOTAL minus the real roster — i.e. ambient fills
+ *  only the deficit, receding to [] once real species reach the target. A young
+ *  install (little/no history) still reads full, never barren, because the
+ *  placeholder cast backfills the empty space. */
 export function ambientRoster(opts: {
   realRoster: RosterRow[];
   allTime: SpeciesRow[];
@@ -61,7 +66,12 @@ export function ambientRoster(opts: {
 
   if (mode === 'off') return [];
 
-  const cap = DENSITY_CAP[density];
+  // Density is now a TARGET TOTAL population, not an additive ghost count. As
+  // real detections grow the ambient deficit shrinks to zero — so at 5-13 real
+  // species the backdrop all but disappears and cannot collide with the real
+  // birds. A young/empty install still fills to the target.
+  const cap = Math.max(0, DENSITY_CAP[density] - realRoster.length);
+  if (cap === 0) return [];
   // Honesty firewall: never echo a species the live counter is already counting
   // (seed with the counted set, then dedupe as we fill).
   const seen = new Set(realRoster.map((r) => r.sci.toLowerCase()));

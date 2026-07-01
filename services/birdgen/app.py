@@ -16,7 +16,13 @@ Contract obligations honored here:
     (queued | generating | done | dead). dead after 4 consecutive fails.
   - Single-flight asyncio worker; MIN_SPACING = 6s between Gemini calls;
     exponential backoff on failure (gen_one does the per-call 429/5xx retry).
-  - QA gate: creamkey opaque-fraction in [0.015, 0.75]; fail -> dead, no publish.
+  - QA gate: chromakey opaque-fraction in [0.015, 0.75] PLUS a deterministic
+    dirty-output gate (torn-paper alpha islands / leaked magenta / ragged edge /
+    border-contact / mangled aspect) and an optional AV_VERIFY Gemini gate; a
+    failed gate re-queues on a short backoff (then dead after MAX_ATTEMPTS), and
+    never publishes.
+  - POST /requeue (Bearer): reset dirty done/dead species to queued over HTTP so
+    the volume state can be wiped after a redeploy without shell access.
   - GEMINI_API_KEY via x-goog-api-key header (in pregen.gen_one), NEVER logged.
   - /manifest = bundled(manifest.json) UNION generated(volume): single dedup SoT.
 
@@ -30,9 +36,11 @@ import hmac
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
+from collections import deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -40,11 +48,13 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from PIL import Image
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
 import pregen
-from creamkey import creamkey
+from creamkey import chromakey
+from verify import verify_one
 
 # --------------------------------------------------------------------------- #
 # Configuration (all via env; secrets never logged)
@@ -59,11 +69,36 @@ MIN_SPACING = float(os.environ.get("MIN_SPACING", "6"))          # s between Gem
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "4"))          # consecutive fails -> dead
 BACKOFF_BASE = float(os.environ.get("BACKOFF_BASE", "900"))      # 15 min
 BACKOFF_MAX = float(os.environ.get("BACKOFF_MAX", "21600"))      # 6 h cap
+# QA rejects are cheap stochastic misses (usually clean on the next roll), so
+# they re-queue on a SHORT backoff instead of the 15m+ network-transient one.
+QA_BACKOFF_BASE = float(os.environ.get("QA_BACKOFF_BASE", "30"))  # s
+QA_BACKOFF_MAX = float(os.environ.get("QA_BACKOFF_MAX", "120"))   # s cap
 LEASE_TTL = int(os.environ.get("LEASE_TTL", "600"))             # generating-state crash guard
 POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "5"))     # worker idle re-poll (catches backoff)
 
 QA_MIN = float(os.environ.get("QA_MIN_FRAC", "0.015"))
 QA_MAX = float(os.environ.get("QA_MAX_FRAC", "0.75"))
+
+# Deterministic dirty-output gate. The opaque-fraction band alone lets a
+# torn-paper beige island (bird + a keyed-in ground fragment) through, so add
+# pure-Pillow checks on the keyed RGBA. All thresholds env-tunable so prod can
+# retune without a redeploy; zero extra Gemini spend.
+QA_ALPHA_ON = int(os.environ.get("QA_ALPHA_ON", "10"))            # alpha > this = opaque
+QA_DOWNSCALE = int(os.environ.get("QA_DOWNSCALE", "400"))         # px cap for pixel analysis
+QA_MAGENTA_TOL = int(os.environ.get("QA_MAGENTA_TOL", "60"))      # matches chromakey tol
+QA_MAGENTA_MAX = float(os.environ.get("QA_MAGENTA_MAX", "0.02"))  # >2% opaque magenta -> reject
+QA_RAGGED_MAX = float(os.environ.get("QA_RAGGED_MAX", "0.6"))     # semi-opaque / opaque
+QA_ISLAND_MAX = float(os.environ.get("QA_ISLAND_MAX", "0.015"))   # Σ non-largest opaque / frame
+QA_ISLAND_COMP = float(os.environ.get("QA_ISLAND_COMP", "0.0005"))  # min comp (frac) to count
+QA_ISLAND_NCOMP = int(os.environ.get("QA_ISLAND_NCOMP", "5"))     # > this many sig comps -> reject
+QA_BORDER_FRAC = float(os.environ.get("QA_BORDER_FRAC", "0.05"))  # opaque along a side band
+QA_BORDER_SIDES = int(os.environ.get("QA_BORDER_SIDES", "2"))     # >= sides touched -> reject
+QA_ASPECT_MIN = float(os.environ.get("QA_ASPECT_MIN", "0.45"))
+QA_ASPECT_MAX = float(os.environ.get("QA_ASPECT_MAX", "2.2"))
+
+# Optional adversarial species/anatomy gate (verify.verify_one -> one extra
+# Gemini-Vision call per generation). Off by default; enable with AV_VERIFY=1.
+AV_VERIFY = os.environ.get("AV_VERIFY", "") not in ("", "0", "false", "False")
 
 RATE_CAPACITY = float(os.environ.get("RATE_CAPACITY", "30"))     # token bucket size
 RATE_REFILL = float(os.environ.get("RATE_REFILL", "1.0"))       # tokens / second
@@ -225,6 +260,12 @@ def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
     # otherwise dead after MAX_ATTEMPTS consecutive failures.
     if fail_class == "safety" or attempts >= MAX_ATTEMPTS:
         state, next_retry = "dead", 0
+    elif fail_class == "qa":
+        # a dirty render is a cheap stochastic miss -> re-roll fast (30-120s),
+        # not the 15m+ network-transient backoff.
+        state = "queued"
+        backoff = min(QA_BACKOFF_BASE * (2 ** (attempts - 1)), QA_BACKOFF_MAX)
+        next_retry = now + int(backoff)
     else:
         state = "queued"
         backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
@@ -251,6 +292,77 @@ def counts() -> tuple:
             "SELECT COUNT(*) FROM species_jobs WHERE state='done'"
         ).fetchone()[0]
     return q, d
+
+
+# --------------------------------------------------------------------------- #
+# Slug helpers + admin requeue support
+# --------------------------------------------------------------------------- #
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _valid_slug(slug: str) -> bool:
+    """Reject path-traversal / junk before it reaches the filesystem or DB.
+    Mirrors the shape slugify() produces: lowercase alnum groups joined by '-'."""
+    return bool(slug) and slug not in (".", "..") and bool(_SLUG_RE.match(slug))
+
+
+def slug_to_sci(slug: str) -> str:
+    """Best-effort reverse of slugify for a binomial/trinomial:
+    'erithacus-rubecula' -> 'Erithacus rubecula'. gen_one needs only the
+    scientific name (common name + anatomy ref resolve from it via Wikipedia)."""
+    parts = [p for p in slug.split("-") if p]
+    if not parts:
+        return ""
+    return " ".join([parts[0].capitalize()] + parts[1:])
+
+
+def slugs_in_states(states: tuple) -> list:
+    """Slugs whose terminal DB state is one of `states` (e.g. dead/done)."""
+    placeholders = ",".join("?" for _ in states)
+    with _db_lock:
+        rows = db().execute(
+            "SELECT slug FROM species_jobs WHERE state IN (%s)" % placeholders,
+            states,
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+def requeue_row(slug: str) -> None:
+    """Reset an existing job to a fresh queued state (attempts/backoff/lease
+    cleared so the worker claims it immediately), or insert a queued row for a
+    slug we've never seen. sci is derived from the slug for a brand-new row."""
+    now = int(time.time())
+    with _db_lock:
+        cur = db().execute(
+            """
+            UPDATE species_jobs
+               SET state='queued', attempts=0, next_retry=0, lease_until=0,
+                   fail_reason=NULL, updated_ts=?
+             WHERE slug=?
+            """,
+            (now, slug),
+        )
+        if cur.rowcount == 0:
+            db().execute(
+                """
+                INSERT INTO species_jobs (slug, sci, com, conf, state, attempts,
+                                          next_retry, lease_until, updated_ts)
+                VALUES (?, ?, '', ?, 'queued', 0, 0, 0, ?)
+                """,
+                (slug, slug_to_sci(slug), CONF_THRESHOLD, now),
+            )
+        db().commit()
+
+
+def _delete_published(slug: str) -> None:
+    """Remove a published PNG from the volume (so a dirty render can't be
+    served while its regeneration is pending). Best-effort."""
+    p = ASSETS_DIR / ("%s.png" % slug)
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -307,6 +419,136 @@ def _resolve_refs(slug: str, sci: str, com: str):
     return pos, anti, anti_key_for_call, style
 
 
+def _qa_islands(apx: list, w: int, h: int) -> None:
+    """Connected-components on the opaque mask. A clean cutout is one dominant
+    blob (the bird); torn-paper beige fragments and speckle show up as extra
+    components. Reject when the non-largest components sum past QA_ISLAND_MAX of
+    the frame, or when there are more than QA_ISLAND_NCOMP significant blobs."""
+    on = QA_ALPHA_ON
+    n = w * h
+    visited = bytearray(n)
+    sizes = []
+    for start in range(n):
+        if apx[start] > on and not visited[start]:
+            comp = 0
+            dq = deque((start,))
+            visited[start] = 1
+            while dq:
+                idx = dq.popleft()
+                comp += 1
+                x = idx % w
+                if x > 0 and apx[idx - 1] > on and not visited[idx - 1]:
+                    visited[idx - 1] = 1
+                    dq.append(idx - 1)
+                if x < w - 1 and apx[idx + 1] > on and not visited[idx + 1]:
+                    visited[idx + 1] = 1
+                    dq.append(idx + 1)
+                if idx >= w and apx[idx - w] > on and not visited[idx - w]:
+                    visited[idx - w] = 1
+                    dq.append(idx - w)
+                if idx < n - w and apx[idx + w] > on and not visited[idx + w]:
+                    visited[idx + w] = 1
+                    dq.append(idx + w)
+            sizes.append(comp)
+    if not sizes:
+        raise QAReject("no opaque component")
+    sizes.sort(reverse=True)
+    frame = float(n)
+    others = sum(sizes[1:])
+    if others / frame > QA_ISLAND_MAX:
+        raise QAReject("alpha islands: non-largest=%.3f of frame" % (others / frame))
+    sig = sum(1 for s in sizes if s / frame > QA_ISLAND_COMP)
+    if sig > QA_ISLAND_NCOMP:
+        raise QAReject("alpha islands: %d significant components" % sig)
+
+
+def _qa_inspect(cut_path: str) -> None:
+    """Deterministic, Pillow-only dirty-output gate on the keyed RGBA. Raises
+    QAReject on the signatures the opaque-fraction band alone misses: leaked
+    magenta ground, ragged/fuzzy alpha, ground still touching the frame on
+    multiple sides, a mangled crop aspect, or torn-paper alpha islands."""
+    im0 = Image.open(cut_path).convert("RGBA")
+    w0, h0 = im0.size
+    if w0 == 0 or h0 == 0:
+        raise QAReject("empty cutout")
+
+    # mangled / half-bird crop
+    aspect = w0 / float(h0)
+    if not (QA_ASPECT_MIN <= aspect <= QA_ASPECT_MAX):
+        raise QAReject("aspect=%.2f out of [%.2f,%.2f]"
+                       % (aspect, QA_ASPECT_MIN, QA_ASPECT_MAX))
+
+    # Downscale (NEAREST keeps alpha discrete so the feather band isn't inflated)
+    # to bound the pure-Python pixel scan on large renders.
+    scale = QA_DOWNSCALE / float(max(w0, h0))
+    if scale < 1.0:
+        im = im0.resize((max(1, int(w0 * scale)), max(1, int(h0 * scale))), Image.NEAREST)
+    else:
+        im = im0
+    w, h = im.size
+    on = QA_ALPHA_ON
+    lo, hi = QA_MAGENTA_TOL, 255 - QA_MAGENTA_TOL
+
+    px = list(im.getdata())
+    apx = [0] * (w * h)
+    opaque = semi = magenta = 0
+    for i, (r, g, b, a) in enumerate(px):
+        apx[i] = a
+        if a > on:
+            opaque += 1
+            if a < 255:
+                semi += 1
+            # residual magenta ground = high R, low G, high B (same test as the key)
+            if r >= hi and g <= lo and b >= hi:
+                magenta += 1
+    if opaque == 0:
+        raise QAReject("no opaque pixels after key")
+
+    # leaked key colour among visible pixels (torn/unkeyed magenta)
+    if magenta / float(opaque) > QA_MAGENTA_MAX:
+        raise QAReject("residual magenta=%.3f of opaque" % (magenta / float(opaque)))
+
+    # ragged alpha: a clean feather is a thin outline; a torn blob is mostly fuzz
+    if semi / float(opaque) > QA_RAGGED_MAX:
+        raise QAReject("ragged edge: semi/opaque=%.3f" % (semi / float(opaque)))
+
+    # ground the key failed to remove still touches the frame on >= N sides
+    band = min(3, w, h)
+    top = max(sum(1 for x in range(w) if apx[y * w + x] > on) for y in range(band))
+    bot = max(sum(1 for x in range(w) if apx[(h - 1 - y) * w + x] > on) for y in range(band))
+    left = max(sum(1 for y in range(h) if apx[y * w + x] > on) for x in range(band))
+    right = max(sum(1 for y in range(h) if apx[y * w + (w - 1 - x)] > on) for x in range(band))
+    sides = ((top / float(w) > QA_BORDER_FRAC) + (bot / float(w) > QA_BORDER_FRAC)
+             + (left / float(h) > QA_BORDER_FRAC) + (right / float(h) > QA_BORDER_FRAC))
+    if sides >= QA_BORDER_SIDES:
+        raise QAReject("border contact on %d sides" % sides)
+
+    _qa_islands(apx, w, h)
+
+
+def _qa_verify(slug: str, sci: str, com: str, cut_path: Path) -> None:
+    """Optional adversarial ID/anatomy gate (AV_VERIFY=1). One Gemini-Vision
+    call via verify.verify_one; rejects an off-species or malformed render so it
+    regenerates. Fails OPEN (never rejects) when the model errors or the response
+    can't be parsed — a QA gate must not reject on partial/absent data."""
+    try:
+        v = verify_one(GEMINI_API_KEY, cut_path, sci, com)
+    except Exception as e:  # network/API error -> not a QA verdict; keep the clean render
+        log.warning("verify_one error slug=%s err=%s (skipping verify gate)", slug, e)
+        return
+    if not v:
+        return  # unparseable -> fail open
+    if (not v["matches_target"]) and v["guess_confidence"] == "high":
+        raise QAReject("verify: reads as %s (conf=high), not %s"
+                       % (v.get("guessed_species_com", "?"), com))
+    if v["wing_count"] != 2:
+        raise QAReject("verify: wing_count=%s" % v["wing_count"])
+    if v["leg_count"] > 2:
+        raise QAReject("verify: leg_count=%s" % v["leg_count"])
+    if v["has_stick_or_perch"]:
+        raise QAReject("verify: has stick/perch")
+
+
 def _generate_sync(slug: str, sci: str, com: str) -> float:
     """gen_one(pose=1) -> creamkey cutout -> QA gate -> atomic publish.
     Returns the opaque fraction. Raises QAReject / RuntimeError / urllib errors."""
@@ -322,9 +564,15 @@ def _generate_sync(slug: str, sci: str, com: str) -> float:
     tmp_cut = ASSETS_DIR / (".%s.cut.png" % slug)
     try:
         tmp_raw.write_bytes(png)
-        frac = creamkey(str(tmp_raw), str(tmp_cut))
+        frac = chromakey(str(tmp_raw), str(tmp_cut))
         if not (QA_MIN <= frac <= QA_MAX):
             raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
+        # deterministic dirty-output gate (torn-paper islands / leaked magenta /
+        # ragged alpha / border-contact / mangled aspect) -> QAReject re-queues.
+        _qa_inspect(str(tmp_cut))
+        # optional adversarial species/anatomy gate (one Gemini-Vision call).
+        if AV_VERIFY:
+            _qa_verify(slug, sci, com, tmp_cut)
         # atomic publish (same filesystem -> os.replace is atomic)
         os.replace(str(tmp_cut), str(ASSETS_DIR / ("%s.png" % slug)))
         return frac
@@ -522,3 +770,46 @@ async def detected(payload: Detection, authorization: Optional[str] = Header(Non
             pass  # worker re-polls every POLL_INTERVAL regardless
     log.info("enqueued slug=%s status=queued", slug)
     return {"status": "queued"}
+
+
+@app.post("/requeue")
+async def requeue(request: Request, authorization: Optional[str] = Header(None)):
+    """Admin reset over HTTP: delete published PNGs and reset the named slugs
+    (or, when none are given, every dead/done row) to a fresh queued state, then
+    wake the worker. Lets us wipe stale/dirty volume state after a redeploy
+    without shell access. Body {"slugs": [...]} is optional (empty => all
+    dead+done). Returns {"requeued": [...]}.  Same Bearer auth as /detected."""
+    # 0. misconfiguration -> fail loud
+    if not WATCHER_WEBHOOK_SECRET:
+        return JSONResponse({"error": "auth not configured"}, status_code=503)
+
+    # 1. Bearer auth (constant-time compare)
+    expected = "Bearer " + WATCHER_WEBHOOK_SECRET
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    # 2. resolve targets: explicit list (sanitized), or all dead+done rows.
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    raw = body.get("slugs", []) if isinstance(body, dict) else []
+    requested = [s.strip() for s in raw if isinstance(s, str) and s.strip()]
+    if requested:
+        targets = [s for s in requested if _valid_slug(s)]
+    else:
+        targets = [s for s in slugs_in_states(("dead", "done")) if _valid_slug(s)]
+
+    # 3. delete PNG + reset row + wake worker for each target.
+    requeued = []
+    for slug in targets:
+        _delete_published(slug)
+        requeue_row(slug)
+        if _wakeup is not None:
+            try:
+                _wakeup.put_nowait(slug)
+            except asyncio.QueueFull:
+                pass
+        requeued.append(slug)
+    log.info("requeue: reset %d slug(s) -> queued", len(requeued))
+    return {"requeued": requeued}

@@ -1590,3 +1590,49 @@
  * See avian/forwarding/. */
 body.av-local #dd-locked { display: none; }
 body.av-local #dd-items  { display: block; }
+
+  /* ============ Index (broadsheet ledger) ============
+   * View 4 (#v3): a big total-calls number beside a ranked species list
+   * with proportional bars, for the CURRENT window (same DATA.recent the
+   * collage/stats read). Warm-paper tokens only - no redesign amber. */
+  .idx {
+    display: grid; grid-template-columns: 1fr 1.3fr; gap: 6%;
+    align-items: center; max-width: 1180px; margin: 0 auto; height: 100%;
+  }
+  .idx-eyebrow, .idx-sub, .idx-totl {
+    font: 10px ui-monospace, Menlo, monospace; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--ink-soft);
+  }
+  .idx-big {
+    font-family: ui-serif, "Iowan Old Style", Georgia, serif;
+    font-weight: 700; font-size: 52px; line-height: 0.96;
+    letter-spacing: -0.02em; text-transform: uppercase; color: var(--ink); margin: 0.1em 0 0;
+  }
+  .idx-sub { margin-top: 14px; }
+  .idx-total {
+    font-family: ui-serif, "Iowan Old Style", Georgia, serif;
+    font-weight: 700; font-size: 96px; line-height: 0.85; color: var(--ink); margin-top: 36px;
+    font-variant-numeric: tabular-nums;
+  }
+  .idx-totl { margin-top: 8px; }
+  .idx-list { list-style: none; margin: 0; padding: 0; }
+  .idx-row {
+    display: flex; align-items: center; gap: 16px;
+    border-top: 1px solid var(--hairline); padding: 13px 0; cursor: pointer;
+  }
+  .idx-no { font: 12px ui-monospace, Menlo, monospace; color: var(--ink-soft); width: 26px; }
+  .idx-nm { flex: 1; font-family: ui-serif, "Iowan Old Style", Georgia, serif; font-size: 26px; color: var(--ink); }
+  .idx-row.top .idx-nm { color: var(--accent); }
+  .idx-bar { height: 5px; max-width: 40%; background: var(--accent); border-radius: 3px; opacity: 0.85; }
+  .idx-ct {
+    font: 700 13px ui-monospace, Menlo, monospace; width: 40px; text-align: right;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .idx-empty { display: flex; flex-direction: column; gap: 10px; padding: 6px 0; }
+  .idx-empty-lead { font-family: ui-serif, "Iowan Old Style", Georgia, serif; font-size: 40px; color: var(--ink); }
+  .idx-empty-note { font: 10px ui-monospace, Menlo, monospace; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); }
+  @media (max-width: 700px) {
+    .idx { grid-template-columns: 1fr; gap: 22px; align-content: start; }
+    .idx-big { font-size: 38px; } .idx-total { font-size: 68px; margin-top: 18px; }
+    .idx-nm { font-size: 20px; }
+  }

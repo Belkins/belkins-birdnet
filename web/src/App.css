@@ -258,7 +258,9 @@
 .view-mast .t {
   font-family: var(--display);
   font-weight: 500;
-  font-size: 40px;
+  /* 34px keeps the longer "Atlas Belkins BirdNET" heading on one line at the
+     760px card-grid breakpoint. */
+  font-size: 34px;
   letter-spacing: 0.12em;
   color: var(--ink);
 }
@@ -480,6 +482,8 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 10px;
+  line-height: 1.3;
   font-family: var(--mono);
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -540,12 +544,20 @@
   font-family: var(--display);
   font-size: 21px;
   font-weight: 500;
+  line-height: 1.05;
+  /* Stable name slot: 1- and 2-line common names bottom-align to the same
+     baseline so the sci line + footer stay level across a grid row. */
+  min-height: 2.1em;
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 2px;
 }
 .acard-ln {
   font-family: var(--display);
   font-style: italic;
   font-size: 13px;
   color: var(--mut);
+  margin-top: 2px;
 }
 .acard-f {
   margin-top: auto;
@@ -635,6 +647,10 @@
 .acard.feat .acard-cn {
   font-size: 30px;
   text-align: center;
+  /* The lone feature plate has no row to align against: drop the stable slot
+     (min-height) and center the flex name instead of bottom-left-aligning it. */
+  justify-content: center;
+  min-height: 0;
   margin-top: 3px;
 }
 .acard.feat .acard-ln {
@@ -654,10 +670,10 @@
 }
 
 /* ── frame / wall mode (spec §5) ───────────────────────────────
-   Chrome dissolves; the wall keeps the masthead + canvas, a corner tombstone
-   (bottom-left, FrameOverlay), a compact data line (repositioned bottom-right),
-   the colophon (bottom-right, above the counter) and the exit pill. Every rule
-   is theme-var driven, so day + night both read. */
+   Chrome dissolves; the wall keeps the masthead + canvas, the compact data
+   line (repositioned bottom-right) and the exit pill. The colophon and wall
+   tombstone are hidden in frame (F1). Every rule is theme-var driven, so day +
+   night both read. */
 .stage.frame .filter,
 .stage.frame .menu-wrap,
 .stage.frame .nav {
@@ -675,14 +691,10 @@
 .stage.frame .mast-t {
   font-size: 4.6vw;
 }
-/* Move the compact counter to bottom-right so it clears the bottom-left
-   tombstone; lift the colophon just above it in the same corner. */
+/* Pin the compact counter to the bottom-right corner. */
 .stage.frame .live-counter.compact {
   left: auto;
   right: 26px;
-}
-.stage.frame .colophon {
-  bottom: calc(5% + 22px);
 }
 
 /* ── lifer red tick (opt-in; spec §4-#11, default OFF = "pure world") ──

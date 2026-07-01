@@ -88,12 +88,63 @@ curl -s --max-time 4 "http://127.0.0.1:$PORT/health" || warn "health check faile
 echo; echo "   --- replay recent real detections (Last-Event-ID: 0) ---"
 curl -sN --max-time 5 -H "Last-Event-ID: 0" "http://127.0.0.1:$PORT/events" | head -12 || warn "events stream check failed"
 
+say "6. Install the auto-gen watcher forwarder + Railway liveness (POSTs new species to Railway)"
+for f in avian/realtime/forwarder.py avian/realtime/railway_liveness.py \
+         avian/realtime/forwarder.service avian/realtime/railway-liveness.service \
+         avian/realtime/railway-liveness.timer; do
+  [ -f "$HERE/$f" ] || die "missing $f — pull the full Belkins/belkins-birdnet repo"
+done
+
+# 6a. Compile the forwarder pythons before installing (catch syntax issues early).
+"$PY" -m py_compile "$HERE/avian/realtime/forwarder.py" "$HERE/avian/realtime/railway_liveness.py"
+ok "forwarder python compiles"
+
+# 6b. Provision the forwarder env. IDEMPOTENT: never clobber an operator-filled
+#     secret on re-run — only create it (with a clearly-marked placeholder) when absent.
+ENV_DIR="$HOME/.christina"
+ENV_FILE="$ENV_DIR/forwarder.env"
+mkdir -p "$ENV_DIR"
+if [ -f "$ENV_FILE" ]; then
+  ok "forwarder.env already present — leaving it untouched ($ENV_FILE)"
+  grep -q '^WATCHER_WEBHOOK_SECRET=' "$ENV_FILE" || warn "WATCHER_WEBHOOK_SECRET missing in $ENV_FILE — add it (must match the Railway value)"
+else
+  cat > "$ENV_FILE" <<ENVEOF
+# Christina auto-gen watcher forwarder config (Pi-side, low-value secrets only).
+# NEVER put the Gemini key here — that lives only on Railway.
+AV_RAILWAY_BASE=https://birdgen-production.up.railway.app
+# >>> REPLACE THIS PLACEHOLDER <<< must equal WATCHER_WEBHOOK_SECRET on the Railway birdgen service.
+WATCHER_WEBHOOK_SECRET=REPLACE_ME_with_the_Railway_WATCHER_WEBHOOK_SECRET
+AV_CONF=0.80
+ENVEOF
+  chmod 600 "$ENV_FILE"
+  warn "wrote $ENV_FILE with a PLACEHOLDER secret — edit it, set WATCHER_WEBHOOK_SECRET to the Railway value, then: sudo systemctl restart forwarder"
+fi
+
+# 6c. Install the authored systemd units verbatim (idempotent overwrite).
+sudo install -m 644 "$HERE/avian/realtime/forwarder.service" /etc/systemd/system/forwarder.service
+sudo install -m 644 "$HERE/avian/realtime/railway-liveness.service" /etc/systemd/system/railway-liveness.service
+sudo install -m 644 "$HERE/avian/realtime/railway-liveness.timer" /etc/systemd/system/railway-liveness.timer
+sudo systemctl daemon-reload
+ok "installed forwarder.service + railway-liveness.service + .timer"
+
+# 6d. Enable + start. The forwarder stays active even with a placeholder secret
+#     (it just 401s at Railway until you set the real one), so this won't abort.
+sudo systemctl enable --now forwarder
+sleep 2
+systemctl is-active --quiet forwarder && ok "forwarder is running" || { sudo journalctl -u forwarder -n 20 --no-pager; warn "forwarder not active — check $ENV_FILE"; }
+sudo systemctl enable --now railway-liveness.timer && ok "railway-liveness timer enabled (runs every 6h)" || warn "could not enable railway-liveness.timer"
+
 cat <<DONE
 
 ============================================================
 ✅ Phase 0 backend spine deployed.
    • birdcast SSE:   http://$(hostname).local:$PORT/events   (and /health)
    • New detections push the instant BirdNET writes them (after step 4 restart).
+   • forwarder:      POSTs new species to Railway for on-demand illustration.
+     ⚠ REQUIRED: set WATCHER_WEBHOOK_SECRET in $HOME/.christina/forwarder.env
+       to the Railway value, then: sudo systemctl restart forwarder
+     watch it:  journalctl -u forwarder -f   (expect: forwarded <slug> -> 200)
+   • railway-liveness: 6h timer alerts if the Railway gen-service silently dies.
 
 ▶ WATCH IT LIVE (from your Mac, in your OWN terminal — has LAN access):
      cd "<repo>/web"

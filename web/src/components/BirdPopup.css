@@ -1,0 +1,199 @@
+/* Bird detail modal. Self-contained and theme-var driven — every colour
+   resolves from the :root / [data-theme='day'] custom properties, so it reads in
+   both night (obsidian) and day (cream). Sits above the frame overlay (z 60) and
+   all page chrome. */
+
+.bp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: bp-fade 0.18s ease;
+}
+
+.bp-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 30px 32px 28px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  animation: bp-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ── close ─────────────────────────────────────────────────── */
+.bp-x {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--mut);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.bp-x:hover,
+.bp-x:focus-visible {
+  color: var(--ink);
+  border-color: var(--amber);
+  outline: none;
+}
+
+/* ── hero (reuses the shared BirdThumb well, sized up for the modal) ── */
+.bp-hero .acard-img {
+  height: 190px;
+  margin: 6px 0 18px;
+}
+.bp-hero .acard-img img {
+  max-height: 190px;
+  max-width: 82%;
+}
+.bp-hero .acard-sil {
+  width: 120px;
+  height: 120px;
+  font-size: 54px;
+}
+
+/* ── name ──────────────────────────────────────────────────── */
+.bp-head {
+  text-align: center;
+}
+.bp-name {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.05;
+  color: var(--ink);
+}
+.bp-sci {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+  margin-top: 3px;
+}
+
+/* ── figures (window count · all-time) ─────────────────────── */
+.bp-figs {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0 4px;
+}
+.bp-fig {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  background: var(--glass);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+}
+.bp-fig-n {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 26px;
+  line-height: 1;
+  color: var(--ink);
+}
+.bp-fig-l {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mut);
+  text-align: center;
+}
+
+.bp-last {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  text-align: center;
+  margin-top: 12px;
+}
+
+/* ── spectrogram strip (optional; hidden on load error) ────── */
+.bp-spec {
+  display: block;
+  width: 100%;
+  height: 68px;
+  object-fit: cover;
+  margin-top: 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  opacity: 0.9;
+}
+
+/* ── actions ───────────────────────────────────────────────── */
+.bp-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-2);
+}
+.bp-links {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.bp-lnk {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--mut);
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.bp-lnk:hover {
+  color: var(--ink);
+}
+
+@keyframes bp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes bp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-scrim,
+  .bp-card {
+    animation: none;
+  }
+}

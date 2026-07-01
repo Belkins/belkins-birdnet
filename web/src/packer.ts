@@ -15,7 +15,7 @@ import type { Tile } from './types';
 /** viewport px per occupancy cell; smaller = tighter but slower (apt.js). */
 export const GRID_STRIDE = 4;
 /** breathing room (grid cells) around each bird (apt.js COLLAGE_PAD). */
-export const COLLAGE_PAD = 3;
+export const COLLAGE_PAD = 4;
 
 const OFFSCREEN = -99999;
 
@@ -128,12 +128,14 @@ export class CollageGrid {
    * Spiral logic is the original apt.js maskPack inner loop, lifted to operate
    * on the persistent grid so live birds nest onto the existing cluster.
    */
-  placeOne(tile: Tile, xBias: number, yBias: number): boolean {
+  placeOne(tile: Tile, xBias: number, yBias: number, anchorFirst = true): boolean {
     const cx = this.W / 2;
     const cy = this.H / 2;
 
-    // First bird anchors the cluster at viewport centre.
-    if (this.placed.length === 0) {
+    // First bird anchors the cluster at viewport centre — UNLESS we're packing a
+    // secondary layer (ambient) onto a grid already blocked out with the real
+    // cluster, in which case even the first tile must spiral to a free cell.
+    if (anchorFirst && this.placed.length === 0) {
       tile.x = cx - tile.fullW / 2;
       tile.y = cy - tile.fullH / 2;
       this.stamp(tile, tile.x, tile.y);
@@ -202,6 +204,18 @@ export class CollageGrid {
   /** Tiles actually on screen (for bounds / centring). */
   onScreen(): Tile[] {
     return this.placed.filter((t) => t.x > OFFSCREEN + 1);
+  }
+
+  /** Stamp these tiles' footprints into the occupancy grid as blockers WITHOUT
+   *  adding them to `placed`. Lets the ambient backdrop pack AROUND the real
+   *  cluster: the ambient grid reserves every real bird's cells first, so no
+   *  ghost can land on a counted bird. Blockers don't render or feed the
+   *  centre-of-mass — they only occupy space. Off-screen tiles are skipped. */
+  blockOut(tiles: Tile[]): void {
+    for (const t of tiles) {
+      if (t.x <= OFFSCREEN + 1) continue;
+      this.stamp(t, t.x, t.y);
+    }
   }
 
   /**

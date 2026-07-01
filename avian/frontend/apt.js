@@ -56,7 +56,7 @@
   // Each view's title text. The shared static-head shows one of these
   // based on the current view; identical adjacent values mean the title
   // stays put with no fade (collage and stats both say Heard Recently).
-  var VIEW_TITLES = ['Heard Recently', 'Heard Recently', 'Belkins BirdNET'];
+  var VIEW_TITLES = ['Heard Recently', 'Heard Recently', 'Atlas Belkins BirdNET', 'The Index'];
   var staticHead = document.querySelector('.static-head');
   var staticTitle = document.getElementById('staticTitle');
   function setTitleForView(i) {
@@ -85,7 +85,7 @@
   var STATS_LEAD = SLIDE_MS - 200;    // stats - begin a touch sooner
   var currentView = 0;                // collage shows first (no go() needed)
   function go(i) {
-    i = Math.max(0, Math.min(2, i));
+    i = Math.max(0, Math.min(3, i));
     // Only a genuine view *switch* replays the entrance. go() also fires when
     // a card is expanded (it sets the #sci= hash, which routes through go(2))
     // while already on the atlas - that must not retrigger the load-in.
@@ -101,6 +101,7 @@
     if (i === 0) playCollageEntrance();
     else if (i === 1) playStatsEntrance(STATS_LEAD);
     else if (i === 2) playAtlasEntrance(SWITCH_LEAD);
+    else if (i === 3) renderIndex(true);   // re-rank on switch-in with freshest data
   }
   btns.forEach(function (b) { b.addEventListener('click', function () { go(+b.dataset.i); }); });
 
@@ -256,6 +257,11 @@
                        // otherwise. Rolled once per window appearance.
   var collagePose = {}; // sci -> 1 perched | 2 flight, persisted across polls;
                         // cleared when a bird leaves the window so it rerolls.
+  // Generic passerine silhouette for species absent from the bundled NA
+  // library (most UK detections). The packer needs SOME shape to nest a tile;
+  // without a fallback these species were silently dropped, leaving a blank
+  // collage on windows made up entirely of un-illustrated birds.
+  var FALLBACK_MASK_SLUG = 'passer-domesticus';
 
   // Decode and cache each mask once. Sparse cell-list form (only "on"
   // cells) makes collision tests linear in opaque area, not total area.
@@ -443,8 +449,14 @@
       var slug = pose === 2 ? base + '-2' : base;
       var mask = loadMask(slug);
       if (!mask && pose === 2) { pose = 1; slug = base; mask = loadMask(slug); collagePose[s.sci] = 1; }
-      if (!mask) return null;
-      var d = DIMS[slug];
+      // Un-illustrated species (not in the bundled NA library) still need a
+      // shape to nest in the packer - fall back to a generic silhouette so
+      // they appear in the collage instead of being dropped. The displayed
+      // photo is unaffected: it loads from cutout.php?sci= (keyed on s.sci,
+      // not slug) further down, so the real bird still shows.
+      if (!mask) { slug = FALLBACK_MASK_SLUG; mask = loadMask(slug); }
+      if (!mask) return null;   // only if even the fallback is missing
+      var d = DIMS[slug];       // now resolves to the fallback's aspect ratio
       var n = +s.n; if (!n || isNaN(n)) n = 1;
       return {
         mask: mask, data: s, pose: pose,
@@ -1325,6 +1337,57 @@
     if (animate) playAtlasEntrance();
   }
 
+  // INDEX - broadsheet ranked ledger for the CURRENT window: a big total call
+  // count + the top-12 most-heard species with proportional bars. Reads the
+  // SAME DATA.recent the collage and stats use, so switching the window
+  // re-ranks it in lockstep. Wired into both render orchestrators below.
+  // (animate is accepted for call-site parity with renderAtlas; the ledger is
+  // static once painted, so there's no entrance to stagger.)
+  function renderIndex(animate) {
+    var host = document.getElementById('indexList');
+    if (!host) return;
+    var recent = ((DATA.recent && DATA.recent.species) || []).slice();
+    var total = recent.reduce(function (a, s) { return a + (+s.n || 0); }, 0);
+    var totalEl = document.getElementById('indexTotal');
+    var capEl   = document.getElementById('indexCaption');
+    var subEl   = document.getElementById('indexSub');
+    if (totalEl) totalEl.textContent = fmtN(total);
+    if (capEl)   capEl.textContent = recent.length + ' species · ' + windowLabel(currentHours);
+    if (subEl)   subEl.textContent = 'most-heard, ' + windowLabel(currentHours);
+
+    recent.sort(function (a, b) { return (+b.n || 0) - (+a.n || 0); });
+    var top = recent.slice(0, 12);
+    var max = top.length ? (+top[0].n || 1) : 1;
+
+    // One delegated click handler (parity with atlas/stats rows) opens the
+    // species detail modal. Attached once per element, never per render.
+    if (!host.__idxWired) {
+      host.__idxWired = true;
+      host.addEventListener('click', function (ev) {
+        var li = ev.target.closest && ev.target.closest('.idx-row');
+        if (li && li.dataset.sci) openDetailModal(li.dataset.sci);
+      });
+    }
+
+    if (!top.length) {
+      host.innerHTML = '<li class="idx-empty">' +
+        '<span class="idx-empty-lead">Listening.</span>' +
+        '<span class="idx-empty-note">no detections in this window</span></li>';
+      return;
+    }
+    host.innerHTML = top.map(function (s, i) {
+      var n = +s.n || 0;
+      var w = 20 + (n / max) * 60;                       // 20-80% proportional bar
+      return '<li class="idx-row' + (i === 0 ? ' top' : '') +
+               '" data-sci="' + (s.sci || '').replace(/"/g, '&quot;') + '">' +
+        '<span class="idx-no">' + pad(i + 1) + '</span>' +
+        '<span class="idx-nm">' + (s.com || s.sci) + '</span>' +
+        '<span class="idx-bar" style="width:' + w.toFixed(1) + '%"></span>' +
+        '<span class="idx-ct">' + fmtN(n) + '</span>' +
+      '</li>';
+    }).join('');
+  }
+
   function renderWindowDependent(animate) {
     // renderStatsLists runs BEFORE drawHistograms so the stats entrance
     // (fired at the end of drawHistograms) can stagger the side-panel rows
@@ -1333,12 +1396,14 @@
     renderStatsLists();
     drawHistograms(animate);
     renderAtlas(animate);
+    renderIndex(animate);
   }
   function renderTimeIndependent(animate) {
     // Lists first, then the graph (see renderWindowDependent).
     renderStatsLists();
     drawHistograms(animate);
     renderAtlas(animate);
+    renderIndex(animate);
   }
 
   function refreshRecent(animate) {

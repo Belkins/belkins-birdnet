@@ -1,0 +1,68 @@
+/* Listen — mono glass pill wrapping one <audio> control. Reads in both night
+   and day off the shared tokens: quiet glass at rest, amber ring while playing,
+   greyed + inert as the disabled "No audio" state. */
+.listen {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition:
+    color 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+.listen:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--mut);
+}
+.listen[data-status='playing'] {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.listen[data-status='loading'] {
+  color: var(--mut);
+}
+.listen:disabled {
+  color: var(--mut-2);
+  border-color: var(--line-2);
+  background: transparent;
+  cursor: default;
+}
+.listen-ico {
+  font-size: 8px;
+  line-height: 1;
+}
+.listen-lab {
+  line-height: 1;
+}
+
+/* the Loading word breathes until playback starts (or fails) */
+@keyframes listen-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.listen[data-status='loading'] .listen-lab {
+  animation: listen-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .listen[data-status='loading'] .listen-lab {
+    animation: none;
+  }
+}

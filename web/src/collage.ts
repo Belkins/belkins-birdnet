@@ -37,6 +37,9 @@ function tuning(n: number) {
     packingBudgetFrac: n <= 4 ? 0.46 : n <= 12 ? 0.4 : n <= 24 ? 0.34 : 0.28,
     countExp: 0.65,
     minTileAreaFrac: n <= 8 ? 0.01 : n <= 20 ? 0.0075 : 0.0055,
+    // Hero cap: no single bird exceeds this fraction of the viewport, so a loud
+    // species (or an N=1 window) can't balloon into a giant plate that overlaps.
+    maxTileAreaFrac: n <= 2 ? 0.17 : n <= 6 ? 0.13 : 0.1,
     ellipseAspectBias: 2.1,
   };
 }
@@ -181,6 +184,13 @@ export class CollageEngine {
     scored.forEach((t) => {
       t.area = Math.max(minArea, (budget * t.score) / sumScore);
     });
+    // Clamp the hero AFTER the min-area floor: nothing exceeds maxTileAreaFrac of
+    // the viewport (minArea 0.0055-0.01 is always < maxArea 0.1-0.17, so floor and
+    // cap never conflict). Fixes the giant N=1 hero overlapping the ambient cast.
+    const maxArea = vpArea * T.maxTileAreaFrac;
+    scored.forEach((t) => {
+      if (t.area > maxArea) t.area = maxArea;
+    });
     // Squeeze the over-budget remainder out of the larger tiles only.
     const sumA = scored.reduce((a, t) => a + t.area, 0);
     if (sumA > budget) {
@@ -262,10 +272,22 @@ export class CollageEngine {
       pending -= 1;
       if (pending <= 0) this.fireReady();
     };
+    const now = performance.now();
     tiles.forEach((t) => {
       t.animStart = null;
+      // A seeded species with no cutout yet (Great Tit, Rook, Jackdaw, Blackbird)
+      // 302s to Railway, which 404s until it has generated the PNG (~30s). Flag the
+      // seed tile bounded-retryable so the generated cutout paints in without a
+      // refresh. Bounded (3 sweeps / 90s) + failed-only, so 13 species is no storm.
+      // loadImage flips retryable=false for null-url/mock tiles, so MOCK never storms.
+      t.retryable = true;
+      t.addedAt = now;
       this.loadImage(t, false, settle);
     });
+    // Re-arm the bounded retry budget for this (re)seed so a window switch also
+    // retries its still-generating species (mirrors addBird's re-arm).
+    this.retryCount = 0;
+    this.startRetryLoop();
     this.syncTiles();
     this.renderer.requestDraw();
     this.cb.onCount?.(this.grid.onScreen().length);
@@ -452,6 +474,24 @@ export class CollageEngine {
     this.renderer.setMotion(on);
   }
 
+  /** Hit-test a click at CSS px (px,py) against the REAL placed birds and return
+   *  the topmost tile's identity + live window count, or null on a miss. Reverse-
+   *  iterates this.grid.placed so the most-recently-painted (frontmost) tile wins,
+   *  skips parked off-screen tiles, and reads the count from the roster. The
+   *  ambient backdrop grid is intentionally NOT consulted — ghosts aren't clickable
+   *  (they're uncounted, and a click must map to a real, counted detection). */
+  hitTest(px: number, py: number): { sci: string; com: string; slug: string; n: number } | null {
+    const placed = this.grid.placed;
+    for (let i = placed.length - 1; i >= 0; i--) {
+      const t = placed[i];
+      if (t.x <= -99998) continue; // parked off-screen — not visible, not clickable
+      if (px < t.x || px > t.x + t.fullW || py < t.y || py > t.y + t.fullH) continue;
+      const row = this.roster.get(t.sci);
+      return { sci: t.sci, com: t.com, slug: t.slug, n: row ? row.n : 1 };
+    }
+    return null;
+  }
+
   /** Set the never-barren ambient backdrop mode + density and rebuild it now.
    *  Ambient tiles are a low-opacity "cast that has visited" painted behind the
    *  real birds; they are NEVER counted (the honesty firewall). */
@@ -488,6 +528,11 @@ export class CollageEngine {
     });
 
     const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
+    // Reserve every real bird's footprint so ambient nests AROUND the cluster,
+    // never on top of a counted bird. With this.grid.placed empty (N=0) blockOut
+    // stamps nothing and the first non-anchored tile still resolves to centre via
+    // the r=0 spiral ring — identical to the pre-ambient N=0 path.
+    grid.blockOut(this.grid.placed);
     const base = this.areaHint || this.W * this.H * 0.012;
     for (const a of cast) {
       const slug = slugify(a.sci);
@@ -497,7 +542,7 @@ export class CollageEngine {
       const tile = makeTile(a.sci, a.com, slug, fullW, fullW / ar);
       tile.ambient = true;
       tile.animStart = null; // backdrop never reveals
-      grid.placeOne(tile, this.xBias, this.yBias);
+      grid.placeOne(tile, this.xBias, this.yBias, false); // never anchor at centre
       this.loadImage(tile); // honesty firewall: never bumpRoster for ambient
     }
     this.ambientGrid = grid;

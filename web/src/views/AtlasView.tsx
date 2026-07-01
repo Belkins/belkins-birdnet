@@ -1,46 +1,16 @@
 // ATLAS — museum specimen plates. A 3-col grid of cards, each with a graceful
-// image fallback chain (kachō-e illustration → knockout ink-ghost silhouette →
-// letter plate) so a missing or still-generating illustration never shows a
-// broken icon. At N≤2 the grid gives way to a single centered "first specimen"
-// feature plate; the grid engages at N≥3.
-import { useState } from 'react';
+// image fallback (kachō-e illustration → letter plate, via the shared BirdThumb
+// component) so a missing or still-generating illustration never shows a broken
+// icon. At N≤2 the grid gives way to a single centered "first specimen" feature
+// plate; the grid engages at N≥3. Every plate is clickable — `onOpen` surfaces
+// the row to the parent, which opens the shared BirdPopup detail modal.
 import type { RosterRow } from '../types';
-import { birdImageUrl } from '../img';
+import { BirdThumb } from '../components/BirdThumb';
+import { Listen } from '../components/Listen';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial (no per-species
 // code needed) — always resolves, unlike the auth-gated /species/<code> pages.
 const EBIRD_SEARCH = 'https://media.ebird.org/catalog?q=';
-
-type ThumbState = 'photo' | 'knockout' | 'plate';
-
-// Image well with the fallback chain: the illustration paints first; on a load
-// error it re-renders through the knockout filter (a tasteful ink ghost, styled
-// in App.css); if that also fails it collapses to the letter plate — the
-// structural floor that can never show a broken <img>.
-function BirdThumb({ slug, sci, com, feature }: { slug: string; sci: string; com: string; feature?: boolean }) {
-  const url = birdImageUrl(slug, sci);
-  const [state, setState] = useState<ThumbState>('photo');
-  const well = feature ? 'acard-img feat' : 'acard-img';
-  if (!url || state === 'plate') {
-    return (
-      <div className={well}>
-        <div className="acard-sil">{(com || sci).slice(0, 1)}</div>
-      </div>
-    );
-  }
-  const knock = state === 'knockout';
-  return (
-    <div className={knock ? `${well} knockout` : well}>
-      <img
-        key={state}
-        src={url}
-        alt={com || sci}
-        loading="lazy"
-        onError={() => setState(knock ? 'plate' : 'knockout')}
-      />
-    </div>
-  );
-}
 
 // Header: the catalogue number (life-list order) over the call count, with the
 // Lifer / Heard tag pill on the right.
@@ -58,21 +28,21 @@ function CardHead({ cat, n, isNew }: { cat: string; n: number; isNew: boolean })
   );
 }
 
-// Footer chip row: Listen + the two external links (wiki, eBird), shared by the
-// grid card and the feature plate.
-function CardFooter({ sci, com }: { sci: string; com: string }) {
-  const name = com || sci;
+// Footer chip row: the real Listen control + the two external links (wiki,
+// eBird), shared by the grid card and the feature plate. Every interactive
+// child stops the click from bubbling into the card's open handler — Listen
+// does this itself; the anchor links do it inline.
+function CardFooter({ sci }: { sci: string }) {
   return (
     <div className="acard-f">
-      <button type="button" className="acard-play" aria-label={`Play a recording of ${name}`}>
-        ▶ Listen
-      </button>
+      <Listen sci={sci} />
       <span className="acard-links">
         <a
           className="acard-lnk"
           href={`https://en.wikipedia.org/wiki/${encodeURIComponent(sci.replace(/ /g, '_'))}`}
           target="_blank"
           rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
         >
           wiki ↗
         </a>
@@ -81,6 +51,7 @@ function CardFooter({ sci, com }: { sci: string; com: string }) {
           href={`${EBIRD_SEARCH}${encodeURIComponent(sci)}`}
           target="_blank"
           rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
         >
           ebird ↗
         </a>
@@ -89,7 +60,7 @@ function CardFooter({ sci, com }: { sci: string; com: string }) {
   );
 }
 
-export function AtlasView({ rows }: { rows: RosterRow[] }) {
+export function AtlasView({ rows, onOpen }: { rows: RosterRow[]; onOpen?: (r: RosterRow) => void }) {
   // N≤2: a single centered "first specimen" feature plate instead of a lonely
   // grid cell. The grid engages at N≥3.
   if (rows.length >= 1 && rows.length <= 2) {
@@ -98,16 +69,16 @@ export function AtlasView({ rows }: { rows: RosterRow[] }) {
       <div className="view">
         <div className="view-mast">
           <div className="eyebrow">your window</div>
-          <div className="t">THE ATLAS</div>
+          <div className="t">Atlas Belkins BirdNET</div>
         </div>
         <div className="atlas-feature">
-          <div className="acard feat">
+          <div className="acard feat" role="button" tabIndex={0} onClick={() => onOpen?.(r)}>
             <CardHead cat={`No. ${String(1).padStart(3, '0')}`} n={r.n} isNew={r.isNew} />
             <BirdThumb slug={r.slug} sci={r.sci} com={r.com} feature />
             <div className="feat-kicker">first specimen</div>
             <div className="acard-cn">{r.com || r.sci}</div>
             <div className="acard-ln">{r.sci}</div>
-            <CardFooter sci={r.sci} com={r.com} />
+            <CardFooter sci={r.sci} />
           </div>
         </div>
       </div>
@@ -119,16 +90,22 @@ export function AtlasView({ rows }: { rows: RosterRow[] }) {
     <div className="view">
       <div className="view-mast">
         <div className="eyebrow">your window</div>
-        <div className="t">THE ATLAS</div>
+        <div className="t">Atlas Belkins BirdNET</div>
       </div>
       <div className="atlas-grid">
         {cards.map((r, i) => (
-          <div className="acard" key={r.sci}>
+          <div
+            className="acard"
+            key={r.sci}
+            role="button"
+            tabIndex={0}
+            onClick={() => onOpen?.(r)}
+          >
             <CardHead cat={`No. ${String(i + 1).padStart(3, '0')}`} n={r.n} isNew={r.isNew} />
             <BirdThumb slug={r.slug} sci={r.sci} com={r.com} />
             <div className="acard-cn">{r.com || r.sci}</div>
             <div className="acard-ln">{r.sci}</div>
-            <CardFooter sci={r.sci} com={r.com} />
+            <CardFooter sci={r.sci} />
           </div>
         ))}
       </div>
