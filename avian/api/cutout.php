@@ -162,15 +162,15 @@ if (is_file($cutout) && filesize($cutout) > 1024) {
 }
 
 // 3. Dynamic cache from a previous Railway-proxy or Wikipedia+rembg run. The
-//    key is pose-1 ($slug.png): Railway only ever generates pose-1 (flight is
-//    wasted spend), so a pose>1 request serves this same cached asset as a
-//    SUBSTITUTE (X-Av-Real:0). This is the hot path once an asset is warmed:
-//    every re-render / modal open / pose probe short-circuits here, instantly,
-//    so it can NEVER collapse to a repeat-hit silhouette.
+//    key is pose-aware ($slug{$poseSuffix}.png): Railway now generates BOTH
+//    poses, so pose-2 (flight) gets its own cache entry and never collapses to
+//    the perched pose-1. This is the hot path once an asset is warmed: every
+//    re-render / modal open / pose probe short-circuits here, instantly, so it
+//    can NEVER collapse to a repeat-hit silhouette.
 $cacheDir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';
-$cachePath = "$cacheDir/$slug.png";
+$cachePath = "$cacheDir/{$slug}{$poseSuffix}.png";
 if (is_file($cachePath) && filesize($cachePath) > 1024) {
-    serve_png($cachePath, 86400, $pose === 1);
+    serve_png($cachePath, 86400, true);
 }
 
 // 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, PROXY the
@@ -186,14 +186,14 @@ if (is_file($cachePath) && filesize($cachePath) > 1024) {
 //    or the php-fpm pool. Unset env -> fall through to the rembg/Wikipedia path.
 $railwayBase = getenv('AV_RAILWAY_ASSET_BASE');
 if ($railwayBase) {
-    $isReal  = ($pose === 1);
-    $railUrl = rtrim($railwayBase, '/') . '/asset/' . $slug . '.png';   // pose-1 only
+    $isReal  = true;                                                    // both poses are genuine illustrations
+    $railUrl = rtrim($railwayBase, '/') . '/asset/' . $slug . $poseSuffix . '.png';   // pose-aware
 
     // Negative cache: if we confirmed this slug isn't generated yet within the
     // last ~28s (< the frontend's 30s poll, so each poll re-checks exactly
     // once), serve the silhouette immediately instead of re-proxying Railway on
     // every re-render / modal HEAD probe. Bounds fpm + Railway egress load.
-    $missMarker = sys_get_temp_dir() . '/avbn-railmiss-' . $slug;
+    $missMarker = sys_get_temp_dir() . '/avbn-railmiss-' . $slug . $poseSuffix;
     $mt = @filemtime($missMarker);
     if ($mt !== false && (time() - $mt) < 28) {
         serve_silhouette();
