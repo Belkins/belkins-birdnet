@@ -76,8 +76,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 320px;
-  padding: 22px;
+  min-height: 360px;
+  /* Tighter padding + a taller illustration cap: the specimen fills the plate
+     edge-to-edge instead of floating small in a void. The cap matches the
+     min-height so a portrait bird reaches the plate's top/bottom without being
+     clipped by overflow:hidden. */
+  padding: 14px;
   background: var(--glass);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -85,7 +89,7 @@
 }
 .bp-illus {
   max-width: 100%;
-  max-height: 320px;
+  max-height: 360px;
   object-fit: contain;
   filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.4));
 }
