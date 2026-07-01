@@ -1636,3 +1636,25 @@ body.av-local #dd-items  { display: block; }
     .idx-big { font-size: 38px; } .idx-total { font-size: 68px; margin-top: 18px; }
     .idx-nm { font-size: 20px; }
   }
+
+  /* ── Rarity tier badge (collectible) — a blend of IUCN conservation status +
+       how scarce the bird is in your own log. Bold colored gradient pills; only
+       genuinely notable species (NT+) reach rare/exceptional (see rarityTier). ── */
+  .tier {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px 3px 8px; border-radius: 999px;
+    font: 700 10px/1 ui-monospace, "SF Mono", Menlo, monospace;
+    letter-spacing: 0.11em; text-transform: uppercase; color: #fff;
+    box-shadow: 0 1px 3px rgba(26, 22, 18, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+    white-space: nowrap; vertical-align: middle;
+  }
+  .tier-gem { width: 10px; height: 10px; fill: currentColor; opacity: 0.92; flex: none; }
+  .tier-common      { background: linear-gradient(145deg, #8b95a4, #5b6472); }
+  .tier-uncommon    { background: linear-gradient(145deg, #22a89b, #0e766d); }
+  .tier-scarce      { background: linear-gradient(145deg, #eaa23c, #c2760a); }
+  .tier-rare        { background: linear-gradient(145deg, #ec5f3f, #c8341a); }
+  .tier-exceptional {
+    background: linear-gradient(145deg, #ffdc74, #c8971f); color: #3a2c05;
+    box-shadow: 0 1px 5px rgba(180, 130, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  }
+  .bird-card .tier { margin: 6px 0 2px; }

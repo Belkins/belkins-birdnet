@@ -1232,6 +1232,7 @@
         +   '</div>'
         +   '<h3>' + s.com + '</h3>'
         +   '<div class="sci">' + s.sci + '</div>'
+        +   tierBadge(s.sci, total)
         +   '<div class="spectro-wrap" aria-hidden="true"></div>'
         +   '<div class="actions">'
         +     '<button type="button" class="chip play" data-action="play" aria-label="play recording">'
@@ -2019,6 +2020,37 @@
     if (pct >= 0.20) return 'occasional here';
     return 'seldom here';
   }
+  // Rarity TIER — the collectible badge. A blend of global conservation status
+  // and how scarce the bird is in YOUR log. HONEST GUARANTEE: only genuinely
+  // notable species (IUCN Near-Threatened or worse) can reach 'rare'/'exceptional';
+  // a globally-common (LC / unknown) bird caps at 'scarce' no matter how seldom
+  // it's heard — so we never call a common bird "rare". Local scarcity only
+  // modulates the common band. Tiers: common < uncommon < scarce < rare < exceptional.
+  function rarityTier(sci, total) {
+    var iucn = IUCN_STATUS[sci];
+    var counts = ((DATA.lifelist && DATA.lifelist.species) || [])
+      .map(function (s) { return +s.n || 0; }).filter(function (n) { return n > 0; });
+    var band = 'seldom';
+    if (counts.length >= 6 && total) {
+      var below = 0;
+      for (var i = 0; i < counts.length; i++) { if (counts[i] < total) below++; }
+      var pct = below / counts.length;
+      band = pct >= 0.5 ? 'frequent' : pct >= 0.2 ? 'occasional' : 'seldom';
+    }
+    if (iucn === 'CR' || iucn === 'EN') return 'exceptional';
+    if (iucn === 'VU') return 'rare';
+    if (iucn === 'NT') return band === 'seldom' ? 'rare' : 'scarce';
+    if (band === 'seldom') return 'scarce';
+    if (band === 'occasional') return 'uncommon';
+    return 'common';
+  }
+  var TIER_LABEL = { common: 'Common', uncommon: 'Uncommon', scarce: 'Scarce', rare: 'Rare', exceptional: 'Exceptional' };
+  function tierBadge(sci, total) {
+    var t = rarityTier(sci, total);
+    return '<span class="tier tier-' + t + '" title="rarity here = conservation status + how seldom you hear it">'
+      + '<svg class="tier-gem" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 .8 L11.2 4.6 L6 11.2 L.8 4.6 Z"/></svg>'
+      + TIER_LABEL[t] + '</span>';
+  }
   // rAF-driven cursor smoothing. timeupdate fires ~4Hz which feels
   // janky; we sample audio.currentTime every animation frame and
   // interpolate to a 60Hz update so the playback knob glides.
@@ -2211,10 +2243,8 @@
       var winRow = ((DATA.recent && DATA.recent.species) || []).filter(function (x) { return x.sci === sci; })[0];
       document.getElementById('modalWindow').textContent = (winRow ? +winRow.n : 0).toLocaleString();
       document.getElementById('modalFirstSeen').textContent = s.first_seen ? fmtRecTime(s.first_seen.split(' ')[0], s.first_seen.split(' ')[1]) : '-';
-      var rar = rarityLabel(+s.total || 0, s.first_seen);
       var rarEl = document.getElementById('modalRarity');
-      rarEl.textContent = rar;
-      if (rar === 'rare') rarEl.classList.add('rare');
+      rarEl.innerHTML = tierBadge(sci, +s.total || 0);
       var dets = j.detections || [];
       document.getElementById('modalRecCount').textContent = dets.length + ' captured';
       document.getElementById('modalRecordings').innerHTML = dets.length
