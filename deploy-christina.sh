@@ -114,6 +114,10 @@ fi
 
 say "7. species catalog (christina.db, derived nightly from birds.db, read-only)"
 if [ -f "$HERE/avian/catalog/rebuild_catalog.py" ]; then
+  # Railway manifest -> accurate art_status (bundled UNION auto-generated), so the
+  # Life List wall shows auto-gen'd paintings, not just locally-bundled art.
+  CAT_MANIFEST=""
+  [ -n "$RAILWAY_BASE" ] && CAT_MANIFEST=" --manifest-url ${RAILWAY_BASE%/}/manifest"
   sudo tee /etc/systemd/system/catalog.service >/dev/null <<UNIT
 [Unit]
 Description=Christina species catalog rebuild (christina.db from birds.db, read-only)
@@ -123,7 +127,7 @@ Type=oneshot
 User=$USER_NAME
 Nice=10
 IOSchedulingClass=idle
-ExecStart=$PY $HERE/avian/catalog/rebuild_catalog.py
+ExecStart=$PY $HERE/avian/catalog/rebuild_catalog.py$CAT_MANIFEST
 UNIT
   sudo tee /etc/systemd/system/catalog.timer >/dev/null <<'UNIT'
 [Unit]
@@ -136,7 +140,7 @@ Unit=catalog.service
 [Install]
 WantedBy=timers.target
 UNIT
-  if "$PY" "$HERE/avian/catalog/rebuild_catalog.py" >/dev/null 2>&1; then
+  if "$PY" "$HERE/avian/catalog/rebuild_catalog.py"$CAT_MANIFEST >/dev/null 2>&1; then
     ok "initial catalog built ($(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null) species; birds.db untouched, read-only)"
   else warn "initial catalog build failed (see: $PY $HERE/avian/catalog/rebuild_catalog.py)"; fi
   sudo systemctl daemon-reload
