@@ -1,0 +1,12 @@
+[Unit]
+Description=Birdnet tmpfs for transient files
+ConditionPathExists=/home/belkins/BirdSongs/StreamData
+
+[Mount]
+What=tmpfs
+Where=/home/belkins/BirdSongs/StreamData
+Type=tmpfs
+Options=mode=1777,nosuid,nodev
+
+[Install]
+WantedBy=multi-user.target
