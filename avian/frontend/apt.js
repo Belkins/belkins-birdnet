@@ -1109,7 +1109,37 @@
     'Mimus polyglottos':      'normoc',
     'Sayornis nigricans':     'blkpho',
     'Larus occidentalis':     'wegull',
-    'Corvus brachyrhynchos':  'amecro'
+    'Corvus brachyrhynchos':  'amecro',
+    // European species this deploy actually hears — verified via Wikidata P3444
+    // (2026-07-01). The stock map above is North-American; without these, every
+    // EU bird's eBird chip fell back to the generic /explore page.
+    'Erithacus rubecula':     'eurrob1',
+    'Turdus merula':          'eurbla',
+    'Turdus philomelos':      'sonthr1',
+    'Cyanistes caeruleus':    'blutit',
+    'Parus major':            'gretit1',
+    'Carduelis carduelis':    'eurgol',
+    'Psittacula krameri':     'rorpar',
+    'Apus apus':              'comswi',
+    'Anthus trivialis':       'trepip',
+    'Corvus frugilegus':      'rook1',
+    'Corvus monedula':        'eurjac',
+    'Charadrius dubius':      'lirplo',
+    'Haematopus ostralegus':  'euroys1'
+  };
+  // IUCN Red List status — verified via Wikidata P141 (2026-07-01). Shown as a
+  // quiet field-guide line, never a gamified alarm. Extend as new species land.
+  var IUCN_STATUS = {
+    'Erithacus rubecula': 'LC', 'Turdus merula': 'LC', 'Turdus philomelos': 'LC',
+    'Cyanistes caeruleus': 'LC', 'Parus major': 'LC', 'Carduelis carduelis': 'LC',
+    'Psittacula krameri': 'LC', 'Apus apus': 'LC', 'Anthus trivialis': 'LC',
+    'Corvus frugilegus': 'LC', 'Corvus monedula': 'LC', 'Charadrius dubius': 'LC',
+    'Haematopus ostralegus': 'NT'
+  };
+  var IUCN_LABEL = {
+    LC: 'Least Concern', NT: 'Near Threatened', VU: 'Vulnerable',
+    EN: 'Endangered', CR: 'Critically Endangered', EW: 'Extinct in Wild',
+    EX: 'Extinct', DD: 'Data Deficient'
   };
 
   function wikiUrl(sci) {
@@ -1970,16 +2000,25 @@
   }
   function rarityLabel(total, firstSeenIso) {
     if (!total) return '-';
-    var days = 1;
-    if (firstSeenIso) {
-      var t = Date.parse((firstSeenIso || '').replace(' ', 'T'));
-      if (!isNaN(t)) days = Math.max(1, Math.ceil((Date.now() - t) / 86400000));
+    // Local-frequency tier: rank this species by all-time count against EVERY
+    // species you've heard. Honest ("...here") + drift-free (no time-decay that
+    // slowly demotes a bird to "rare"). Never claims global rarity — a common
+    // bird heard seldom reads "seldom here", not "rare". Cold-start (< 6
+    // species) can't form a distribution, so fall back to a first-seen label.
+    var counts = ((DATA.lifelist && DATA.lifelist.species) || [])
+      .map(function (s) { return +s.n || 0; })
+      .filter(function (n) { return n > 0; });
+    if (counts.length < 6) {
+      var t0 = firstSeenIso ? Date.parse((firstSeenIso || '').replace(' ', 'T')) : NaN;
+      return (!isNaN(t0) && (Date.now() - t0) < 2 * 86400000) ? 'new here' : 'here';
     }
-    var perDay = total / days;
-    if (perDay >= 5) return 'common';
-    if (perDay >= 1) return 'regular';
-    if (perDay >= 0.2) return 'occasional';
-    return 'rare';
+    var below = 0;
+    for (var i = 0; i < counts.length; i++) { if (counts[i] < total) below++; }
+    var pct = below / counts.length;                 // 0..1, higher = more-heard
+    if (pct >= 0.80) return 'often here';
+    if (pct >= 0.50) return 'regular here';
+    if (pct >= 0.20) return 'occasional here';
+    return 'seldom here';
   }
   // rAF-driven cursor smoothing. timeupdate fires ~4Hz which feels
   // janky; we sample audio.currentTime every animation frame and
@@ -2116,6 +2155,14 @@
     });
     document.getElementById('modalSci').textContent = sci;
     document.getElementById('modalGenus').textContent = (sci.split(' ')[0] || '-');
+    (function () {
+      var iucnEl = document.getElementById('modalIucn');
+      if (!iucnEl) return;
+      var item = iucnEl.closest('.meta-item');
+      var code = IUCN_STATUS[sci];
+      if (code) { iucnEl.textContent = IUCN_LABEL[code] || code; if (item) item.style.display = ''; }
+      else if (item) { item.style.display = 'none'; }
+    })();
     document.getElementById('modalCommon').textContent = '-';
     document.getElementById('modalAllTime').textContent = '-';
     document.getElementById('modalWindow').textContent = '-';
