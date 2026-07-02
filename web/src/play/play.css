@@ -1,0 +1,268 @@
+/* NAME THAT VISITOR — the museum, at night, as a guessing game. Same obsidian
+   ground, luminous specimens, Cormorant display + Space Mono labels as the frame.
+   The specimen floats glowing on the dark (never a white card); the answers read
+   like specimen labels; the reveal is a quiet dossier line. */
+
+:root {
+  --bg: #0b0a0e;
+  --ink: #efe6cf;
+  --ink-2: rgba(239, 230, 207, 0.82);
+  --faint: rgba(239, 230, 207, 0.5);
+  --line: rgba(239, 230, 207, 0.13);
+  --amber: #eccf94;
+  --amber-dim: rgba(236, 207, 148, 0.5);
+  --wrong: rgba(214, 142, 112, 0.9);
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #12101a 0%, var(--bg) 58%);
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.pl {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 52px 24px 72px;
+}
+
+/* ── header ─────────────────────────────────────────────────── */
+.pl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.pl-eyebrow {
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.pl-title {
+  margin: 10px 0 0;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.pl-score {
+  text-align: right;
+  white-space: nowrap;
+  padding-top: 4px;
+}
+.pl-score b {
+  display: block;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+  font-size: 42px;
+  line-height: 0.9;
+  color: var(--ink);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.pl-score span {
+  font-family: 'Space Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.pl-note {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 22px;
+  color: var(--faint);
+  text-align: center;
+  margin: 60px auto;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+/* ── the mystery specimen: luminous on the dark, no card ─────── */
+.pl-stage {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  margin: 18px 0 30px;
+}
+.pl-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 58% 54% at 50% 46%, rgba(240, 214, 160, 0.1), transparent 70%);
+  pointer-events: none;
+}
+.pl-plate {
+  position: relative;
+  width: 340px;
+  height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pl-plate img {
+  max-width: 88%;
+  max-height: 88%;
+  object-fit: contain;
+  filter: drop-shadow(0 0 26px rgba(240, 214, 160, 0.16)) drop-shadow(0 16px 24px rgba(0, 0, 0, 0.55));
+}
+/* Hard mode: knock the specimen to a luminous cream silhouette. */
+.pl-plate--hard img {
+  filter: brightness(0) invert(0.92) drop-shadow(0 0 22px rgba(240, 214, 160, 0.12));
+  opacity: 0.9;
+}
+
+/* ── the four answers: quiet specimen labels ────────────────── */
+.pl-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 13px;
+}
+.pl-opt {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 23px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  padding: 17px 16px;
+  background: rgba(239, 230, 207, 0.015);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, opacity 0.18s ease;
+}
+.pl-opt:hover:not(:disabled) {
+  border-color: var(--amber-dim);
+  background: rgba(240, 214, 160, 0.05);
+  color: var(--ink);
+}
+.pl-opt:disabled {
+  cursor: default;
+}
+.pl-opt--right {
+  border-color: var(--amber);
+  background: rgba(240, 214, 160, 0.1);
+  color: var(--amber);
+  box-shadow: 0 0 26px -8px rgba(240, 214, 160, 0.4);
+}
+.pl-opt--wrong {
+  border-color: rgba(214, 142, 112, 0.45);
+  color: var(--wrong);
+}
+.pl-opt--dim {
+  opacity: 0.32;
+}
+
+/* ── reveal: a quiet dossier line ───────────────────────────── */
+.pl-reveal {
+  text-align: center;
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+.pl-reveal-verdict {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+  font-size: 31px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.pl-reveal-verdict.is-right {
+  color: var(--amber);
+}
+.pl-reveal-sci {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-style: italic;
+  font-size: 20px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+.pl-reveal-note {
+  font-family: 'Space Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  margin-top: 12px;
+}
+.pl-next {
+  margin-top: 20px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+}
+.pl-next:hover {
+  color: var(--ink);
+}
+
+/* ── controls + footer ──────────────────────────────────────── */
+.pl-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 30px;
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.pl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.pl-toggle input {
+  accent-color: var(--amber);
+}
+.pl-reset {
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pl-reset:hover {
+  color: var(--ink);
+}
+
+.pl-foot {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 48px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  font-family: 'Space Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.pl-foot a {
+  color: var(--faint);
+  text-decoration: none;
+}
+.pl-foot a:hover {
+  color: var(--ink);
+}

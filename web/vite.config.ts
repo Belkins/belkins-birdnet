@@ -23,6 +23,8 @@ export default defineConfig(({ mode }) => {
           index: resolve(__dirname, 'index.html'),
           lab: resolve(__dirname, 'lab.html'),
           recap: resolve(__dirname, 'recap.html'),
+          play: resolve(__dirname, 'play.html'),
+          wrapped: resolve(__dirname, 'wrapped.html'),
         },
       },
     },
