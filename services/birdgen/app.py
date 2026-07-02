@@ -108,6 +108,13 @@ QA_RAGGED_MAX = float(os.environ.get("QA_RAGGED_MAX", "0.6"))     # semi-opaque 
 # Replaces the old reject-only QA_ISLAND_MAX=0.015: water birds systematically
 # paint ~5% of ripples and were stuck re-rolling forever (Black-headed Gull).
 QA_ISLAND_SCRUB = float(os.environ.get("QA_ISLAND_SCRUB", "0.10"))
+# Hollow-cutout floor: opaque pixels / alpha-bbox area of the FINAL cutout.
+# Known-good plates measure 0.21-0.38 bbox-fill (n=158 bundled cutouts; the
+# minimum is a long-tailed dove at 0.210). The white-gull mutilations — the
+# key flooding through pale plumage, leaving a wing + a faint outline —
+# measured 0.140 (perched) / 0.088 (flight). Below the floor the render is a
+# fragment, never publishable; the gen loop retries on a darker ground.
+QA_MIN_FILL = float(os.environ.get("QA_MIN_FILL", "0.17"))
 QA_BORDER_FRAC = float(os.environ.get("QA_BORDER_FRAC", "0.05"))  # opaque along a side band
 QA_BORDER_SIDES = int(os.environ.get("QA_BORDER_SIDES", "2"))     # >= sides touched -> reject
 QA_ASPECT_MIN = float(os.environ.get("QA_ASPECT_MIN", "0.45"))
@@ -741,6 +748,25 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
     if sides >= QA_BORDER_SIDES:
         raise QAReject("border contact on %d sides" % sides)
 
+    # HOLLOW-CUTOUT gate (the white-gull scar) — must run BEFORE the islands
+    # scrub AND at FULL resolution: when the key floods through pale plumage,
+    # the bird's remains are a wing plus a 1px-faint outline. The scrub would
+    # erase that outline (collapsing the bbox around the healthy-looking
+    # wing), and the NEAREST downscale drops thin outline pixels entirely —
+    # both hide the mutilation. On the full-res pre-scrub mask a fragment's
+    # opaque area is a sliver of its own bounding box (broken gulls measured
+    # 0.140/0.088; the 158 bundled plates measure 0.21–0.38). Pure PIL ops —
+    # no per-pixel Python. Reject outright; the caller retries darker ground.
+    on0 = im0.getchannel("A").point(lambda v: 255 if v > QA_ALPHA_ON else 0)
+    bb = on0.getbbox()
+    if bb:
+        fill = on0.histogram()[255] / float((bb[2] - bb[0]) * (bb[3] - bb[1]))
+        if fill < QA_MIN_FILL:
+            raise QAReject(
+                "hollow cutout: bbox fill=%.3f < %.2f (pale plumage keyed away?)"
+                % (fill, QA_MIN_FILL)
+            )
+
     erase = _qa_islands(apx, w, h)
     if erase is None:
         return None
@@ -783,7 +809,11 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None
     # the greenfinch in an endless regen loop: no image at all, the worse outcome
     # the gate was supposed to prevent.)
     reason = None
-    if (not v["matches_target"]) and v["guess_confidence"] == "high":
+    if not v.get("whole_bird", True):
+        # A fragment (lone wing, severed part, transparent body) is unambiguous
+        # at any confidence — the second net under the deterministic fill floor.
+        reason = "not a whole bird (fragment)"
+    elif (not v["matches_target"]) and v["guess_confidence"] == "high":
         reason = "reads as %s (conf=high), not %s" % (v.get("guessed_species_com", "?"), com)
     elif v["wing_count"] > 2:
         reason = "wing_count=%s" % v["wing_count"]
@@ -803,49 +833,84 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None
     raise QAReject("verify: %s (reject %d/%d)" % (reason, n, AV_VERIFY_MAX_REJECTS))
 
 
+# Species the hollow-cutout gate has flagged: their pale plumage merges into
+# the standard cream ground and the key floods through the body, so every
+# same-ground re-roll fails identically. Once flagged, render on a distinctly
+# darker ground from the first attempt. In-memory: a restart re-learns at the
+# cost of one rejected roll.
+_PALE_GROUND_SLUGS: set = set()
+
+PALE_GROUND_NOTE = (
+    "This species has very pale, white-dominant plumage. So the cutout keys "
+    "cleanly, paint the flat ground a distinctly DEEPER warm tan (an aged "
+    "tea-stain tone, clearly darker than the bird's palest feathers) — still "
+    "one flat, solid, untextured fill — and keep the bird's white plumage "
+    "bright so the silhouette separates crisply from the ground."
+)
+
+
 def _gen_pose(slug: str, sci: str, com: str, pose: int,
               pos, anti, anti_key) -> float:
     """One pose end-to-end: MIN_SPACING throttle -> gen_one(pose) -> creamkey
     cutout -> QA gate -> atomic publish. pose 1 -> <slug>.png (perched),
     pose N -> <slug>-N.png (flight). Returns the opaque fraction. Raises
     QAReject / RuntimeError / urllib errors — the caller decides whether the
-    failure is fatal (pose-1) or swallowed (pose-2)."""
+    failure is fatal (pose-1) or swallowed (pose-2).
+
+    A 'hollow cutout' reject (white bird merging into the cream ground) is
+    retried ONCE immediately on a darker ground — the failure is deterministic
+    for pale species, so backoff re-rolls on the same ground would never
+    converge — and the slug is remembered so later gens start dark."""
     out_name = "%s.png" % slug if pose == 1 else "%s-%d.png" % (slug, pose)
     tmp_tag = slug if pose == 1 else "%s-%d" % (slug, pose)
     style = _resolve_style_ref(sci, pose)
-    _throttle_spacing()  # MIN_SPACING before every Gemini image call
-    png = pregen.gen_one(
-        GEMINI_API_KEY, PROMPT, sci, com, pose,
-        positive_ref=pos, anti_ref=anti, anti_ref_key=anti_key,
-        species_note=NOTES.get(sci), style_ref=style,
-    )
-    record_gen()  # count the billable image now — QA-rejected-but-generated ones still cost
-    tmp_raw = ASSETS_DIR / (".%s.raw.png" % tmp_tag)
-    tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
+
+    def attempt(dark_ground: bool) -> float:
+        note = NOTES.get(sci)
+        if dark_ground:
+            note = ((note + "\n\n") if note else "") + PALE_GROUND_NOTE
+        _throttle_spacing()  # MIN_SPACING before every Gemini image call
+        png = pregen.gen_one(
+            GEMINI_API_KEY, PROMPT, sci, com, pose,
+            positive_ref=pos, anti_ref=anti, anti_ref_key=anti_key,
+            species_note=note, style_ref=style,
+        )
+        record_gen()  # count the billable image now — QA-rejected ones still cost
+        tmp_raw = ASSETS_DIR / (".%s.raw.png" % tmp_tag)
+        tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
+        try:
+            tmp_raw.write_bytes(png)
+            frac = chromakey(str(tmp_raw), str(tmp_cut))
+            if not (QA_MIN <= frac <= QA_MAX):
+                raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
+            # deterministic dirty-output gate (leaked magenta / ragged alpha /
+            # border-contact / mangled aspect / hollow cutout -> QAReject;
+            # small alpha islands are scrubbed in place instead of rejected).
+            scrub_note = _qa_inspect(str(tmp_cut))
+            if scrub_note:
+                log.info("qa-scrub slug=%s pose=%s %s", slug, pose, scrub_note)
+            # adversarial species/anatomy gate (one Gemini-Vision call).
+            if AV_VERIFY:
+                _qa_verify(slug, sci, com, pose, tmp_cut)
+            # atomic publish (same filesystem -> os.replace is atomic)
+            os.replace(str(tmp_cut), str(ASSETS_DIR / out_name))
+            return frac
+        finally:
+            for p in (tmp_raw, tmp_cut):
+                try:
+                    if p.exists():
+                        p.unlink()
+                except OSError:
+                    pass
+
     try:
-        tmp_raw.write_bytes(png)
-        frac = chromakey(str(tmp_raw), str(tmp_cut))
-        if not (QA_MIN <= frac <= QA_MAX):
-            raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
-        # deterministic dirty-output gate (leaked magenta / ragged alpha /
-        # border-contact / mangled aspect -> QAReject; small alpha islands
-        # are scrubbed in place instead of rejected).
-        scrub_note = _qa_inspect(str(tmp_cut))
-        if scrub_note:
-            log.info("qa-scrub slug=%s pose=%s %s", slug, pose, scrub_note)
-        # adversarial species/anatomy gate (one Gemini-Vision call).
-        if AV_VERIFY:
-            _qa_verify(slug, sci, com, pose, tmp_cut)
-        # atomic publish (same filesystem -> os.replace is atomic)
-        os.replace(str(tmp_cut), str(ASSETS_DIR / out_name))
-        return frac
-    finally:
-        for p in (tmp_raw, tmp_cut):
-            try:
-                if p.exists():
-                    p.unlink()
-            except OSError:
-                pass
+        return attempt(slug in _PALE_GROUND_SLUGS)
+    except QAReject as e:
+        if "hollow cutout" in str(e) and slug not in _PALE_GROUND_SLUGS:
+            _PALE_GROUND_SLUGS.add(slug)
+            log.info("qa-hollow slug=%s pose=%d — immediate retry on darker ground", slug, pose)
+            return attempt(True)
+        raise
 
 
 def _generate_sync(slug: str, sci: str, com: str) -> float:
