@@ -2,7 +2,7 @@
 # Project Christina — full-stack deploy ON a BirdNET-Pi (run on the Pi, from the repo root).
 #
 # Idempotent + additive: brings up the realtime spine (birdcast), the React collage at
-# /collage, and the auto-gen watcher forwarder + cutout 302 on top of a STOCK BirdNET-Pi
+# /collage, and the auto-gen watcher forwarder + cutout Railway proxy on top of a STOCK BirdNET-Pi
 # install. Does NOT touch the detection pipeline beyond the (already-committed) emit hook.
 # Safe to re-run. Supersedes deploy-realtime.sh (which does the spine only).
 #
@@ -104,7 +104,7 @@ fi
 say "5. regenerate collage silhouette masks (so any new illustration is placeable)"
 if ( cd "$HERE/avian/scripts" && "$PY" build_masks.py ) >/dev/null 2>&1; then ok "masks rebuilt"; else warn "build_masks failed (Pillow missing?)"; fi
 
-say "6. auto-gen watcher (forwarder + cutout.php 302)"
+say "6. auto-gen watcher (forwarder + cutout.php Railway proxy)"
 if [ -n "$RAILWAY_BASE" ] && [ -n "$WEBHOOK_SECRET" ]; then
   POOL="$(ls /etc/php/*/fpm/pool.d/www.conf 2>/dev/null | head -1)"
   FPM="$(systemctl list-units --type=service --no-legend 2>/dev/null | grep -oE 'php[0-9.]+-fpm' | head -1)"
@@ -114,14 +114,14 @@ if [ -n "$RAILWAY_BASE" ] && [ -n "$WEBHOOK_SECRET" ]; then
     else
       echo "env[AV_RAILWAY_ASSET_BASE] = \"$RAILWAY_BASE\"" | sudo tee -a "$POOL" >/dev/null
     fi
-    sudo systemctl restart "$FPM"; ok "cutout.php 302 -> $RAILWAY_BASE (via $FPM)"
+    sudo systemctl restart "$FPM"; ok "cutout.php proxy -> $RAILWAY_BASE (via $FPM)"
   fi
   umask 077; mkdir -p "$HOME/.christina"
   cat > "$HOME/.christina/forwarder.env" <<ENV
 AV_RAILWAY_BASE=$RAILWAY_BASE
 WATCHER_WEBHOOK_SECRET=$WEBHOOK_SECRET
 AV_ILLUSTRATIONS=$HERE/avian/assets/illustrations
-AV_CONF=0.80
+AV_CONF=0.70
 BIRDCAST_EVENTS=http://127.0.0.1:8090/events
 ENV
   chmod 600 "$HOME/.christina/forwarder.env"
