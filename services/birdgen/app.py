@@ -71,7 +71,11 @@ HERE = Path(__file__).resolve().parent
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 WATCHER_WEBHOOK_SECRET = os.environ.get("WATCHER_WEBHOOK_SECRET", "")
 
-CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.80"))
+# 0.70 matches what BirdNET-Pi itself records (and the forwarder's AV_CONF
+# default): anything honest enough for the roster is honest enough to paint.
+# A stricter gate here strands 0.70-0.79 birds as forever-silhouettes (the
+# Black-headed Gull scar: heard at 0.73, rejected by the old 0.80 pair).
+CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", "0.70"))
 MIN_SPACING = float(os.environ.get("MIN_SPACING", "6"))          # s between Gemini calls
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "4"))          # fails -> cooldown burst (non-safety never permanent-dead)
 POSE2_TRIES = int(os.environ.get("POSE2_TRIES", "3"))            # inline flight-pose re-rolls per gen (~50% roll)
