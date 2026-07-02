@@ -48,6 +48,7 @@ Analyze the image and respond ONLY with a valid JSON object (no other text, no m
   "head_count": <integer number of heads>,
   "tail_count": <integer number of tails>,
   "has_stick_or_perch": <true if any twig, stick, branch, perch, leaf, or substrate is visible in the image; false if the bird floats alone>,
+  "whole_bird": <true if the ENTIRE bird is visible as one complete figure (head, body, wing(s), tail); false if the image shows only a fragment - e.g. a lone wing, a severed part, or a bird whose body is missing or transparent>,
   "diagnostic_features_present": "<comma-separated list of species-diagnostic field marks you can see, e.g. 'red cap, pink breast, streaked back, conical bill'>",
   "diagnostic_features_missing": "<features the species SHOULD have but you don't see, or empty string if all match>",
   "anatomy_issues": "<any anomalies (extra wings, missing feet, deformed beak), or empty string>",
@@ -122,7 +123,7 @@ def extract_json(resp: dict) -> dict | None:
 VERDICT_KEYS = (
     "guessed_species_sci", "guessed_species_com", "guess_confidence",
     "matches_target", "wing_count", "leg_count", "head_count", "tail_count",
-    "has_stick_or_perch", "diagnostic_features_present",
+    "has_stick_or_perch", "whole_bird", "diagnostic_features_present",
     "diagnostic_features_missing", "anatomy_issues", "style_assessment",
 )
 
@@ -163,6 +164,8 @@ def _normalize(raw: dict) -> dict:
         "head_count": as_int("head_count", 1),
         "tail_count": as_int("tail_count", 1),
         "has_stick_or_perch": as_bool("has_stick_or_perch", False),
+        # Default True = fail OPEN (a partial response must never reject).
+        "whole_bird": as_bool("whole_bird", True),
         "diagnostic_features_present": as_str("diagnostic_features_present"),
         "diagnostic_features_missing": as_str("diagnostic_features_missing"),
         "anatomy_issues": as_str("anatomy_issues"),
