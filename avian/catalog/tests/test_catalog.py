@@ -125,6 +125,10 @@ class CatalogTestCase(unittest.TestCase):
         with open(os.path.join(self.tmp, "species.json"), encoding="utf-8") as fh:
             return json.load(fh)
 
+    def _accessions(self):
+        with open(os.path.join(self.tmp, "accessions.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+
     # -- 1. first_detected vs first_confident ------------------------------
     def test_robin_first_detected_vs_confident(self):
         self._build()
@@ -206,9 +210,13 @@ class CatalogTestCase(unittest.TestCase):
         # Hour parsed from HH:MM:SS; 05:02 and 05:30 collapse to hour 5 (n=2).
         self.assertEqual(hours[6], 1)
         self.assertEqual(hours[5], 2)
-        # Week column carried through as int.
-        self.assertEqual(weeks[22], 1)
-        self.assertEqual(weeks[23], 2)
+        # Weeks derive from the Date column's ISO week, NOT the Week column
+        # (BirdNET's Week uses the analyzer's 48-week scheme — trusting it
+        # would drift the phenology ribbon's calendar axis). The fixture's
+        # Week values (22/23/23) deliberately DISAGREE with the dates: both
+        # 2024-06-01 and 2024-06-02 fall in ISO week 22, so all 3 robin
+        # detections must land there — proving the column is ignored.
+        self.assertEqual(weeks, {22: 3})
 
     # -- 4. art_status by scan ---------------------------------------------
     def test_art_status(self):
@@ -256,9 +264,12 @@ class CatalogTestCase(unittest.TestCase):
 
     # -- 4c. species.json row shape AND values -----------------------------
     def test_species_json_row_shape_and_values(self):
-        """species.json must carry EXACTLY the 7 CANON fields with the right
+        """species.json must carry EXACTLY the CANON fields with the right
         values -- no is_bird/genus/confident_count leakage, no wrong-field
-        aliasing (e.g. last_detected written into first_confident)."""
+        aliasing (e.g. last_detected written into first_confident). The two
+        additive fields land together: `accession` (Robin is the earliest
+        confident bird -> No. 1) and `weeks` (Date-derived ISO week — both
+        fixture dates are week 22, whatever the Week column claims)."""
         self._build()
         robin = next(r for r in self._species_json()
                      if r["sci_name"] == "Turdus migratorius")
@@ -270,11 +281,43 @@ class CatalogTestCase(unittest.TestCase):
             "last_detected": "2024-06-02 05:30:00",
             "detection_count": 3,
             "art_status": "ready",
+            "accession": 1,
+            "weeks": [[22, 3]],
         })
         self.assertEqual(set(robin.keys()), {
             "sci_name", "com_name", "slug", "first_confident",
             "last_detected", "detection_count", "art_status",
+            "accession", "weeks",
         })
+
+    # -- 4d. accession pins survive a species deletion (no renumber) -------
+    def test_accession_pins_survive_species_deletion(self):
+        """The whole point of the append-only ledger: an admin delete
+        (species_tools.php DELETE ... WHERE Sci_Name) can drop the EARLIEST
+        species from birds.db, but a later species must KEEP its accession No.
+        -- never silently renumber. Fails RED against today's client-only i+1
+        numbering (no ledger exists) and against any renumber-on-delete scheme."""
+        # Full build: Robin (confident 06-02) accessioned before Blue Jay (06-03).
+        self._build()
+        j1 = {r["sci_name"]: r.get("accession") for r in self._species_json()}
+        self.assertEqual(j1["Turdus migratorius"], 1)
+        self.assertEqual(j1["Cyanocitta cristata"], 2)
+        self.assertIsNone(j1["Spinus tristis"])          # never-confident -> not pinned
+        jay_no = j1["Cyanocitta cristata"]
+        # Simulate species_tools.php DELETE ... WHERE Sci_Name wiping the EARLIER
+        # species, then a nightly rebuild. The append-only ledger must NOT renumber.
+        os.remove(self.birds)
+        _make_birds_db(self.birds, [r for r in _ROWS if r[2] != "Turdus migratorius"])
+        self._build()
+        j2 = {r["sci_name"]: r.get("accession") for r in self._species_json()}
+        self.assertNotIn("Turdus migratorius", j2)        # Robin gone from birds.db
+        self.assertEqual(j2["Cyanocitta cristata"], jay_no)  # Jay keeps No. 2 -> no renumber
+        led = {e["sci_name"]: e for e in self._accessions()["entries"]}
+        self.assertIn("Turdus migratorius", led)          # pin retained...
+        self.assertTrue(led["Turdus migratorius"]["absent"])   # ...marked absent
+        self.assertFalse(led["Cyanocitta cristata"]["absent"])
+        self.assertEqual(led["Cyanocitta cristata"]["accession"], jay_no)
+        self.assertEqual(led["Cyanocitta cristata"]["first_confident"], "2024-06-03 08:15:00")
 
     # -- 5. idempotency / rebuildability -----------------------------------
     def test_idempotent(self):
