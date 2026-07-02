@@ -17,8 +17,11 @@ export const GRID_STRIDE = 4;
 /** breathing room (grid cells) around each bird. Tight on purpose: the seed
  *  reads as one composed ROSETTE (birds nesting into each other's concavities,
  *  transparent illustration margins overlapping) rather than a spaced-out
- *  sticker-sheet with dead voids. Was 4 (≈32px gap) → 2 (≈16px gap). */
-export const COLLAGE_PAD = 2;
+ *  sticker-sheet with dead voids. Was 4, then 2 — now 3: the renderer paints a
+ *  static ±2.6° composition tilt the occupancy grid doesn't model, which swings
+ *  a large tile's corners ~10–17px past its stamped box; 2 cells (≈8px) let
+ *  adjacent birds visibly touch at thin features (beaks). */
+export const COLLAGE_PAD = 3;
 
 const OFFSCREEN = -99999;
 

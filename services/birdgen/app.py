@@ -101,9 +101,13 @@ QA_DOWNSCALE = int(os.environ.get("QA_DOWNSCALE", "400"))         # px cap for p
 QA_MAGENTA_TOL = int(os.environ.get("QA_MAGENTA_TOL", "60"))      # matches chromakey tol
 QA_MAGENTA_MAX = float(os.environ.get("QA_MAGENTA_MAX", "0.02"))  # >2% opaque magenta -> reject
 QA_RAGGED_MAX = float(os.environ.get("QA_RAGGED_MAX", "0.6"))     # semi-opaque / opaque
-QA_ISLAND_MAX = float(os.environ.get("QA_ISLAND_MAX", "0.015"))   # Σ non-largest opaque / frame
-QA_ISLAND_COMP = float(os.environ.get("QA_ISLAND_COMP", "0.0005"))  # min comp (frac) to count
-QA_ISLAND_NCOMP = int(os.environ.get("QA_ISLAND_NCOMP", "5"))     # > this many sig comps -> reject
+# Disconnected alpha components (water ripples, reflections, torn-paper beige
+# fragments) are SCRUBBED — erased, keeping the dominant blob — up to this
+# fraction of the frame; past it the render is rejected (that much detached
+# paint could be a second bird / severed wing, and erasing would mutilate).
+# Replaces the old reject-only QA_ISLAND_MAX=0.015: water birds systematically
+# paint ~5% of ripples and were stuck re-rolling forever (Black-headed Gull).
+QA_ISLAND_SCRUB = float(os.environ.get("QA_ISLAND_SCRUB", "0.10"))
 QA_BORDER_FRAC = float(os.environ.get("QA_BORDER_FRAC", "0.05"))  # opaque along a side band
 QA_BORDER_SIDES = int(os.environ.get("QA_BORDER_SIDES", "2"))     # >= sides touched -> reject
 QA_ASPECT_MIN = float(os.environ.get("QA_ASPECT_MIN", "0.45"))
@@ -604,15 +608,19 @@ def _resolve_style_ref(sci: str, pose: int) -> Optional[Path]:
     return None
 
 
-def _qa_islands(apx: list, w: int, h: int) -> None:
+def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:
     """Connected-components on the opaque mask. A clean cutout is one dominant
-    blob (the bird); torn-paper beige fragments and speckle show up as extra
-    components. Reject when the non-largest components sum past QA_ISLAND_MAX of
-    the frame, or when there are more than QA_ISLAND_NCOMP significant blobs."""
+    blob (the bird); extra components are painted debris — water ripples,
+    reflections, torn-paper beige fragments. Up to QA_ISLAND_SCRUB of the frame
+    they are SCRUBBED rather than rejected (water birds systematically paint
+    ~5% of ripples and re-rolled forever under a reject-only gate); past the
+    ceiling the render is rejected — that much detached paint could be a second
+    bird or a severed wing, and silently erasing it would mutilate the plate.
+    Returns None (already clean) or an erase mask (1 = clear this pixel)."""
     on = QA_ALPHA_ON
     n = w * h
     visited = bytearray(n)
-    sizes = []
+    comps = []  # (size, seed index)
     for start in range(n):
         if apx[start] > on and not visited[start]:
             comp = 0
@@ -634,24 +642,49 @@ def _qa_islands(apx: list, w: int, h: int) -> None:
                 if idx < n - w and apx[idx + w] > on and not visited[idx + w]:
                     visited[idx + w] = 1
                     dq.append(idx + w)
-            sizes.append(comp)
-    if not sizes:
+            comps.append((comp, start))
+    if not comps:
         raise QAReject("no opaque component")
-    sizes.sort(reverse=True)
+    comps.sort(reverse=True)
     frame = float(n)
-    others = sum(sizes[1:])
-    if others / frame > QA_ISLAND_MAX:
+    others = sum(size for size, _ in comps[1:])
+    if others == 0:
+        return None
+    if others / frame > QA_ISLAND_SCRUB:
         raise QAReject("alpha islands: non-largest=%.3f of frame" % (others / frame))
-    sig = sum(1 for s in sizes if s / frame > QA_ISLAND_COMP)
-    if sig > QA_ISLAND_NCOMP:
-        raise QAReject("alpha islands: %d significant components" % sig)
+    # Re-flood the dominant blob, then mark every other opaque pixel for erase.
+    keep = bytearray(n)
+    dq = deque((comps[0][1],))
+    keep[comps[0][1]] = 1
+    while dq:
+        idx = dq.popleft()
+        x = idx % w
+        if x > 0 and apx[idx - 1] > on and not keep[idx - 1]:
+            keep[idx - 1] = 1
+            dq.append(idx - 1)
+        if x < w - 1 and apx[idx + 1] > on and not keep[idx + 1]:
+            keep[idx + 1] = 1
+            dq.append(idx + 1)
+        if idx >= w and apx[idx - w] > on and not keep[idx - w]:
+            keep[idx - w] = 1
+            dq.append(idx - w)
+        if idx < n - w and apx[idx + w] > on and not keep[idx + w]:
+            keep[idx + w] = 1
+            dq.append(idx + w)
+    erase = bytearray(n)
+    for i in range(n):
+        if apx[i] > on and not keep[i]:
+            erase[i] = 1
+    return erase
 
 
-def _qa_inspect(cut_path: str) -> None:
+def _qa_inspect(cut_path: str) -> Optional[str]:
     """Deterministic, Pillow-only dirty-output gate on the keyed RGBA. Raises
     QAReject on the signatures the opaque-fraction band alone misses: leaked
     magenta ground, ragged/fuzzy alpha, ground still touching the frame on
-    multiple sides, a mangled crop aspect, or torn-paper alpha islands."""
+    multiple sides, or a mangled crop aspect. Small disconnected alpha islands
+    are scrubbed IN PLACE (the file is rewritten) — returns a note describing
+    the scrub, or None when the cutout was already clean."""
     im0 = Image.open(cut_path).convert("RGBA")
     w0, h0 = im0.size
     if w0 == 0 or h0 == 0:
@@ -708,7 +741,21 @@ def _qa_inspect(cut_path: str) -> None:
     if sides >= QA_BORDER_SIDES:
         raise QAReject("border contact on %d sides" % sides)
 
-    _qa_islands(apx, w, h)
+    erase = _qa_islands(apx, w, h)
+    if erase is None:
+        return None
+    # Scrub the islands from the FULL-RES cutout: lift the erase mask back to
+    # the original size (NEAREST — same discrete grid the scan used) and zero
+    # those alpha pixels. The feather band around an island sits at/below
+    # QA_ALPHA_ON and is invisible, so clearing the opaque cells suffices.
+    mask = Image.frombytes("L", (w, h), bytes(erase)).point(lambda v: 255 if v else 0)
+    if (w, h) != (w0, h0):
+        mask = mask.resize((w0, h0), Image.NEAREST)
+    alpha = im0.getchannel("A")
+    alpha.paste(0, mask=mask)
+    im0.putalpha(alpha)
+    im0.save(cut_path)
+    return "scrubbed islands=%.3f of frame" % (sum(erase) / float(w * h))
 
 
 def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None:
@@ -780,9 +827,12 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
         frac = chromakey(str(tmp_raw), str(tmp_cut))
         if not (QA_MIN <= frac <= QA_MAX):
             raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
-        # deterministic dirty-output gate (torn-paper islands / leaked magenta /
-        # ragged alpha / border-contact / mangled aspect) -> QAReject.
-        _qa_inspect(str(tmp_cut))
+        # deterministic dirty-output gate (leaked magenta / ragged alpha /
+        # border-contact / mangled aspect -> QAReject; small alpha islands
+        # are scrubbed in place instead of rejected).
+        scrub_note = _qa_inspect(str(tmp_cut))
+        if scrub_note:
+            log.info("qa-scrub slug=%s pose=%s %s", slug, pose, scrub_note)
         # adversarial species/anatomy gate (one Gemini-Vision call).
         if AV_VERIFY:
             _qa_verify(slug, sci, com, pose, tmp_cut)
