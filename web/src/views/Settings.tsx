@@ -203,6 +203,15 @@ export function SettingsPanel(props: {
               />
             </div>
             <Toggle label="Show colophon" on={settings.showColophon} onToggle={(v) => onChange({ showColophon: v })} />
+            <Toggle
+              label="Repaint plates"
+              on={settings.repaintPlate}
+              onToggle={(v) => onChange({ repaintPlate: v })}
+            />
+            <p className="set-note">
+              Adds repaint ↺ to a plate’s dossier — ask the painter for a new picture. The old
+              painting stays on the wall until its replacement is ready.
+            </p>
           </Section>
 
           <Section title="ABOUT">

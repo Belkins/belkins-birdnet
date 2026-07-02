@@ -559,20 +559,63 @@
 .bp-lnk:hover {
   color: var(--ink);
 }
-/* The "save plate" affordance is a <button> so it needs a reset to sit in the
-   same link row as the wiki/ebird anchors (uppercase mono, no chrome). Pushed to
-   the right so it reads as an action, not a reference link. */
+/* Footer action buttons (repaint, save plate, confirm choices) reset to sit in
+   the same link row as the wiki/ebird anchors (mono, no chrome). `bp-lnk-right`
+   is the single push-to-the-right action (save plate); `repaint ↺` leads at the
+   start, so the action zone reads repaint · [links] · save plate. */
 .bp-lnk-b {
-  margin-left: auto;
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
   text-transform: none;
 }
+.bp-lnk-right {
+  margin-left: auto;
+}
 .bp-lnk-b:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+/* ── repaint control lifecycle (museum-copy states) ─────────────── */
+/* The confirm group: question + two choices, inline, same weight as a link. */
+.bp-repaint-confirm {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.bp-repaint-q {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+}
+/* painting… / still drying — a disabled-looking status in the same slot. */
+.bp-repaint-msg {
+  color: var(--mut);
+  opacity: 0.75;
+  cursor: default;
+}
+/* State 8 — the parked caption: a calm sentence, Wall register (serif, not the
+   mono link row). Never red, never a toast. */
+.bp-repaint-caption {
+  font-family: var(--serif, Georgia, serif);
+  font-size: 12px;
+  font-style: italic;
+  color: var(--mut);
+}
+/* The in-flight corner whisper on the plate (the old art keeps hanging). */
+.bp-repainting {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--mut);
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 /* ── narrow: stack the two columns ─────────────────────────── */
