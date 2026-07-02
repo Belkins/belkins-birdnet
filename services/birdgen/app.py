@@ -780,6 +780,21 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
     alpha = im0.getchannel("A")
     alpha.paste(0, mask=mask)
     im0.putalpha(alpha)
+
+    # The floor holds on BOTH sides of the scrub: a pale-key render can squeak
+    # past the pre-scrub check (body remains inflate the opaque count), then
+    # lose those remains to the scrub and land below the floor — gull render #3
+    # published at 0.155 exactly this way. Nothing below the floor ships.
+    on1 = im0.getchannel("A").point(lambda v: 255 if v > QA_ALPHA_ON else 0)
+    bb1 = on1.getbbox()
+    if bb1:
+        fill1 = on1.histogram()[255] / float((bb1[2] - bb1[0]) * (bb1[3] - bb1[1]))
+        if fill1 < QA_MIN_FILL:
+            raise QAReject(
+                "hollow cutout after scrub: bbox fill=%.3f < %.2f (pale plumage keyed away?)"
+                % (fill1, QA_MIN_FILL)
+            )
+
     im0.save(cut_path)
     return "scrubbed islands=%.3f of frame" % (sum(erase) / float(w * h))
 
