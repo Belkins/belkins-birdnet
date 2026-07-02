@@ -9,7 +9,19 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { Settings } from '../settings';
 import { PROFILE } from '../profile';
+import { BASE } from '../config';
 import './Settings.css';
+
+// Companion surfaces — the off-frame pages that live beside the museum. Linked
+// here (in the MENU, not on the sacred frame) so they are actually discoverable.
+// BASE-relative so they resolve under the /collage/ deploy base; new tab so the
+// frame stays open behind them.
+const COMPANIONS: { href: string; name: string; desc: string }[] = [
+  { href: 'play.html', name: 'Name That Visitor', desc: 'a guessing game from your collection' },
+  { href: 'wrapped.html', name: 'Year in Review', desc: 'the yard’s year as a poster' },
+  { href: 'recap.html', name: 'Weekly Recap', desc: 'this week’s visitors, one illustrated sheet' },
+  { href: 'lab.html', name: 'The Lab', desc: 'the live feed + honest data, for the curious' },
+];
 
 // Segmented option tables — typed via indexed access so each picker stays in
 // lockstep with the Settings model (no stray strings).
@@ -212,6 +224,25 @@ export function SettingsPanel(props: {
               Adds repaint ↺ to a plate’s dossier — ask the painter for a new picture. The old
               painting stays on the wall until its replacement is ready.
             </p>
+          </Section>
+
+          <Section title="EXPLORE">
+            <nav className="set-links">
+              {COMPANIONS.map((c) => (
+                <a
+                  key={c.href}
+                  className="set-link"
+                  href={`${BASE}${c.href}`}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <span className="set-link-n">
+                    {c.name} <i aria-hidden="true">↗</i>
+                  </span>
+                  <span className="set-link-d">{c.desc}</span>
+                </a>
+              ))}
+            </nav>
           </Section>
 
           <Section title="ABOUT">
