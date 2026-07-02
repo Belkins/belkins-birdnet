@@ -25,6 +25,7 @@ import { API_BASE } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
 import { useBirdImage } from '../useBirdImage';
+import { downloadPlateCard } from '../export-card';
 import './BirdPopup.css';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial — matches the
@@ -157,6 +158,11 @@ function Dialog({
   // Phenology ribbon data (the species' 52-week presence strip) — from the
   // nightly catalog's widened `weeks` field; null = no ribbon at all.
   const [phen, setPhen] = useState<Phenology | null>(null);
+  // Pinned museum accession number for this species (from the nightly catalog),
+  // used only to stamp a saved plate card. null until the catalog resolves.
+  const [accession, setAccession] = useState<number | null>(null);
+  // One-shot guard so a double-click never kicks off two card renders at once.
+  const [saving, setSaving] = useState(false);
   // Keyed per species, so this init is per-open (deep-link pose restore stays
   // one-shot and a new bird still resets to perched).
   const [pose, setPose] = useState<Pose>(bird.pose ?? 1);
@@ -248,6 +254,7 @@ function Dialog({
         if (!alive) return;
         const match = list.find((s) => s.sci_name === bird.sci);
         setPhen(match ? phenologyWeeks(match) : null);
+        setAccession(match?.accession ?? null);
       })
       .catch(() => {
         // defensive — the ribbon just stays hidden.
@@ -384,6 +391,33 @@ function Dialog({
   const genus = bird.sci.split(' ')[0] || '—';
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
   const recordings = detail?.recordings ?? [];
+
+  // Save a museum plate CARD of this bird via the shared export engine — the same
+  // seat-ink + kachō-e treatment as the wall. Every stamped field is a real value
+  // (accession, all-time count, first-heard, rarity band) or omitted; no number is
+  // invented. A missing cutout degrades to a wordmark card. Guarded against
+  // double-fire; failures stay quiet (the modal's degrade contract).
+  async function saveCard(): Promise<void> {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await downloadPlateCard({
+        slug: bird.slug,
+        sci: bird.sci,
+        com: title,
+        pose,
+        accession,
+        detectionCount: detail?.total ?? null,
+        firstConfident: detail?.firstSeen ? detail.firstSeen.split(' ')[0] : null,
+        rarityLabel: rarity,
+        theme: 'day',
+      });
+    } catch {
+      // quiet — a failed export never disrupts the dossier.
+    } finally {
+      setSaving(false);
+    }
+  }
   // An archive-day count is always a real per-day figure, so it always shows;
   // the live count hides only under ALL, where "this window" is a non-claim.
   const showWindowStat = archiveDay !== null || windowLabel !== 'ALL';
@@ -621,6 +655,15 @@ function Dialog({
           >
             ebird ↗
           </a>
+          <button
+            type="button"
+            className="bp-lnk bp-lnk-b"
+            onClick={saveCard}
+            disabled={saving}
+            aria-label="Save a plate card of this bird"
+          >
+            {saving ? 'saving…' : 'save plate ↓'}
+          </button>
         </div>
       </div>
     </div>

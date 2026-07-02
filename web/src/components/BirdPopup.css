@@ -559,6 +559,21 @@
 .bp-lnk:hover {
   color: var(--ink);
 }
+/* The "save plate" affordance is a <button> so it needs a reset to sit in the
+   same link row as the wiki/ebird anchors (uppercase mono, no chrome). Pushed to
+   the right so it reads as an action, not a reference link. */
+.bp-lnk-b {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-transform: none;
+}
+.bp-lnk-b:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 
 /* ── narrow: stack the two columns ─────────────────────────── */
 @media (max-width: 720px) {
