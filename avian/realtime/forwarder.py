@@ -35,8 +35,9 @@ Config (env):
   BIRDCAST_EVENTS          SSE source (default http://127.0.0.1:8090/events)
   AV_RAILWAY_BASE          Railway base URL (e.g. https://x.up.railway.app)
   WATCHER_WEBHOOK_SECRET   Bearer token for POST /detected
-  AV_ILLUSTRATIONS         bundled illustrations dir
-                           (default /home/belkins/BirdNET-Pi/avian/assets/illustrations)
+  AV_ILLUSTRATIONS         bundled illustrations dir (default:
+                           <repo>/avian/assets/illustrations, derived from
+                           this file's location)
   AV_CONF                  confidence threshold (default 0.80)
 """
 
@@ -55,7 +56,11 @@ BIRDCAST_EVENTS = os.environ.get("BIRDCAST_EVENTS", "http://127.0.0.1:8090/event
 AV_RAILWAY_BASE = os.environ.get("AV_RAILWAY_BASE", "").rstrip("/")
 WATCHER_WEBHOOK_SECRET = os.environ.get("WATCHER_WEBHOOK_SECRET", "")
 AV_ILLUSTRATIONS = os.environ.get(
-    "AV_ILLUSTRATIONS", "/home/belkins/BirdNET-Pi/avian/assets/illustrations"
+    "AV_ILLUSTRATIONS",
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "avian", "assets", "illustrations",
+    ),
 )
 try:
     AV_CONF = float(os.environ.get("AV_CONF", "0.80"))
