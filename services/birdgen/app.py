@@ -893,10 +893,11 @@ PALE_GROUND_NOTE = (
 _LEGS_HINT_SLUGS: set = set()
 
 LEGS_NOTE = (
-    "Render the bird's legs and feet CLEARLY VISIBLE and fully attached to "
-    "the body: confident, slightly thicker dark ink strokes for both legs and "
-    "the toes (this species' thin pale legs otherwise disappear against the "
-    "ground). The bird must stand on its own two unmistakable legs."
+    "Render the bird's legs and feet CLEARLY VISIBLE, fully attached, and in "
+    "confident DARK ink strokes (deep umber or black-brown — NEVER pale pink, "
+    "NEVER faint washes: pale thin legs are the exact failure being corrected). "
+    "Both legs and the toes must read as deliberate dark brush strokes, and "
+    "the bird must STAND on them — not crouch or sit."
 )
 
 
@@ -970,7 +971,11 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             hinted = True
         if "no visible legs" in msg and slug not in _LEGS_HINT_SLUGS:
             _LEGS_HINT_SLUGS.add(slug)
-            log.info("qa-legless slug=%s pose=%d — immediate retry with weighted legs", slug, pose)
+            # Legless is usually a CONTRAST failure at the key (pale legs merge
+            # into the cream ground), so darken the ground too — both sides of
+            # the boundary move apart.
+            _PALE_GROUND_SLUGS.add(slug)
+            log.info("qa-legless slug=%s pose=%d — immediate retry with dark legs + darker ground", slug, pose)
             hinted = True
         if hinted:
             return attempt()
