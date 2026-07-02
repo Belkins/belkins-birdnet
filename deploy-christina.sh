@@ -95,6 +95,11 @@ fi
 # reads ${BASE}species.json. Overrides the bundled dev fixture that shipped in
 # web/dist; a no-op if the collage dir wasn't built above.
 [ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/species.json" "$EXTRACTED/collage/species.json" && ok "species.json -> scripts/species.json (served at /collage/species.json)"
+# Same for the honest derived-intelligence bundle the /lab console reads
+# (${BASE}derived.json). derive.py writes scripts/derived.json after the nightly
+# rebuild; the symlink serves the real file over the bundled dev fixture. /lab
+# degrades to "not built yet" until the first catalog run produces it.
+[ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/derived.json" "$EXTRACTED/collage/derived.json" && ok "derived.json -> scripts/derived.json (served at /collage/derived.json)"
 
 say "5. regenerate collage silhouette masks (so any new illustration is placeable)"
 if ( cd "$HERE/avian/scripts" && "$PY" build_masks.py ) >/dev/null 2>&1; then ok "masks rebuilt"; else warn "build_masks failed (Pillow missing?)"; fi
