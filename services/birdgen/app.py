@@ -105,9 +105,13 @@ QA_BORDER_SIDES = int(os.environ.get("QA_BORDER_SIDES", "2"))     # >= sides tou
 QA_ASPECT_MIN = float(os.environ.get("QA_ASPECT_MIN", "0.45"))
 QA_ASPECT_MAX = float(os.environ.get("QA_ASPECT_MAX", "2.2"))
 
-# Optional adversarial species/anatomy gate (verify.verify_one -> one extra
-# Gemini-Vision call per generation). Off by default; enable with AV_VERIFY=1.
-AV_VERIFY = os.environ.get("AV_VERIFY", "") not in ("", "0", "false", "False")
+# Adversarial species/anatomy gate (verify.verify_one -> one extra Gemini-Vision
+# call per generation). ON by default now that a bounded verify-reject budget
+# (AV_VERIFY_MAX_REJECTS) publishes the least-bad render instead of looping
+# forever; disable with AV_VERIFY=0. Preserves the relaxed _qa_verify thresholds
+# (wing_count>2, matches_target only rejected at high confidence) — the
+# greenfinch folded-wings scar.
+AV_VERIFY = os.environ.get("AV_VERIFY", "1") not in ("", "0", "false", "False")
 
 RATE_CAPACITY = float(os.environ.get("RATE_CAPACITY", "30"))     # token bucket size
 RATE_REFILL = float(os.environ.get("RATE_REFILL", "1.0"))       # tokens / second
@@ -119,17 +123,24 @@ NOTES_PATH = Path(os.environ.get("NOTES_PATH", str(HERE / "species-notes.json"))
 MANIFEST_PATH = HERE / "manifest.json"
 
 # References. Wikipedia anatomy refs are fetched + cached on the volume.
-# Style refs (Edo kachō-e prints) and anti-refs are NOT bundled in this service
-# (per the contract's copy list); if a styles/anti dir is mounted, they are used,
-# otherwise gen_one degrades gracefully (these args are optional).
+# Style refs are now BUNDLED: a curated set of the project's own house plates
+# ships at services/birdgen/styles/ and is used by default (AV_STYLES_DIR
+# overrides to a mounted volume of the real Edo prints, or empty to disable the
+# style lock). Anti-refs are still NOT bundled; if an anti dir is mounted they
+# are used, otherwise gen_one degrades gracefully (these args are optional).
 FETCH_REFS = os.environ.get("FETCH_REFS", "1") not in ("0", "false", "False", "")
 REFS_DIR = Path(os.environ.get("REFS_DIR", str(ASSETS_DIR / "_refs")))
 ANTI_DIR = Path(os.environ.get("ANTI_DIR", str(REFS_DIR)))
-_styles = os.environ.get("AV_STYLES_DIR", "")
+_styles = os.environ.get("AV_STYLES_DIR", str(HERE / "styles"))
 STYLES_DIR: Optional[Path] = Path(_styles) if _styles else None
 
-# Rough per-pose Gemini image cost, for the cost-estimate log line only.
+# Rough per-pose Gemini image cost. Feeds the persistent spend ledger + the
+# cost-estimate log line (an ESTIMATE: count × unit cost, never a billed figure).
 COST_PER_GEN_USD = float(os.environ.get("COST_PER_GEN_USD", "0.04"))
+COST_PER_VERIFY_USD = float(os.environ.get("COST_PER_VERIFY_USD", "0.002"))  # gemini-2.5-flash verify call (image-in, ~500 tok out) — much cheaper than image-out; ESTIMATE
+MONTHLY_BUDGET_USD = float(os.environ.get("MONTHLY_BUDGET_USD", "20"))       # soft ceiling on ESTIMATED month spend; 0 = unlimited
+AV_VERIFY_MAX_REJECTS = int(os.environ.get("AV_VERIFY_MAX_REJECTS", "3"))    # per-species verify-reject budget before accept-with-flag (keep < MAX_ATTEMPTS)
+LEDGER_PATH = ASSETS_DIR / "gen-ledger.json"  # persistent spend ledger on the SAME volume as PNGs + state.db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -200,11 +211,20 @@ def db() -> sqlite3.Connection:
                 next_retry  INTEGER DEFAULT 0,
                 lease_until INTEGER DEFAULT 0,
                 fail_reason TEXT,
+                verify_rejects INTEGER DEFAULT 0,
                 updated_ts  INTEGER
             )
             """
         )
         _conn.commit()
+        # Guarded migration: existing volumes have the table but not the
+        # verify_rejects column. A bare ADD COLUMN on redeploy would crash the
+        # second boot, so swallow the "duplicate column" OperationalError.
+        try:
+            _conn.execute("ALTER TABLE species_jobs ADD COLUMN verify_rejects INTEGER DEFAULT 0")
+            _conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
     return _conn
 
 
@@ -273,6 +293,27 @@ def mark_done(slug: str) -> None:
         db().commit()
 
 
+def get_verify_rejects(slug: str) -> int:
+    with _db_lock:
+        row = db().execute(
+            "SELECT verify_rejects FROM species_jobs WHERE slug=?", (slug,)
+        ).fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
+def bump_verify_rejects(slug: str) -> int:
+    with _db_lock:
+        db().execute(
+            "UPDATE species_jobs SET verify_rejects=COALESCE(verify_rejects,0)+1 WHERE slug=?",
+            (slug,),
+        )
+        db().commit()
+        row = db().execute(
+            "SELECT verify_rejects FROM species_jobs WHERE slug=?", (slug,)
+        ).fetchone()
+    return int(row[0]) if row and row[0] is not None else 0
+
+
 def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
     """Apply the failure policy. Returns the resulting state."""
     now = int(time.time())
@@ -339,6 +380,79 @@ def counts() -> tuple:
 
 
 # --------------------------------------------------------------------------- #
+# Persistent spend ledger  (JSON on the SAME volume as PNGs + state.db)
+# --------------------------------------------------------------------------- #
+# Raw counts are stored, bucketed by UTC month; spend is DERIVED on read
+# (gens*COST_PER_GEN_USD + verifies*COST_PER_VERIFY_USD) so it stays an honest
+# ESTIMATE and the cost constants can be retuned without rewriting history. The
+# UTC month bucket auto-resets spend at the boundary (budget "retried" next
+# month). Ops-only — these numbers never reach the museum frontend.
+# Writers run in the single worker thread (asyncio.to_thread); /health reads on
+# the event loop — both are OS threads relative to each other, so a dedicated
+# threading.Lock (NOT an asyncio lock) guards every read-modify-write and read.
+_ledger_lock = threading.Lock()
+
+
+def _month_key(ts=None) -> str:
+    t = time.gmtime(ts if ts is not None else time.time())  # UTC, matches int(time.time()) elsewhere
+    return "%04d-%02d" % (t.tm_year, t.tm_mon)
+
+
+def _ledger_load() -> dict:
+    try:
+        return json.loads(LEDGER_PATH.read_text())
+    except FileNotFoundError:
+        return {}
+    except Exception as e:  # corrupt ledger must not crash or falsely block gen
+        log.warning("ledger load failed (%s) — treating as empty (fail-open)", e)
+        return {}
+
+
+def _ledger_save(data: dict) -> None:
+    tmp = ASSETS_DIR / ".gen-ledger.json.tmp"
+    tmp.write_text(json.dumps(data))
+    os.replace(str(tmp), str(LEDGER_PATH))  # atomic, same fs
+
+
+def _record(kind: str, n: int = 1) -> None:  # kind in {'gens','verifies'}
+    mk = _month_key()
+    with _ledger_lock:
+        data = _ledger_load()
+        months = data.setdefault("months", {})
+        b = months.setdefault(mk, {"gens": 0, "verifies": 0})
+        b[kind] = int(b.get(kind, 0)) + n
+        _ledger_save(data)
+
+
+def record_gen(n: int = 1) -> None:
+    _record("gens", n)
+
+
+def record_verify(n: int = 1) -> None:
+    _record("verifies", n)
+
+
+def month_spend_snapshot() -> tuple:
+    """(spend_usd, gens, verifies) for the CURRENT UTC month. Spend is derived,
+    never stored as dollars — an estimate, not a billed figure."""
+    mk = _month_key()
+    with _ledger_lock:
+        data = _ledger_load()
+    b = (data.get("months", {}) or {}).get(mk, {}) or {}
+    gens = int(b.get("gens", 0))
+    verifies = int(b.get("verifies", 0))
+    spend = gens * COST_PER_GEN_USD + verifies * COST_PER_VERIFY_USD
+    return spend, gens, verifies
+
+
+def budget_exhausted() -> bool:
+    if MONTHLY_BUDGET_USD <= 0:
+        return False  # 0 = unlimited
+    spend, _, _ = month_spend_snapshot()
+    return spend >= MONTHLY_BUDGET_USD
+
+
+# --------------------------------------------------------------------------- #
 # Slug helpers + admin requeue support
 # --------------------------------------------------------------------------- #
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -381,7 +495,7 @@ def requeue_row(slug: str) -> None:
             """
             UPDATE species_jobs
                SET state='queued', attempts=0, next_retry=0, lease_until=0,
-                   fail_reason=NULL, updated_ts=?
+                   fail_reason=NULL, verify_rejects=0, updated_ts=?
              WHERE slug=?
             """,
             (now, slug),
@@ -474,9 +588,12 @@ def _resolve_species_refs(slug: str, sci: str, com: str):
 
 
 def _resolve_style_ref(sci: str, pose: int) -> Optional[Path]:
-    """Per-pose Edo kachō-e style ref (perched vs flight uses a different
-    print, via pregen.select_style_ref). Only when AV_STYLES_DIR is mounted;
-    None otherwise (the arg is optional in gen_one)."""
+    """Per-pose house-style ref (perched vs flight uses a different plate, via
+    pregen.select_style_ref). Resolved from the bundled house-plate set
+    (STYLES_DIR defaults to services/birdgen/styles/, override via
+    AV_STYLES_DIR). Returns None only if the dir or the specific plate is
+    missing, in which case gen_one degrades gracefully to a style-described
+    prompt (the arg is optional in gen_one)."""
     if STYLES_DIR is not None:
         sp = STYLES_DIR / pregen.select_style_ref(sci, pose)
         return sp if sp.exists() else None
@@ -590,32 +707,49 @@ def _qa_inspect(cut_path: str) -> None:
     _qa_islands(apx, w, h)
 
 
-def _qa_verify(slug: str, sci: str, com: str, cut_path: Path) -> None:
-    """Optional adversarial ID/anatomy gate (AV_VERIFY=1). One Gemini-Vision
-    call via verify.verify_one; rejects an off-species or malformed render so it
+def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None:
+    """Adversarial ID/anatomy gate (AV_VERIFY on). One Gemini-Vision call via
+    verify.verify_one; rejects an off-species or malformed render so it
     regenerates. Fails OPEN (never rejects) when the model errors or the response
-    can't be parsed — a QA gate must not reject on partial/absent data."""
+    can't be parsed — a QA gate must not reject on partial/absent data.
+
+    The pose-1 (required) reject loop is bounded by AV_VERIFY_MAX_REJECTS: after
+    that many rejects the least-bad render is accepted-with-flag rather than
+    stranding the species in an endless regen loop (a real bird in slightly-off
+    plumage beats a permanent silhouette). Pose-2 (flight) rejects need no budget
+    — they're already bounded by the POSE2_TRIES loop and fall back to perched."""
     try:
         v = verify_one(GEMINI_API_KEY, cut_path, sci, com)
     except Exception as e:  # network/API error -> not a QA verdict; keep the clean render
         log.warning("verify_one error slug=%s err=%s (skipping verify gate)", slug, e)
-        return
+        return  # NOT billed as a verdict — don't count
+    record_verify()  # the call returned -> count the paid verify
     if not v:
         return  # unparseable -> fail open
-    if (not v["matches_target"]) and v["guess_confidence"] == "high":
-        raise QAReject("verify: reads as %s (conf=high), not %s"
-                       % (v.get("guessed_species_com", "?"), com))
     # A perched bird's folded wings routinely read as a single visible wing, so
     # only an EXTRA wing (>2) is an unambiguous hallucination — 1–2 is fine. (Was
     # !=2, which false-rejected valid perched renders and stranded species like
     # the greenfinch in an endless regen loop: no image at all, the worse outcome
     # the gate was supposed to prevent.)
-    if v["wing_count"] > 2:
-        raise QAReject("verify: wing_count=%s" % v["wing_count"])
-    if v["leg_count"] > 2:
-        raise QAReject("verify: leg_count=%s" % v["leg_count"])
-    if v["has_stick_or_perch"]:
-        raise QAReject("verify: has stick/perch")
+    reason = None
+    if (not v["matches_target"]) and v["guess_confidence"] == "high":
+        reason = "reads as %s (conf=high), not %s" % (v.get("guessed_species_com", "?"), com)
+    elif v["wing_count"] > 2:
+        reason = "wing_count=%s" % v["wing_count"]
+    elif v["leg_count"] > 2:
+        reason = "leg_count=%s" % v["leg_count"]
+    elif v["has_stick_or_perch"]:
+        reason = "has stick/perch"
+    if reason is None:
+        return  # passed
+    if pose != 1:
+        raise QAReject("verify: " + reason)  # pose-2: bounded by POSE2_TRIES, no budget needed
+    if get_verify_rejects(slug) >= AV_VERIFY_MAX_REJECTS:
+        log.warning("verify: publishing best-effort after %d verify rejects slug=%s (last: %s)",
+                    AV_VERIFY_MAX_REJECTS, slug, reason)
+        return  # accept-with-flag: a real bird in slightly-off plumage beats a permanent silhouette
+    n = bump_verify_rejects(slug)
+    raise QAReject("verify: %s (reject %d/%d)" % (reason, n, AV_VERIFY_MAX_REJECTS))
 
 
 def _gen_pose(slug: str, sci: str, com: str, pose: int,
@@ -634,6 +768,7 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
         positive_ref=pos, anti_ref=anti, anti_ref_key=anti_key,
         species_note=NOTES.get(sci), style_ref=style,
     )
+    record_gen()  # count the billable image now — QA-rejected-but-generated ones still cost
     tmp_raw = ASSETS_DIR / (".%s.raw.png" % tmp_tag)
     tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
     try:
@@ -644,9 +779,9 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
         # deterministic dirty-output gate (torn-paper islands / leaked magenta /
         # ragged alpha / border-contact / mangled aspect) -> QAReject.
         _qa_inspect(str(tmp_cut))
-        # optional adversarial species/anatomy gate (one Gemini-Vision call).
+        # adversarial species/anatomy gate (one Gemini-Vision call).
         if AV_VERIFY:
-            _qa_verify(slug, sci, com, tmp_cut)
+            _qa_verify(slug, sci, com, pose, tmp_cut)
         # atomic publish (same filesystem -> os.replace is atomic)
         os.replace(str(tmp_cut), str(ASSETS_DIR / out_name))
         return frac
@@ -731,7 +866,36 @@ def _throttle_spacing() -> None:
 
 async def worker() -> None:
     log.info("worker started (MIN_SPACING=%ss, max_attempts=%s)", MIN_SPACING, MAX_ATTEMPTS)
+    budget_paused = False
     while not _stopping:
+        # Soft monthly-budget gate: never START a species we can't afford —
+        # species stay 'queued' (nothing dead, nothing crashes), /detected keeps
+        # enqueueing, and gen auto-resumes at the UTC month rollover or on a
+        # MONTHLY_BUDGET_USD raise. Overshoot is bounded to one in-flight species
+        # per crossing (the check is per-claim, not per-pose) — fine for a soft
+        # ceiling. Fail-open: a corrupt ledger reads empty, so gen keeps running.
+        if MONTHLY_BUDGET_USD > 0 and await asyncio.to_thread(budget_exhausted):
+            if not budget_paused:
+                spend, gens, _ = month_spend_snapshot()
+                log.warning(
+                    "budget-exhausted month_spend~=$%.2f >= budget=$%.2f gens=%d — pausing gen; "
+                    "species stay queued, resume next month or on MONTHLY_BUDGET_USD raise",
+                    spend, MONTHLY_BUDGET_USD, gens,
+                )
+                budget_paused = True
+            # drain _wakeup while paused so /detected still returns queued
+            try:
+                await asyncio.wait_for(_wakeup.get(), timeout=POLL_INTERVAL)
+            except asyncio.TimeoutError:
+                pass
+            except Exception as e:
+                log.warning("wakeup wait error: %s", e)
+                await asyncio.sleep(POLL_INTERVAL)
+            continue
+        if budget_paused:
+            log.info("budget-resumed — gen worker active again")
+            budget_paused = False
+
         job = await asyncio.to_thread(claim_one_due)
         if job is None:
             # idle: wake on a new detection or re-poll to catch backoff-ready jobs
@@ -753,10 +917,11 @@ async def worker() -> None:
         try:
             frac = await asyncio.to_thread(_generate_sync, slug, job["sci"], job["com"])
             await asyncio.to_thread(mark_done, slug)
+            month_spend = await asyncio.to_thread(month_spend_snapshot)
             log.info(
-                "gen-done slug=%s pose1=%s dur=%.1fs cost-estimate>=$%.3f",
+                "gen-done slug=%s pose1=%s dur=%.1fs cost-estimate>=$%.3f month~=$%.2f",
                 slug, ("kept" if frac < 0 else "%.1f%%" % (frac * 100)),
-                time.monotonic() - t0, COST_PER_GEN_USD,
+                time.monotonic() - t0, COST_PER_GEN_USD, month_spend[0],
             )
         except Exception as e:  # noqa: BLE001 - classify + persist, never crash the worker
             fail_class = _classify(e)
@@ -783,6 +948,16 @@ async def lifespan(app: FastAPI):
     if not WATCHER_WEBHOOK_SECRET:
         log.warning("WATCHER_WEBHOOK_SECRET not set — /detected will reject all calls (503)")
     log.info("birdgen up: bundled=%d assets_dir=%s", len(BUNDLED), ASSETS_DIR)
+    # Loud style-lock assertion: a future regression (empty/disabled styles dir)
+    # would otherwise silently paint every auto-gen with NO house-style ref.
+    if STYLES_DIR is not None and STYLES_DIR.exists():
+        _n_styles = len(list(STYLES_DIR.glob("*.png")))
+        if _n_styles:
+            log.info("style-lock: %d house plates at %s", _n_styles, STYLES_DIR)
+        else:
+            log.warning("style-lock OFF: %s has no *.png — gens run WITHOUT the house style ref", STYLES_DIR)
+    else:
+        log.warning("style-lock OFF: AV_STYLES_DIR disabled/absent — gens run WITHOUT the house style ref")
     task = asyncio.create_task(worker())
     try:
         yield
@@ -820,8 +995,20 @@ class Detection(BaseModel):
 
 @app.get("/health")
 async def health():
+    # ops-only spend telemetry (ESTIMATE = count × unit cost). MUST NOT be
+    # rendered on the museum frontend — honesty firewall.
     q, d = counts()
-    return {"ok": True, "queue_depth": q, "done_count": d}
+    spend, gens, verifies = month_spend_snapshot()
+    return {
+        "ok": True,
+        "queue_depth": q,
+        "done_count": d,
+        "month_spend_usd": round(spend, 4),
+        "budget_usd": MONTHLY_BUDGET_USD,
+        "gens_this_month": gens,
+        "verifies_this_month": verifies,
+        "budget_exhausted": (MONTHLY_BUDGET_USD > 0 and spend >= MONTHLY_BUDGET_USD),
+    }
 
 
 @app.get("/manifest")

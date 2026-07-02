@@ -14,7 +14,7 @@ forwarder.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET`  | `/health`        | none   | `{ok, queue_depth, done_count}` |
+| `GET`  | `/health`        | none   | `{ok, queue_depth, done_count, month_spend_usd, budget_usd, gens_this_month, verifies_this_month, budget_exhausted}` (spend fields are ops-only ESTIMATES — never surface them on the frontend) |
 | `GET`  | `/manifest`      | none   | `{slugs:[...]}` = bundled ∪ generated (single dedup SoT) |
 | `GET`  | `/asset/<slug>.png` | none | serve the transparent PNG; 404 if not generated yet |
 | `POST` | `/detected`      | Bearer | enqueue a first-hearing; dedup + conf gate + rate-limit |
@@ -58,14 +58,18 @@ forwarder.
 | `QA_MIN_FRAC` / `QA_MAX_FRAC` | no | `0.015` / `0.75` | creamkey opaque-fraction QA band |
 | `ASSETS_DIR` | no | `/data/assets` | volume mount (set by the Dockerfile) |
 | `FETCH_REFS` | no | `1` | fetch+cache the Wikipedia anatomy reference per species |
-| `AV_STYLES_DIR` | no | unset | optional Edo kachō-e style-print dir (not bundled) |
+| `AV_STYLES_DIR` | no | `services/birdgen/styles` | curated house-plate style set, **BUNDLED + on by default**; override to mount the real Edo prints, or set empty to disable the style lock |
+| `AV_VERIFY` | no | `1` | adversarial ID/anatomy gate (one extra Gemini-Vision call per gen); **on by default** now that the reject loop is bounded; set `0` to disable |
+| `AV_VERIFY_MAX_REJECTS` | no | `3` | per-species verify-reject budget before accept-with-flag (keep `< MAX_ATTEMPTS`) |
+| `COST_PER_VERIFY_USD` | no | `0.002` | estimated per-verify Gemini cost (feeds the spend ledger estimate) |
+| `MONTHLY_BUDGET_USD` | no | `20` | soft ceiling on ESTIMATED month spend; `0` = unlimited; when crossed, gen pauses + species stay queued (auto-resumes next UTC month or on a raise) |
 | `PORT` | no | `8000` | injected by Railway |
 
 ## Storage / deploy
 
 - Railway **volume mounted at `/data/assets`**. PNGs at `/data/assets/<slug>.png`;
-  SQLite lease at `/data/assets/state.db`; cached Wikipedia refs under
-  `/data/assets/_refs/`.
+  SQLite lease at `/data/assets/state.db`; the persistent spend ledger at
+  `/data/assets/gen-ledger.json`; cached Wikipedia refs under `/data/assets/_refs/`.
 - **`numReplicas = 1`** — the single-flight worker, single-attach volume,
   in-memory rate-limiter, and in-memory wakeup queue all assume one instance.
 
@@ -79,10 +83,21 @@ docker run -p 8000:8000 \
 
 ## Notes / known limitations
 
-- `pregen.py`, `creamkey.py`, `prompt.template.md`, `species-notes.json` are
-  **verbatim copies** of the `avian/scripts/` originals — keep them in sync.
-- Style references and anti-references are **not bundled** (the contract's copy
-  list is the 4 files above). The service still fetches the per-species Wikipedia
-  anatomy reference at runtime; if you want the Edo style prints / Blue-Jay /
-  Barn-Swallow anti-refs, mount them and set `AV_STYLES_DIR` (+ `ANTI_DIR`).
-  Output quality is lower without the style ref than the offline `pregen.py` run.
+- `creamkey.py`, `prompt.template.md`, `species-notes.json` are **verbatim copies**
+  of the `avian/scripts/` originals — keep them in sync. `pregen.py` **intentionally
+  diverges** from `avian/scripts/pregen.py`: a prior defensive-titles fix, plus the
+  `STYLE_REFS` remap described below. Do **not** mirror these back into `avian/` —
+  the divergence is deliberate and documented here.
+- **Style references are now BUNDLED + on by default.** A curated set of 8 of the
+  project's own house plates ships at `services/birdgen/styles/` (downscaled copies
+  of `avian/assets/illustrations/` cutouts, ~512px long side), and `STYLE_REFS` maps
+  every genus/pose to one of them — so the style lock is attached to every auto-gen.
+  The original Edo kachō-e prints (Koson/Yoshida) are not redistributable / in this
+  repo; mount them on a volume and point `AV_STYLES_DIR` at it to override, or set
+  `AV_STYLES_DIR=` (empty) to disable the lock. This is a self-referential bootstrap
+  (the plates were themselves largely generated style-less), so it locks in the
+  CURRENT house look — the de-facto canon every new species must match.
+- **Anti-references are still NOT bundled.** `ANTI_DIR` defaults to `REFS_DIR`, and
+  `_anti_bluejay.jpg` / `_anti_barnswallow.jpg` are absent, so the Blue-Jay /
+  Barn-Swallow collapse guards are inert in production. Mount those files and set
+  `ANTI_DIR` to reactivate them (follow-up; the jpg-only naming loses PNG alpha).
