@@ -1,7 +1,16 @@
 // INDEX — the Broadsheet ledger: a ranked species index with the big number.
 import type { RosterRow } from '../types';
+import { formatDay } from '../days';
 
-export function IndexView({ rows }: { rows: RosterRow[] }) {
+export function IndexView({
+  rows,
+  archiveDay = null,
+}: {
+  rows: RosterRow[];
+  /** Pinned past day the roster reflects, or null = live window — the ledger
+   *  must never headline archive counts as "Heard Today". */
+  archiveDay?: string | null;
+}) {
   const total = rows.reduce((a, r) => a + r.n, 0);
   const top = rows.slice(0, 12);
   const max = top.length ? top[0].n : 1;
@@ -10,13 +19,15 @@ export function IndexView({ rows }: { rows: RosterRow[] }) {
   return (
     <div className="view idx">
       <div className="idx-head">
-        <div className="eyebrow">your window</div>
+        <div className="eyebrow">{archiveDay ? `${formatDay(archiveDay)} · archive` : 'your window'}</div>
         <div className="idx-big">
           Heard
           <br />
-          Today
+          {archiveDay ? 'That Day' : 'Today'}
         </div>
-        <div className="idx-sub">most-heard · last 24 hours</div>
+        <div className="idx-sub">
+          {archiveDay ? `most-heard · ${formatDay(archiveDay)}` : 'most-heard · last 24 hours'}
+        </div>
         <div className="idx-total">{total}</div>
         <div className="idx-totl">calls · {rows.length} species</div>
       </div>
@@ -45,6 +56,13 @@ export function IndexView({ rows }: { rows: RosterRow[] }) {
               </li>
             ))}
           </ol>
+          {/* The ledger shows a headline, never a silent cap; the complete list
+              lives one tab over (the Atlas renders every species, unsliced). */}
+          {rows.length > top.length && (
+            <div className="idx-more">
+              …and {rows.length - top.length} more species — every plate is in the Atlas
+            </div>
+          )}
           {/* N=1: one pinned row closes on a beginning, never an error. */}
           {lone && <div className="idx-begin">1 species — a beginning</div>}
         </div>

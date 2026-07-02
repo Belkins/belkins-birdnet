@@ -102,6 +102,10 @@ export class CollageRenderer {
   private dead = false;
   /** idle ambient-life loop: whether motion is switched on (setMotion). */
   private motionOn = false;
+  /** Golden Hour warmth folded into seat ink + vignette (setSolar); 0 = untinted. */
+  private solarWarmth = 0;
+  /** true inside the sunrise/sunset band — the ground pool glows a touch more. */
+  private solarGolden = false;
   /** rAF handle for the low-rate (~10fps) ambient loop, 0 when parked. */
   private motionRafId = 0;
   /** last ambient-tick timestamp, for the 100ms accumulator. */
@@ -154,6 +158,16 @@ export class CollageRenderer {
     if (this.motionActive()) this.startMotion();
     else this.stopMotion();
     // Repaint once so amplitudes either begin or snap home this frame.
+    this.requestDraw();
+  }
+
+  /** Golden-hour warmth folded into seat ink + vignette. 0 = the untinted
+   *  theme (degrade to silence). */
+  setSolar(warmth: number, golden: boolean): void {
+    const w = clamp(warmth, 0, 1);
+    if (Math.abs(w - this.solarWarmth) < 0.01 && golden === this.solarGolden) return;
+    this.solarWarmth = w;
+    this.solarGolden = golden;
     this.requestDraw();
   }
 
@@ -228,7 +242,7 @@ export class CollageRenderer {
     // vignette behind the cluster to seat it.")
     if (nReal > 0) {
       const radius = 0.5 * Math.hypot(maxX - minX, maxY - minY) * 0.95;
-      this.paintVignette(cx, cy, radius, night);
+      this.paintVignette(cx, cy, radius, night, this.solarWarmth, this.solarGolden);
     }
 
     // Whole-cluster breath: ±0.3% about the centroid, applied as a canvas
@@ -342,7 +356,7 @@ export class CollageRenderer {
   ): void {
     const { ctx } = this;
     if (t.loaded && t.img && !t.failed) {
-      const ink = seatInk(Math.max(w, h), night);
+      const ink = seatInk(Math.max(w, h), night, this.solarWarmth);
       ctx.shadowColor = ink.color;
       ctx.shadowBlur = ambient ? ink.blur * 0.6 : ink.blur;
       ctx.shadowOffsetY = ink.offsetY;
@@ -423,17 +437,27 @@ export class CollageRenderer {
   /** Faint radial glow behind the cluster centroid that seats the composition on
    *  the ground (spec: seating vignette). Night lifts the cluster off obsidian
    *  with a warm off-white pool; day drops a soft desaturated ink pool. Very low
-   *  opacity — felt, not seen — and drawn once behind everything. */
-  private paintVignette(cx: number, cy: number, radius: number, night: boolean): void {
+   *  opacity — felt, not seen — and drawn once behind everything. Golden Hour
+   *  `warmth` mixes the pool toward amber (0 reproduces the untinted theme);
+   *  inside the sunrise/sunset band the ground pool glows a touch more. */
+  private paintVignette(
+    cx: number,
+    cy: number,
+    radius: number,
+    night: boolean,
+    warmth = 0,
+    golden = false,
+  ): void {
     if (radius <= 1) return;
     const { ctx } = this;
+    const lift = golden ? 0.015 : 0;
     const g = ctx.createRadialGradient(cx, cy, radius * 0.12, cx, cy, radius);
     if (night) {
-      g.addColorStop(0, 'rgba(245, 234, 210, 0.06)');
-      g.addColorStop(1, 'rgba(245, 234, 210, 0)');
+      g.addColorStop(0, mixRgba([245, 234, 210, 0.06], [255, 196, 120, 0.085 + lift], warmth));
+      g.addColorStop(1, mixRgba([245, 234, 210, 0], [255, 196, 120, 0], warmth));
     } else {
-      g.addColorStop(0, 'rgba(58, 44, 24, 0.05)');
-      g.addColorStop(1, 'rgba(58, 44, 24, 0)');
+      g.addColorStop(0, mixRgba([58, 44, 24, 0.05], [122, 72, 20, 0.07 + lift], warmth));
+      g.addColorStop(1, mixRgba([58, 44, 24, 0], [122, 72, 20, 0], warmth));
     }
     ctx.save();
     ctx.fillStyle = g;
@@ -537,19 +561,25 @@ const GLYPH_H = 72;
  *  thickness on a hero and on a small tile). Night: a faint luminous off-white
  *  edge-light that lifts even a jackdaw/swift/hummingbird off pure obsidian and
  *  seats it. Day: a soft desaturated ink-wash contact shadow, offset down to
- *  ground the bird. Low opacity throughout — a contact shadow, not a drop-glow. */
-function seatInk(size: number, night: boolean): { color: string; blur: number; offsetY: number } {
+ *  ground the bird. Low opacity throughout — a contact shadow, not a drop-glow.
+ *  Golden Hour `warmth` mixes the ink toward amber (0 = today's exact colors);
+ *  blur/offset stay untouched — a lighting tint, never a new treatment. */
+function seatInk(
+  size: number,
+  night: boolean,
+  warmth = 0,
+): { color: string; blur: number; offsetY: number } {
   // Mildly size-linked but tightly CLAMPED, so the rim reads as one consistent,
   // faint contact ink across a hero and a small tile — never a wide drop-glow.
   if (night) {
     return {
-      color: 'rgba(245, 234, 210, 0.18)',
+      color: mixRgba([245, 234, 210, 0.18], [255, 199, 130, 0.21], warmth),
       blur: clamp(size * 0.09, 12, 30),
       offsetY: clamp(size * 0.02, 1, 8),
     };
   }
   return {
-    color: 'rgba(38, 28, 16, 0.20)',
+    color: mixRgba([38, 28, 16, 0.2], [64, 40, 14, 0.22], warmth),
     blur: clamp(size * 0.07, 8, 22),
     offsetY: clamp(size * 0.05, 3, 16),
   };
@@ -558,6 +588,17 @@ function seatInk(size: number, night: boolean): { color: string; blur: number; o
 /** Clamp `v` into [lo, hi]. */
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/** Linear mix of two rgba tuples → a CSS color. At t=0 this reproduces `a`
+ *  exactly (the untinted theme), so Golden Hour off is pixel-identical. */
+function mixRgba(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+  t: number,
+): string {
+  const c = (i: 0 | 1 | 2) => Math.round(a[i] + (b[i] - a[i]) * t);
+  return `rgba(${c(0)}, ${c(1)}, ${c(2)}, ${(a[3] + (b[3] - a[3]) * t).toFixed(3)})`;
 }
 
 /** Deterministic per-slug composition tilt in [-MAX_ROT, MAX_ROT]. */

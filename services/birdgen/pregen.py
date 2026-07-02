@@ -99,21 +99,24 @@ ROBIN_GENERA = set()  # placeholder for future use
 # `_anti_<key>.jpg` filename in the references directory and feeds into
 # `ANTI_REF_TRIGGERS` below.
 # ---- Style references ----
-# Edo-period kachō-e woodblock prints by Ohara Koson and Hiroshi Yoshida,
-# kept in a local directory (default avian/assets/references/styles/). Mapped by
-# genus + pose. The bird in each print is irrelevant - only the painting
-# technique (flat washes, confident outlines, tonal ground) is borrowed.
+# House-style reference set. The original Edo kachō-e prints (Koson/Yoshida) are
+# not redistributable/in this repo, so the style lock uses a curated subset of
+# the project's OWN bundled plates (avian/assets/illustrations) — they ARE the
+# canonical house look every auto-gen must match. Bundled at services/birdgen/
+# styles/. Mapped by genus + pose; only the painting technique is borrowed.
+# NOTE: this diverges from avian/scripts/pregen.py (kept on the Koson/Yoshida
+# names); see services/birdgen/README.md for why the two copies differ.
 STYLE_REFS = {
-    "small_songbird_perched": "01-sparrows-on-bamboo-Koson.jpg",
-    "dark_bird_perched":      "02-cawing-crow-Koson.jpg",
-    "vivid_perched":          "03-jays-on-berry-tree-Koson.jpg",
-    "vibrant_perched":        "04-kingfisher-Koson.jpg",
-    "owl":                    "05-owl-on-ginkgo-Koson.jpg",
-    "large_flight":           "06-goose-flying-in-moonlight-Koson.jpg",
-    "small_flight":           "07-swallows-in-flight-Koson.jpg",
-    "wader":                  "08-crane-in-small-water-Koson.jpg",
-    "pale_perched":           "09-cockatoo-Yoshida.jpg",
-    "waterfowl_perched":      "10-mandarin-ducks-Yoshida.jpg",
+    "small_songbird_perched": "passer-domesticus.png",
+    "dark_bird_perched":      "corvus-brachyrhynchos.png",
+    "vivid_perched":          "aphelocoma-californica.png",
+    "vibrant_perched":        "aphelocoma-californica.png",
+    "owl":                    "bubo-virginianus.png",
+    "large_flight":           "aquila-chrysaetos-2.png",
+    "small_flight":           "apus-apus-2.png",
+    "wader":                  "ardea-alba.png",
+    "pale_perched":           "ardea-alba.png",
+    "waterfowl_perched":      "aix-sponsa.png",
 }
 
 # Genus → perched style category. The first match wins. Fallback is
@@ -287,7 +290,17 @@ def fetch_wikipedia_thumb(sci: str, com: str) -> tuple[bytes, str] | None:
     1024-wide thumbnail via the REST summary endpoint (a few KB to MB,
     not the original-sized image).
     """
-    titles = [sci.replace(" ", "_"), com.replace(" ", "_"), com.split()[0]]
+    # com can be empty (e.g. a slug-only requeue), so build the candidate titles
+    # defensively — sci alone suffices; com and its genus are extra fallbacks.
+    # (Was an eager list including com.split()[0], which raised IndexError on an
+    # empty com and killed the whole anatomy-ref fetch → lower-quality, more
+    # hallucination-prone gens for exactly the species a requeue is trying to fix.)
+    titles = [sci.replace(" ", "_")]
+    if com:
+        titles.append(com.replace(" ", "_"))
+        com_parts = com.split()
+        if com_parts:
+            titles.append(com_parts[0])
     for title in titles:
         url = (
             "https://en.wikipedia.org/api/rest_v1/page/summary/"

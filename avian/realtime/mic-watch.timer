@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Christina mic-loss watchdog every 15min
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

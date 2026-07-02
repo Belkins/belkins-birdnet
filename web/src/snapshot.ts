@@ -10,6 +10,8 @@ import { PROFILE } from './profile';
 
 interface RecentResponse {
   hours?: number;
+  /** Echo of the requested `on=` day — the scrubber's feature-detection token. */
+  on?: string;
   species?: Array<{ sci: string; com: string; n: number | string }>;
   as_of?: string;
 }
@@ -29,6 +31,31 @@ export async function fetchSnapshot(hours: number = SNAPSHOT_HOURS): Promise<Spe
       n: Number(s.n) || 1,
     })),
   );
+}
+
+/** One real past local day (the time-travel scrubber). 'unsupported' = the
+ *  API can't do days — a 4xx, or a response whose `on` echo doesn't match
+ *  (an OLD Pi ignores unknown params and would return the LIVE window; the
+ *  echo check is the honesty firewall that keeps live data from ever being
+ *  presented as an archive day). 'error' = a transient failure (network, 5xx)
+ *  on an API that may well be capable — the caller must NOT conclude the
+ *  feature is absent. Both degrade to silence, differently. */
+export async function fetchDaySnapshot(
+  day: string,
+): Promise<SpeciesRow[] | 'unsupported' | 'error'> {
+  if (MOCK) return withDebugRoster(mockSnapshot());
+  try {
+    const url = `${API_BASE}/birdnet-api.php?action=recent&on=${encodeURIComponent(day)}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return res.status >= 500 ? 'error' : 'unsupported';
+    const json = (await res.json()) as RecentResponse;
+    if (json.on !== day) return 'unsupported'; // old API ignored on= — refuse the live data
+    return withDebugRoster(
+      (json.species ?? []).map((s) => ({ sci: s.sci, com: s.com, n: Number(s.n) || 1 })),
+    );
+  } catch {
+    return 'error';
+  }
 }
 
 /** Geometric per-lap count falloff so synthesized repeats read as a long tail. */

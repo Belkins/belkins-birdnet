@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# deploy-realtime.sh rewrites User= and the /home/belkins paths at install time.
 User=belkins
 # Reuses the forwarder env (AV_RAILWAY_BASE). Add NOTIFY_URL=https://ntfy.sh/<topic>
 # there for phone pushes.

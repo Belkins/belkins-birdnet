@@ -28,7 +28,7 @@ If applicable, add screenshots to help explain your problem.
 Add any other context about the problem or your installation here.
 
 **Your build**
-The hardware on which BirdNET-Pi is running goes here.
+The hardware on which Belkins BirdNET is running goes here.
 
 **Code or log snippets**
 The installation creates a log in `~/`, please include it where applicable.

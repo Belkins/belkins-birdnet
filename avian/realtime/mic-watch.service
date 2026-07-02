@@ -1,0 +1,21 @@
+[Unit]
+Description=Christina mic-loss watchdog (dead/re-enumerated USB mic detector + self-heal)
+# Passive checks only (/proc/asound + StreamData recency + flatline scan of a
+# completed chunk). It NEVER opens the audio device, so it cannot fight
+# birdnet_recording.sh for the mic.
+ConditionPathExists=/etc/birdnet/birdnet.conf
+After=network.target
+
+[Service]
+Type=oneshot
+# Root on purpose (no User= line): the self-heal is `systemctl restart
+# birdnet_recording` -- root avoids sudoers churn; the script itself is passive.
+Nice=10
+IOSchedulingClass=idle
+# Shared operator env (NOTIFY_URL for ntfy pushes) -- the same file the
+# forwarder and railway-liveness read. Leading '-' = optional: the watchdog
+# still works (journal + apprise) on installs where this file doesn't exist.
+# deploy-realtime.sh rewrites the /home/belkins paths at install time.
+EnvironmentFile=-/home/belkins/.christina/forwarder.env
+Environment=MIC_WATCH_STATE=/home/belkins/.christina/mic-watch.state
+ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/realtime/mic_watch.py

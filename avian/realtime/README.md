@@ -95,9 +95,8 @@ curl -s -XPOST http://127.0.0.1:8099/emit \
 # 1. Put the service in the user's home (mirrors the mqtt-bridge recipe).
 cp ~/BirdNET-Pi/avian/realtime/birdcast.py ~/birdcast.py
 
-# 2. Install + start the systemd unit.
-sudo cp ~/BirdNET-Pi/avian/realtime/birdcast.service /etc/systemd/system/
-# Edit /etc/systemd/system/birdcast.service: set User= to your account.
+# 2. Install + start the systemd unit (rendered for your account).
+sed "s|^User=.*|User=$USER|" ~/BirdNET-Pi/avian/realtime/birdcast.service | sudo tee /etc/systemd/system/birdcast.service >/dev/null
 sudo systemctl daemon-reload
 sudo systemctl enable --now birdcast
 

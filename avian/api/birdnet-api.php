@@ -5,7 +5,7 @@
 // Endpoints (?action=...):
 //   stats       - totals (detections, unique species, today, last hour)
 //   lifelist    - every species with first_seen, last_seen, total_count
-//   recent      - &hours=N (default 24): species heard in the window
+//   recent      - &hours=N (default 24) OR &on=YYYY-MM-DD (one past local day)
 //   species     - &sci=<sci_name>: per-species detail page
 //   timeseries  - &days=N: daily detection counts per species
 //   firstseen   - every species' earliest detection
@@ -92,6 +92,50 @@ switch ($action) {
     }
 
     case 'recent': {
+        // Optional &on=YYYY-MM-DD - the time-travel scrubber. Same species-
+        // collapsed row shape for ONE past local day. Strictly validated; a
+        // malformed, future, or absurd (pre-2015) date is a 400 - NEVER a
+        // silent fall-through to the live window (a client must never mistake
+        // live data for an archive day). The value only ever reaches SQL via
+        // bindValue (:on), the same injection-safe pattern as every other
+        // query in this file. `hours` is ignored when `on` is present.
+        $on = $_GET['on'] ?? null;
+        if ($on !== null) {
+            // is_string guards ?on[]=… (an array would fatal preg_match on PHP 8).
+            if (!is_string($on) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $on)) {
+                http_response_code(400); echo json_encode(['error' => 'on= must be YYYY-MM-DD']); break;
+            }
+            [$y, $m, $d] = array_map('intval', explode('-', $on));
+            // "today" comes from SQLite's localtime clock - the same clock
+            // that wrote the Date column. PHP's date.timezone may be UTC on
+            // the Pi, which would wrongly reject today's date near midnight.
+            $today = one($db, "SELECT DATE('now','localtime') AS d")['d'] ?? date('Y-m-d');
+            if (!checkdate($m, $d, $y) || $on > $today || $y < 2015) {
+                http_response_code(400); echo json_encode(['error' => 'on= out of range']); break;
+            }
+            $rs = rows($db,
+              "SELECT Sci_Name AS sci, Com_Name AS com, COUNT(*) AS n, MAX(Confidence) AS best_conf, "
+            . "       MAX(Date||' '||Time) AS last_seen "
+            . "FROM detections WHERE Date = :on "
+            . "GROUP BY Sci_Name ORDER BY last_seen DESC LIMIT 500",
+              [':on' => $on]
+            );
+            foreach ($rs as &$r) {
+                $best = one($db,
+                  "SELECT File_Name AS file, Date AS d, Time AS t, Confidence AS conf "
+                . "FROM detections WHERE Sci_Name = :sn AND Date = :on "
+                . "ORDER BY Confidence DESC LIMIT 1",
+                  [':sn' => $r['sci'], ':on' => $on]
+                );
+                $r['top_file'] = $best['file'] ?? null;
+                $r['top_at']   = isset($best['d']) ? ($best['d'].' '.$best['t']) : null;
+            }
+            // `on` is echoed back on purpose: the frontend's feature-detection
+            // token (an older API ignores the param and returns the live
+            // window - the echo is how the client refuses that).
+            echo json_encode(['on' => $on, 'species' => $rs, 'as_of' => date('c')]);
+            break;
+        }
         // Cap raised to 1,000,000 hours (~114 years) so the frontend's
         // "ALL" button can turn off the time filter without needing a
         // separate code path.
@@ -147,7 +191,9 @@ switch ($action) {
         //   by_hour - detections grouped by hour of day, last 30 days
         // The frontend backfills missing dates with zero - sparse data days
         // are otherwise dropped by the GROUP BY.
-        $days = max(1, min(90, (int)($_GET['days'] ?? 30)));
+        // Cap 3660 days (~10y): the scrubber's day ruler wants the deep
+        // archive; older deployments clamp to 90 and echo the clamped `days`.
+        $days = max(1, min(3660, (int)($_GET['days'] ?? 30)));
         $daily = rows($db,
           "SELECT Date AS date, COUNT(*) AS detections, COUNT(DISTINCT Sci_Name) AS species "
         . "FROM detections "

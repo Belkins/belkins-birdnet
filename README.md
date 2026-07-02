@@ -14,8 +14,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/species-249-0d9488?style=flat-square" alt="249 species" />
-  <img src="https://img.shields.io/badge/illustrations-498-db2777?style=flat-square" alt="498 illustrations" />
+  <img src="https://img.shields.io/badge/species-250-0d9488?style=flat-square" alt="250 species" />
+  <img src="https://img.shields.io/badge/illustrations-500-db2777?style=flat-square" alt="500 illustrations" />
   <img src="https://img.shields.io/badge/model%20labels-6%2C522-2563eb?style=flat-square" alt="6522 model labels" />
   <img src="https://img.shields.io/badge/detection%20to%20screen-under%203s-d97706?style=flat-square" alt="under 3 seconds" />
   <img src="https://img.shields.io/badge/Python-3.11%2B-3776ab?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+" />
@@ -32,7 +32,7 @@
 
 A single $17 USB microphone in your window turns the birds outside into a **living collage**. Belkins BirdNET listens through the mic, lets **Cornell's BirdNET** name every passing call, and blooms each species onto the screen as a hand-painted *kachō-e* illustration — sized by how often it's been heard and repainted within seconds of each new detection.
 
-498 bundled illustrations across 249 species, a Gemini pipeline to restyle them for *your* region, an optional e-ink frame for your wall — and one read-only SQLite file at the heart of it all.
+500 bundled illustrations across 250 species, a Gemini pipeline to restyle them for *your* region, an optional e-ink frame for your wall — and one read-only SQLite file at the heart of it all.
 
 > Belkins BirdNET is a standalone build of [**BirdNET-Pi**](https://github.com/Nachtzuster/BirdNET-Pi); the live-collage concept is inspired by [**AvianVisitors**](https://github.com/Twarner491/AvianVisitors/tree/avian-visitors). Kudos, license, and full Cornell attribution are [below](#-kudos).
 
@@ -56,7 +56,7 @@ A single $17 USB microphone in your window turns the birds outside into a **livi
   <img src="avian/assets/illustrations/megascops-kennicottii-2.png" height="116" alt="Western Screech-Owl" />
   <img src="avian/assets/illustrations/asio-flammeus-2.png"       height="116" alt="Short-eared Owl" />
 </p>
-<p align="center"><sub>A handful of the 498 bundled <em>kachō-e</em> illustrations — every species ships in a perched <strong>and</strong> a flight pose.</sub></p>
+<p align="center"><sub>A handful of the 500 bundled <em>kachō-e</em> illustrations — every species ships in a perched <strong>and</strong> a flight pose.</sub></p>
 
 ---
 
@@ -92,7 +92,7 @@ flowchart LR
         gemini["Gemini 2.5<br/>Flash Image"]:::ill
         pregen["pregen.py"]:::ill
         cutpy["cutout.py<br/>BiRefNet matte"]:::ill
-        illus["498 illustrations<br/>249 species"]:::ill
+        illus["500 illustrations<br/>250 species"]:::ill
     end
     subgraph SHOW [" Show "]
         ui["Collage UI<br/>apt.js"]:::disp
@@ -138,8 +138,8 @@ flowchart LR
 
 <table>
 <tr>
-<td align="center"><strong>498</strong><br/><sub>bundled illustrations</sub></td>
-<td align="center"><strong>249</strong><br/><sub>species (perched + flight)</sub></td>
+<td align="center"><strong>500</strong><br/><sub>bundled illustrations</sub></td>
+<td align="center"><strong>250</strong><br/><sub>species (perched + flight)</sub></td>
 <td align="center"><strong>6,522</strong><br/><sub>BirdNET model labels</sub></td>
 <td align="center"><strong>under 3s</strong><br/><sub>detection → screen</sub></td>
 </tr>
@@ -193,7 +193,7 @@ Clones this repo, installs BirdNET-Pi, and symlinks the Belkins BirdNET overlay 
 
 ### 3 · (Optional) Restyle the illustrations
 
-The repo ships with 498 bundled illustrations. To restyle them or generate a set for your own region:
+The repo ships with 500 bundled illustrations. To restyle them or generate a set for your own region:
 
 ```bash
 pip install -r ~/BirdNET-Pi/avian/scripts/requirements.txt

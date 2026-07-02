@@ -19,6 +19,9 @@ export interface DisplayProfile {
   windowHours: number;
   debugN: number | null;
   ghost: boolean;
+  /** one-time city-level location for Golden Hour (null = feature silent). */
+  lat: number | null;
+  lon: number | null;
 }
 
 /** The frozen-for-the-session profile, parsed once at module load. */
@@ -56,6 +59,8 @@ function readProfile(): DisplayProfile {
   let windowHours = 24;
   let debugN: number | null = null;
   let ghost = false;
+  let lat: number | null = null;
+  let lon: number | null = null;
 
   // ?surface=eink|kiosk|screen — e-ink also implies the print substrate.
   const surfaceRaw = pick('surface', 'VITE_SURFACE');
@@ -100,5 +105,22 @@ function readProfile(): DisplayProfile {
   // ?ghost=1 — opt-in full-cast scatter on the empty screen (never e-ink).
   if (params.get('ghost') === '1') ghost = true;
 
-  return { surface, palette, motion, chrome, orientation, windowHours, debugN, ghost };
+  // ?lat=&lon= — one-time city-level location for Golden Hour. The pair is
+  // ATOMIC: both must parse in range or BOTH stay null (a half-set location is
+  // silence, never a guess). No browser geolocation prompt, no cloud — the sun
+  // is computed offline from these plus the device's own clock.
+  // Trim first: Number(' ') === 0, so an un-trimmed whitespace value would
+  // silently pin the station to Null Island (0°N 0°E) — a fabricated location.
+  const latRaw = pick('lat', 'VITE_LAT')?.trim() ?? null;
+  const lonRaw = pick('lon', 'VITE_LON')?.trim() ?? null;
+  if (latRaw !== null && latRaw !== '' && lonRaw !== null && lonRaw !== '') {
+    const la = Number(latRaw);
+    const lo = Number(lonRaw);
+    if (Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 90 && Math.abs(lo) <= 180) {
+      lat = la;
+      lon = lo;
+    }
+  }
+
+  return { surface, palette, motion, chrome, orientation, windowHours, debugN, ghost, lat, lon };
 }

@@ -23,9 +23,25 @@ WEBHOOK_SECRET="${CHRISTINA_WEBHOOK_SECRET:-}"
 say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 ok(){ printf '   \033[32m\xE2\x9C\x93\033[0m %s\n' "$*"; }
 warn(){ printf '   \033[33m! %s\033[0m\n' "$*"; }
+render_unit(){
+  # Render an authored unit for THIS user/repo (frame/install.sh pattern):
+  # checked-in units keep valid belkins defaults; sed rewrites them at install.
+  sed -e "s|^User=.*|User=${USER_NAME}|" \
+      -e "s|/home/belkins/BirdNET-Pi|${HERE}|g" \
+      -e "s|/home/belkins|${HOME}|g" \
+      -e "s|/usr/bin/python3|${PY}|g" \
+      "$1" | sudo tee "$2" >/dev/null
+  sudo chmod 644 "$2"
+}
 
 say "0. preflight"
 [ -n "$PY" ] || { echo "python3 required"; exit 1; }
+# render_unit seds ${HERE}/${HOME}/${PY} into unit files verbatim: a '|' would
+# break the sed expression, a '&' would splice the matched text into the path.
+case "${HERE}${HOME}${PY}" in
+  *'|'*|*'&'*) echo "repo/home/python path contains '|' or '&' — render_unit cannot escape it; relocate and re-run" >&2; exit 1 ;;
+esac
+[ "$PY" = "/usr/bin/python3" ] || warn "python3 resolves to $PY — rendered units will pin THIS interpreter (deactivate any venv and re-run if unintended)"
 [ -f "$HERE/avian/realtime/birdcast.py" ] || { echo "run from the belkins-birdnet repo root (~/BirdNET-Pi)"; exit 1; }
 grep -q emit_detected "$HERE/scripts/birdnet_analysis.py" || warn "emit hook missing in scripts/birdnet_analysis.py (git pull?)"
 [ -f "$DB" ] || warn "birds.db not at $DB (set CHRISTINA_BIRDS_DB)"
@@ -104,7 +120,7 @@ AV_CONF=0.80
 BIRDCAST_EVENTS=http://127.0.0.1:8090/events
 ENV
   chmod 600 "$HOME/.christina/forwarder.env"
-  sudo cp "$HERE/avian/realtime/forwarder.service" /etc/systemd/system/forwarder.service
+  render_unit "$HERE/avian/realtime/forwarder.service" /etc/systemd/system/forwarder.service
   sudo systemctl daemon-reload
   sudo systemctl enable --now forwarder
   sleep 1; ok "forwarder: $(systemctl is-active forwarder) (holds the webhook secret only, never the Gemini key)"

@@ -19,8 +19,12 @@
 // Every colour resolves from a theme var, so it reads in both night and day.
 import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
+import { phenologyWeeks, type Phenology } from '../almanac';
+import { fetchCatalog } from '../catalog';
 import { API_BASE } from '../config';
+import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
+import { useBirdImage } from '../useBirdImage';
 import './BirdPopup.css';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial — matches the
@@ -35,6 +39,8 @@ export interface BirdRef {
   com: string;
   slug: string;
   n: number;
+  /** initial dossier pose when restored from a deep link (absent = perched). */
+  pose?: 1 | 2;
 }
 
 // One past detection, as returned by birdnet-api.php's `species` action
@@ -103,16 +109,31 @@ function firstSentences(text: string, n: number): string {
 export function BirdPopup({
   bird,
   windowLabel,
+  archiveDay = null,
   onClose,
+  onPoseChange,
 }: {
   bird: BirdRef | null;
   windowLabel: string;
+  /** Pinned past day the roster count belongs to (time-travel scrubber), or
+   *  null = live window. Keeps the count's label truthful in archive mode. */
+  archiveDay?: string | null;
   onClose: () => void;
+  onPoseChange?: (pose: 1 | 2) => void;
 }): JSX.Element | null {
   // No hooks here so this early-out never trips the rules of hooks; the keyed
   // Dialog below owns the whole open/close lifecycle.
   if (bird === null) return null;
-  return <Dialog key={bird.sci} bird={bird} windowLabel={windowLabel} onClose={onClose} />;
+  return (
+    <Dialog
+      key={bird.sci}
+      bird={bird}
+      windowLabel={windowLabel}
+      archiveDay={archiveDay}
+      onClose={onClose}
+      onPoseChange={onPoseChange}
+    />
+  );
 }
 
 // Mounts only while a bird is selected (and remounts per species via the key),
@@ -121,19 +142,30 @@ export function BirdPopup({
 function Dialog({
   bird,
   windowLabel,
+  archiveDay,
   onClose,
+  onPoseChange,
 }: {
   bird: BirdRef;
   windowLabel: string;
+  archiveDay: string | null;
   onClose: () => void;
+  onPoseChange?: (pose: 1 | 2) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<SpeciesDetail | null>(null);
   const [desc, setDesc] = useState<string | null>(null);
-  const [pose, setPose] = useState<Pose>(1);
-  const [imgErr, setImgErr] = useState(false);
-  // Gate the illustration on a real load so the in-flight <img> never paints a
-  // broken-glyph / alt speck in the plate's upper-left before it resolves.
-  const [imgLoaded, setImgLoaded] = useState(false);
+  // Phenology ribbon data (the species' 52-week presence strip) — from the
+  // nightly catalog's widened `weeks` field; null = no ribbon at all.
+  const [phen, setPhen] = useState<Phenology | null>(null);
+  // Keyed per species, so this init is per-open (deep-link pose restore stays
+  // one-shot and a new bird still resets to perched).
+  const [pose, setPose] = useState<Pose>(bird.pose ?? 1);
+  // Readiness of the current pose's plate (reads cutout.php's X-Av-Real): a
+  // still-generating species shows the "painting" loader and auto-swaps to art;
+  // re-runs on every pose flip because imgUrl changes. `imgSrc` is the display
+  // url (cache-busted once after a pending→ready flip).
+  const imgUrl = birdImageUrl(bird.slug, bird.sci, pose);
+  const { phase: imgPhase, src: imgSrc } = useBirdImage(imgUrl);
   const [playing, setPlaying] = useState<string | null>(null);
   // The single expanded recording row (spectrogram band open). Opening another
   // collapses this one — one clip open/playing at a time. `progress` is the 0..1
@@ -206,6 +238,25 @@ function Dialog({
     return () => ctrl.abort();
   }, [bird.sci]);
 
+  // Phenology: self-fetch the nightly catalog and match this species' row for
+  // its ISO-week presence data. fetchCatalog never throws (a miss → []), so an
+  // unmatched species / a pre-weeks build just leaves the ribbon hidden.
+  useEffect(() => {
+    let alive = true;
+    fetchCatalog()
+      .then((list) => {
+        if (!alive) return;
+        const match = list.find((s) => s.sci_name === bird.sci);
+        setPhen(match ? phenologyWeeks(match) : null);
+      })
+      .catch(() => {
+        // defensive — the ribbon just stays hidden.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bird.sci]);
+
   // Focus the close button on open (accessible dialog entry point) and dismiss
   // on Escape. stopPropagation keeps a global frame-mode Esc from also firing.
   useEffect(() => {
@@ -219,14 +270,6 @@ function Dialog({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  // Retry the illustration when the pose flips — a pose that 404s falls back to
-  // the plate, but flipping back should show the working pose again. The new
-  // pose's <img> starts hidden until it loads, so no speck flashes mid-swap.
-  useEffect(() => {
-    setImgErr(false);
-    setImgLoaded(false);
-  }, [pose]);
 
   // Pause + detach the single audio element on unmount so a closed modal goes
   // quiet (and never leaks a playing clip into the next open).
@@ -340,9 +383,10 @@ function Dialog({
   const title = bird.com || bird.sci;
   const genus = bird.sci.split(' ')[0] || '—';
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
-  const imgUrl = birdImageUrl(bird.slug, bird.sci, pose);
   const recordings = detail?.recordings ?? [];
-  const showWindowStat = windowLabel !== 'ALL';
+  // An archive-day count is always a real per-day figure, so it always shows;
+  // the live count hides only under ALL, where "this window" is a non-claim.
+  const showWindowStat = archiveDay !== null || windowLabel !== 'ALL';
 
   return (
     <div className="bp-scrim" onClick={onClose}>
@@ -361,15 +405,20 @@ function Dialog({
           {/* ── LEFT · illustration plate + pose toggle ───────────────── */}
           <div className="bp-left">
             <div className="bp-plate">
-              {imgUrl && !imgErr ? (
-                <img
-                  className="bp-illus"
-                  src={imgUrl}
-                  alt={title}
-                  style={imgLoaded ? undefined : { opacity: 0 }}
-                  onLoad={() => setImgLoaded(true)}
-                  onError={() => setImgErr(true)}
-                />
+              {imgPhase === 'ready' && imgSrc ? (
+                <img className="bp-illus" src={imgSrc} alt={title} />
+              ) : imgPhase === 'pending' ? (
+                <div className="bp-gen" role="img" aria-label={`Painting ${title}`}>
+                  <span className="bp-gen-sil" aria-hidden="true">
+                    <svg viewBox="0 0 84 60" fill="currentColor" role="img">
+                      <path d="M8 22 L30 31 L21 44 Z" />
+                      <ellipse cx="45" cy="34" rx="22" ry="16" />
+                      <circle cx="61" cy="21" r="12" />
+                      <path d="M71 15 L84 13 L72 25 Z" />
+                    </svg>
+                  </span>
+                  <span className="bp-gen-cap" aria-hidden="true">painting</span>
+                </div>
               ) : (
                 <div className="bp-sil" aria-hidden="true">
                   {title.slice(0, 1)}
@@ -382,7 +431,10 @@ function Dialog({
                   className="bp-pose-b"
                   aria-pressed={pose === 1}
                   aria-label="Perched"
-                  onClick={() => setPose(1)}
+                  onClick={() => {
+                    setPose(1);
+                    onPoseChange?.(1);
+                  }}
                 >
                   perched
                 </button>
@@ -391,7 +443,10 @@ function Dialog({
                   className="bp-pose-b"
                   aria-pressed={pose === 2}
                   aria-label="In flight"
-                  onClick={() => setPose(2)}
+                  onClick={() => {
+                    setPose(2);
+                    onPoseChange?.(2);
+                  }}
                 >
                   flight
                 </button>
@@ -408,7 +463,9 @@ function Dialog({
               {showWindowStat && (
                 <div className="bp-stat">
                   <b className="bp-stat-n">{bird.n.toLocaleString()}</b>
-                  <span className="bp-stat-l">calls · this {windowLabel}</span>
+                  <span className="bp-stat-l">
+                    {archiveDay ? `calls · ${formatDay(archiveDay)}` : `calls · this ${windowLabel}`}
+                  </span>
                 </div>
               )}
               <div className="bp-stat">
@@ -437,6 +494,34 @@ function Dialog({
             </div>
           </div>
         </div>
+
+        {/* ── PHENOLOGY — 52-week presence ribbon ─────────────────────── */}
+        {/* Blank cells are empty grooves (weeks NOT heard — never interpolated);
+            ink opacity scales with the real weekly count. */}
+        {phen && (
+          <div className="bp-phen">
+            <div className="bp-phen-head">
+              <h3 className="bp-phen-title">Across the Year</h3>
+              <span className="bp-phen-cap">weeks {title} was heard</span>
+            </div>
+            <div className="bp-phen-ribbon" aria-hidden="true">
+              {phen.cells.map((c, i) => (
+                <span
+                  key={i}
+                  className="bp-phen-cell"
+                  data-on={c > 0 ? 'true' : undefined}
+                  style={c > 0 ? { opacity: 0.25 + 0.75 * (c / phen.maxWeek) } : undefined}
+                />
+              ))}
+            </div>
+            <div className="bp-phen-ax">
+              <span>Jan</span>
+              <span>Apr</span>
+              <span>Jul</span>
+              <span>Oct</span>
+            </div>
+          </div>
+        )}
 
         {/* ── RECORDINGS ──────────────────────────────────────────────── */}
         {recordings.length > 0 && (

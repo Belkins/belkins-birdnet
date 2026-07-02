@@ -6,7 +6,9 @@
     "first_confident": "2024-03-15",
     "last_detected": "2026-06-28",
     "detection_count": 1342,
-    "art_status": "ready"
+    "art_status": "ready",
+    "accession": 1,
+    "weeks": [[10, 4], [14, 9], [18, 12], [22, 15], [26, 10], [30, 6]]
   },
   {
     "sci_name": "Zenaida macroura",
@@ -15,7 +17,9 @@
     "first_confident": "2024-03-21",
     "last_detected": "2026-06-29",
     "detection_count": 908,
-    "art_status": "ready"
+    "art_status": "ready",
+    "accession": 2,
+    "weeks": [[8, 3], [16, 6], [24, 9], [32, 7], [40, 4]]
   },
   {
     "sci_name": "Cardinalis cardinalis",
@@ -24,7 +28,9 @@
     "first_confident": "2024-04-02",
     "last_detected": "2026-06-30",
     "detection_count": 517,
-    "art_status": "none"
+    "art_status": "none",
+    "accession": 3,
+    "weeks": [[4, 2], [12, 5], [20, 7], [28, 6], [36, 4], [44, 3], [52, 2]]
   },
   {
     "sci_name": "Spinus tristis",
@@ -33,7 +39,9 @@
     "first_confident": "2024-05-18",
     "last_detected": "2026-06-27",
     "detection_count": 264,
-    "art_status": "ready"
+    "art_status": "ready",
+    "accession": 4,
+    "weeks": [[18, 3], [22, 6], [26, 8], [30, 5]]
   },
   {
     "sci_name": "Cyanocitta cristata",
@@ -42,7 +50,9 @@
     "first_confident": "2024-06-09",
     "last_detected": "2026-06-20",
     "detection_count": 173,
-    "art_status": "none"
+    "art_status": "none",
+    "accession": 5,
+    "weeks": [[14, 2], [24, 4], [38, 3]]
   },
   {
     "sci_name": "Bombycilla cedrorum",
@@ -51,7 +61,9 @@
     "first_confident": "2025-01-11",
     "last_detected": "2026-05-30",
     "detection_count": 88,
-    "art_status": "ready"
+    "art_status": "ready",
+    "accession": 6,
+    "weeks": [[2, 5], [6, 7], [50, 4]]
   },
   {
     "sci_name": "Melospiza melodia",
@@ -60,7 +72,9 @@
     "first_confident": "2025-09-03",
     "last_detected": "2026-06-25",
     "detection_count": 51,
-    "art_status": "ready"
+    "art_status": "ready",
+    "accession": 7,
+    "weeks": [[20, 3], [24, 4], [36, 2]]
   },
   {
     "sci_name": "Catharus guttatus",
@@ -69,6 +83,8 @@
     "first_confident": null,
     "last_detected": null,
     "detection_count": 3,
-    "art_status": "none"
+    "art_status": "none",
+    "accession": null,
+    "weeks": []
   }
 ]

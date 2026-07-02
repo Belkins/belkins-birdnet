@@ -16,6 +16,16 @@ say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 ok(){ printf '   \033[32m✓\033[0m %s\n' "$*"; }
 warn(){ printf '   \033[33m! %s\033[0m\n' "$*"; }
 die(){ printf '\n\033[31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+render_unit(){
+  # Render an authored unit for THIS user/repo (frame/install.sh pattern):
+  # checked-in units keep valid belkins defaults; sed rewrites them at install.
+  sed -e "s|^User=.*|User=${USER_NAME}|" \
+      -e "s|/home/belkins/BirdNET-Pi|${HERE}|g" \
+      -e "s|/home/belkins|${HOME}|g" \
+      -e "s|/usr/bin/python3|${PY}|g" \
+      "$1" | sudo tee "$2" >/dev/null
+  sudo chmod 644 "$2"
+}
 
 say "0. Preflight"
 [ -n "$PY" ] || die "python3 not found"
@@ -24,6 +34,13 @@ for f in scripts/utils/realtime.py avian/realtime/birdcast.py; do
 done
 ok "repo: $HERE"
 ok "python: $PY ($("$PY" -V 2>&1))"
+# render_unit seds ${HERE}/${HOME}/${PY} into unit files verbatim: a '|' would
+# break the sed expression, a '&' would splice the matched text into the path.
+# Refuse loudly rather than install silently corrupted units.
+case "${HERE}${HOME}${PY}" in
+  *'|'*|*'&'*) die "repo/home/python path contains '|' or '&' — render_unit cannot escape it; relocate and re-run" ;;
+esac
+[ "$PY" = "/usr/bin/python3" ] || warn "python3 resolves to $PY — rendered units will pin THIS interpreter (deactivate any venv and re-run if unintended)"
 
 # locate birds.db (read-only source of truth)
 DB=""
@@ -91,12 +108,14 @@ curl -sN --max-time 5 -H "Last-Event-ID: 0" "http://127.0.0.1:$PORT/events" | he
 say "6. Install the auto-gen watcher forwarder + Railway liveness (POSTs new species to Railway)"
 for f in avian/realtime/forwarder.py avian/realtime/railway_liveness.py \
          avian/realtime/forwarder.service avian/realtime/railway-liveness.service \
-         avian/realtime/railway-liveness.timer; do
+         avian/realtime/railway-liveness.timer avian/realtime/mic_watch.py \
+         avian/realtime/mic-watch.service avian/realtime/mic-watch.timer; do
   [ -f "$HERE/$f" ] || die "missing $f — pull the full Belkins/belkins-birdnet repo"
 done
 
 # 6a. Compile the forwarder pythons before installing (catch syntax issues early).
-"$PY" -m py_compile "$HERE/avian/realtime/forwarder.py" "$HERE/avian/realtime/railway_liveness.py"
+"$PY" -m py_compile "$HERE/avian/realtime/forwarder.py" "$HERE/avian/realtime/railway_liveness.py" \
+                    "$HERE/avian/realtime/mic_watch.py"
 ok "forwarder python compiles"
 
 # 6b. Provision the forwarder env. IDEMPOTENT: never clobber an operator-filled
@@ -104,9 +123,27 @@ ok "forwarder python compiles"
 ENV_DIR="$HOME/.christina"
 ENV_FILE="$ENV_DIR/forwarder.env"
 mkdir -p "$ENV_DIR"
+SECRET_PLACEHOLDER=0
 if [ -f "$ENV_FILE" ]; then
   ok "forwarder.env already present — leaving it untouched ($ENV_FILE)"
-  grep -q '^WATCHER_WEBHOOK_SECRET=' "$ENV_FILE" || warn "WATCHER_WEBHOOK_SECRET missing in $ENV_FILE — add it (must match the Railway value)"
+  if [ ! -r "$ENV_FILE" ]; then
+    # Can't verify → don't judge: never stop a possibly-healthy forwarder on
+    # a permissions hiccup. 6d leaves the service exactly as it is.
+    SECRET_PLACEHOLDER=skip
+    warn "cannot read $ENV_FILE — leaving the forwarder's current state unchanged"
+  else
+    # Parse the way systemd does: LAST assignment wins, leading whitespace
+    # tolerated, optional quotes stripped. (A plain anchored grep flagged a
+    # real secret appended below a stale REPLACE_ME line — and would have
+    # stopped a healthy production forwarder over it.)
+    SECRET_VAL="$(sed -n 's/^[[:space:]]*WATCHER_WEBHOOK_SECRET=//p' "$ENV_FILE" | tail -n1 | tr -d '"' | tr -d "'")"
+    case "$SECRET_VAL" in
+      ''|REPLACE_ME*)
+        SECRET_PLACEHOLDER=1
+        warn "WATCHER_WEBHOOK_SECRET in $ENV_FILE is missing/empty or still the REPLACE_ME placeholder"
+        ;;
+    esac
+  fi
 else
   cat > "$ENV_FILE" <<ENVEOF
 # Christina auto-gen watcher forwarder config (Pi-side, low-value secrets only).
@@ -117,22 +154,40 @@ WATCHER_WEBHOOK_SECRET=REPLACE_ME_with_the_Railway_WATCHER_WEBHOOK_SECRET
 AV_CONF=0.80
 ENVEOF
   chmod 600 "$ENV_FILE"
+  SECRET_PLACEHOLDER=1
   warn "wrote $ENV_FILE with a PLACEHOLDER secret — edit it, set WATCHER_WEBHOOK_SECRET to the Railway value, then: sudo systemctl restart forwarder"
 fi
 
-# 6c. Install the authored systemd units verbatim (idempotent overwrite).
-sudo install -m 644 "$HERE/avian/realtime/forwarder.service" /etc/systemd/system/forwarder.service
-sudo install -m 644 "$HERE/avian/realtime/railway-liveness.service" /etc/systemd/system/railway-liveness.service
+# 6c. Render + install the authored systemd units for this user/repo
+#     (idempotent overwrite; on a belkins Pi the render is byte-identical
+#     to the checked-in unit, so re-runs on the live box change nothing).
+render_unit "$HERE/avian/realtime/forwarder.service" /etc/systemd/system/forwarder.service
+render_unit "$HERE/avian/realtime/railway-liveness.service" /etc/systemd/system/railway-liveness.service
 sudo install -m 644 "$HERE/avian/realtime/railway-liveness.timer" /etc/systemd/system/railway-liveness.timer
 sudo systemctl daemon-reload
-ok "installed forwarder.service + railway-liveness.service + .timer"
+ok "installed forwarder.service + railway-liveness.service + .timer (User=${USER_NAME})"
 
-# 6d. Enable + start. The forwarder stays active even with a placeholder secret
-#     (it just 401s at Railway until you set the real one), so this won't abort.
-sudo systemctl enable --now forwarder
-sleep 2
-systemctl is-active --quiet forwarder && ok "forwarder is running" || { sudo journalctl -u forwarder -n 20 --no-pager; warn "forwarder not active — check $ENV_FILE"; }
+# 6d. Enable + start — but REFUSE to start the forwarder with a placeholder
+#     secret (it would 401 at Railway forever and new birds would silently
+#     never paint; fail loud instead).
+if [ "$SECRET_PLACEHOLDER" = skip ]; then
+  warn "forwarder left in its current state — fix the permissions on $ENV_FILE and re-run"
+elif [ "$SECRET_PLACEHOLDER" = 1 ]; then
+  sudo systemctl disable --now forwarder >/dev/null 2>&1 || true
+  warn "REFUSING to start forwarder: WATCHER_WEBHOOK_SECRET in $ENV_FILE is missing or still the placeholder."
+  warn "Fix: edit $ENV_FILE, set it to the Railway WATCHER_WEBHOOK_SECRET, then: sudo systemctl enable --now forwarder"
+else
+  sudo systemctl enable --now forwarder
+  sleep 2
+  systemctl is-active --quiet forwarder && ok "forwarder is running" || { sudo journalctl -u forwarder -n 20 --no-pager; warn "forwarder not active — check $ENV_FILE"; }
+fi
 sudo systemctl enable --now railway-liveness.timer && ok "railway-liveness timer enabled (runs every 6h)" || warn "could not enable railway-liveness.timer"
+
+say "7. Mic-loss watchdog (catches a dead/re-enumerated USB mic — a quiet night stays quiet)"
+render_unit "$HERE/avian/realtime/mic-watch.service" /etc/systemd/system/mic-watch.service
+sudo install -m 644 "$HERE/avian/realtime/mic-watch.timer" /etc/systemd/system/mic-watch.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now mic-watch.timer && ok "mic-watch timer enabled (checks every 15min)" || warn "could not enable mic-watch.timer"
 
 cat <<DONE
 
@@ -145,6 +200,8 @@ cat <<DONE
        to the Railway value, then: sudo systemctl restart forwarder
      watch it:  journalctl -u forwarder -f   (expect: forwarded <slug> -> 200)
    • railway-liveness: 6h timer alerts if the Railway gen-service silently dies.
+   • mic-watch: 15-min timer detects a dead/unplugged/re-enumerated USB mic,
+     restarts recording, and pings once (never on a merely quiet night).
 
 ▶ WATCH IT LIVE (from your Mac, in your OWN terminal — has LAN access):
      cd "<repo>/web"

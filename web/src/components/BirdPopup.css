@@ -112,6 +112,99 @@
   border-radius: 12px;
 }
 
+/* GENERATING — the plate is still being painted on the gen service. A breathing
+   ink specimen under a warm sweep + a caption; auto-swaps to the illustration
+   the moment cutout.php reports real art. Sized to the letter plate's footprint. */
+.bp-gen {
+  position: relative;
+  width: 200px;
+  height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.bp-gen-sil svg {
+  width: 96px;
+  height: auto;
+  color: var(--amber);
+  opacity: 0.5;
+  animation: bp-gen-breathe 2.4s ease-in-out infinite;
+}
+.bp-gen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    color-mix(in srgb, var(--amber) 22%, transparent) 50%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  animation: bp-gen-sweep 2s ease-in-out infinite;
+  pointer-events: none;
+}
+.bp-gen-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mut);
+  opacity: 0.82;
+}
+.bp-gen-cap::after {
+  content: '';
+  animation: bp-gen-dots 1.6s steps(1, end) infinite;
+}
+@keyframes bp-gen-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.6;
+  }
+}
+@keyframes bp-gen-sweep {
+  0% {
+    background-position: 170% 0;
+  }
+  100% {
+    background-position: -70% 0;
+  }
+}
+@keyframes bp-gen-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '·';
+  }
+  50% {
+    content: '··';
+  }
+  75% {
+    content: '···';
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-gen-sil svg,
+  .bp-gen::before {
+    animation: none;
+  }
+}
+
 /* pose toggle, pinned bottom-left of the plate */
 .bp-pose {
   position: absolute;
@@ -239,6 +332,61 @@
   color: var(--amber);
   font-style: normal;
   letter-spacing: 0.02em;
+}
+
+/* ── PHENOLOGY — 52-week presence ribbon ───────────────────── */
+/* One slim cell per ISO week; unheard weeks stay faint grooves, heard weeks
+   fill with ink whose opacity tracks the real weekly count. All theme-var
+   driven (reads in night + day). No animation. */
+.bp-phen {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.bp-phen-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.bp-phen-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.bp-phen-cap {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--mut);
+}
+.bp-phen-ribbon {
+  display: flex;
+  gap: 1px;
+  height: 34px;
+  align-items: stretch;
+}
+.bp-phen-cell {
+  flex: 1;
+  background: var(--line-2);
+  border-radius: 1px;
+}
+.bp-phen-cell[data-on='true'] {
+  background: var(--ink-2);
+}
+.bp-phen-ax {
+  position: relative;
+  height: 12px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--mut-2);
+  display: flex;
+  justify-content: space-between;
 }
 
 /* ── RECORDINGS ────────────────────────────────────────────── */

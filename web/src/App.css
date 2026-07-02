@@ -433,7 +433,8 @@
   text-transform: uppercase;
   color: var(--mut);
 }
-.idx-begin {
+.idx-begin,
+.idx-more {
   font-family: var(--display);
   font-style: italic;
   font-size: 17px;
@@ -550,6 +551,23 @@
     inset 0 1px 0 rgba(241, 234, 217, 0.07),
     0 12px 28px -14px rgba(0, 0, 0, 0.75);
 }
+/* Complete wall at N=200: plates far off-screen skip layout+paint (native
+   windowing, no virtualization lib); each reserves a plate-sized slot so the
+   scrollbar stays honest. Unsupported browsers simply render everything.
+   Scoped to the grids so the popup/feature plates are untouched. */
+.atlas-grid .acard,
+.wall-grid .acard {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 360px;
+}
+/* Masthead completeness line — mirrors the Wall's .wall-note voice. */
+.atlas-note {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+  margin-top: 6px;
+}
 .acard-h {
   display: flex;
   justify-content: space-between;
@@ -640,6 +658,89 @@
   .acard-shimmer {
     animation: none;
     background: var(--line-2);
+  }
+}
+/* GENERATING — a species heard but whose plate is still being painted on the
+   Railway gen service. A breathing ink silhouette under a slow warm sweep + a
+   mono caption, so a brand-new bird reads as "developing", not "missing"; it
+   auto-swaps to the illustration the moment cutout.php reports real art. */
+.acard-gen {
+  overflow: hidden;
+}
+.acard-gen .acard-sil svg {
+  color: var(--amber);
+  opacity: 0.5;
+  animation: acard-gen-breathe 2.4s ease-in-out infinite;
+}
+.acard-gen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+  background: linear-gradient(
+    115deg,
+    transparent 34%,
+    color-mix(in srgb, var(--amber) 20%, transparent) 50%,
+    transparent 66%
+  );
+  background-size: 220% 100%;
+  animation: acard-gen-sweep 2s ease-in-out infinite;
+  pointer-events: none;
+}
+.acard-gen-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 6px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  opacity: 0.8;
+}
+.acard-gen-cap::after {
+  content: '';
+  animation: acard-gen-dots 1.6s steps(1, end) infinite;
+}
+@keyframes acard-gen-breathe {
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.4;
+  }
+  50% {
+    transform: scale(1.03);
+    opacity: 0.62;
+  }
+}
+@keyframes acard-gen-sweep {
+  0% {
+    background-position: 170% 0;
+  }
+  100% {
+    background-position: -70% 0;
+  }
+}
+@keyframes acard-gen-dots {
+  0% {
+    content: '';
+  }
+  25% {
+    content: '·';
+  }
+  50% {
+    content: '··';
+  }
+  75% {
+    content: '···';
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .acard-gen .acard-sil svg,
+  .acard-gen::before {
+    animation: none;
   }
 }
 .acard-cn {
@@ -808,4 +909,59 @@
    Gate the Atlas red "new" tag off unless the user enables the lifer tick. */
 .stage[data-lifer='false'] .tg.l {
   display: none;
+}
+
+/* ── archive caption (bottom-left; stands in for the LiveCounter while a past
+   day is pinned) — the same tombstone register: display date over species
+   figure over a quiet ARCHIVE row with the one-tap NOW return. No dot, no
+   ticker: a past day has no live state to breathe. */
+.archive-cap {
+  position: absolute;
+  bottom: 5%;
+  left: 26px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ac-day {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 27px;
+  line-height: 0.95;
+  color: var(--ink);
+  font-variant-numeric: lining-nums;
+}
+.ac-fig {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 20px;
+  color: var(--ink-2);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.ac-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 2px;
+}
+.ac-lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+/* NOW — the .filter button.on register: quiet text, amber underline. */
+.ac-now {
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1.5px solid var(--amber);
+  padding: 0 0 3px;
+  cursor: pointer;
 }

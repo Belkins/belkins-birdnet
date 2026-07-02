@@ -6,6 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# deploy-christina.sh / deploy-realtime.sh rewrite User= and every
+# /home/belkins path below to the installing user at install time.
+# Manual install: sed the same way (see avian/realtime/README.md).
 User=belkins
 # Forwarder-only secrets/config (NEVER the Gemini key). Holds at minimum:
 #   AV_RAILWAY_BASE, WATCHER_WEBHOOK_SECRET

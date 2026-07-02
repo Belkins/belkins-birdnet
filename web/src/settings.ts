@@ -21,6 +21,8 @@ export interface Settings {
   autoFrameIdleSec: 0 | 60 | 300;
   showColophon: boolean;
   liferTick: boolean;
+  /** Golden Hour: solar-tracking ink warmth. Inert without a configured location (profile.ts lat/lon). */
+  solarLight: boolean;
 }
 
 export const SETTINGS_DEFAULTS: Settings = {
@@ -34,6 +36,9 @@ export const SETTINGS_DEFAULTS: Settings = {
   autoFrameIdleSec: 60,
   showColophon: true,
   liferTick: false,
+  // Default ON: configuring lat/lon is the real opt-in gesture — with no
+  // location the feature is structurally silent, and a kiosk boots warm.
+  solarLight: true,
 };
 
 /** Validate one parsed blob field-by-field; unknown keys and wrong types drop. */
@@ -49,6 +54,7 @@ function pickKnown(o: Record<string, unknown>): Partial<Settings> {
   if (o.autoFrameIdleSec === 0 || o.autoFrameIdleSec === 60 || o.autoFrameIdleSec === 300) out.autoFrameIdleSec = o.autoFrameIdleSec;
   if (typeof o.showColophon === 'boolean') out.showColophon = o.showColophon;
   if (typeof o.liferTick === 'boolean') out.liferTick = o.liferTick;
+  if (typeof o.solarLight === 'boolean') out.solarLight = o.solarLight;
   return out;
 }
 

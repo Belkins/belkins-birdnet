@@ -40,6 +40,10 @@ CONFIDENT_THRESHOLD = 0.80
 
 SCHEMA_VERSION = "1"
 
+# On-disk schema version of the append-only accessions.json ledger (the pinned
+# permanent accession numbers). Bumped only if the ledger's shape ever changes.
+ACCESSIONS_VERSION = 1
+
 # BirdNET's non-bird classes. Most have ``Sci_Name == Com_Name`` (and most are
 # single-word), so the structural test in is_bird() already excludes them. This
 # set is the explicit safety net for the ones the structural test MISSES, i.e.
@@ -278,12 +282,17 @@ def aggregate(con):
         if hour is not None:
             key = (sci, hour)
             hours[key] = hours.get(key, 0) + 1
+        # ISO week derived from Date (ground truth), NOT the Week column:
+        # BirdNET-Pi populates Week with the analyzer's 48-week species-filter
+        # scheme (4/month), which would drift the phenology ribbon's calendar
+        # axis by up to ~4 weeks and leave cells 49-52 permanently dark. An
+        # unparseable date contributes nothing (silence, never a guess).
         wk = None
-        try:
-            if row["Week"] is not None:
-                wk = int(row["Week"])
-        except (ValueError, TypeError):
-            wk = None
+        if date_s is not None:
+            try:
+                wk = datetime.date.fromisoformat(str(date_s)[:10]).isocalendar()[1]
+            except (ValueError, TypeError):
+                wk = None
         if wk is not None:
             key = (sci, wk)
             weeks[key] = weeks.get(key, 0) + 1
@@ -307,6 +316,90 @@ def _write_json_atomic(path, obj):
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, path)
+
+
+def _load_accessions(path):
+    """Read the accessions.json ledger as AUTHORITY. A missing file or ANY
+    corruption (OSError / bad JSON / wrong shape) degrades to an empty ledger --
+    the build never crashes on a garbled ledger, it just re-pins from scratch.
+
+    Returns ``(by_sci, max_no)`` where by_sci maps sci_name -> entry (FIRST
+    writer wins -- an already-present pin is NEVER overwritten) and max_no is the
+    highest accession integer seen so the next pin continues the sequence.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return {}, 0
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        return {}, 0
+    by_sci, max_no = {}, 0
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        sci, no = e.get("sci_name"), e.get("accession")
+        if not isinstance(sci, str) or not isinstance(no, int):
+            continue
+        if sci not in by_sci:          # append-only: first pin wins, never rewritten
+            by_sci[sci] = e
+            max_no = max(max_no, no)
+    return by_sci, max_no
+
+
+def _pin_accessions(ledger_path, species, com_counts, built_at):
+    """Assign each newly-confident bird a PERMANENT accession number and persist
+    it to the append-only ledger. A species is pinned the first time it earns a
+    confident detection (``first_conf_dt`` is set); the number then never moves,
+    even if the species later disappears from birds.db (an admin delete). Only
+    the DERIVED ``absent`` flag is recomputed each run.
+
+    Keyed on sci_name (christina.db PRIMARY KEY, guaranteed unique) rather than
+    slug -- slug is a lossy derivation, and two sci_names could collide to one
+    slug; keying on the PK removes any renumber-by-collision risk.
+
+    NOTE on non-monotonicity: a later birds.db backfill that introduces a NEW
+    species whose first_confident predates an already-pinned one gives the new
+    species a HIGHER number -- numbers follow the order of PINNING, anchored to
+    the real first-confident date, not a strict global sort. The normal
+    append-only detection flow never hits this.
+
+    Returns ``(accession_by_sci, ledger_obj)``.
+    """
+    by_sci, max_no = _load_accessions(ledger_path)
+    new_pins = []
+    for sci, sp in species.items():
+        if sci in by_sci:
+            continue
+        if sp.get("first_conf_dt") is None:
+            continue
+        if not is_bird(sci, pick_com(com_counts.get(sci, {}))):
+            continue
+        new_pins.append(sci)
+    # Real first-confident chronology; ties by com then sci (mirrors catalogOrder).
+    new_pins.sort(key=lambda s: (species[s]["first_conf_dt"],
+                                 pick_com(com_counts.get(s, {})) or "", s))
+    no = max_no
+    for sci in new_pins:
+        no += 1
+        by_sci[sci] = {
+            "accession": no,
+            "sci_name": sci,
+            "slug": slugify(sci),
+            "com_name": pick_com(com_counts.get(sci, {})),
+            "first_confident": species[sci]["first_conf_dt"],
+            "pinned_at": built_at or "",
+            "absent": False,
+        }
+    accession_by_sci = {}
+    for sci, entry in by_sci.items():
+        present = sci in species and species[sci].get("first_conf_dt") is not None
+        entry["absent"] = not present           # derived only; never touches accession/first_confident
+        accession_by_sci[sci] = entry["accession"]
+    ledger_obj = {"version": ACCESSIONS_VERSION,
+                  "entries": sorted(by_sci.values(), key=lambda e: e["accession"])}
+    return accession_by_sci, ledger_obj
 
 
 def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
@@ -345,6 +438,19 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
 
+    # Pin permanent accession numbers into the append-only ledger beside
+    # species.json BEFORE stamping rows, so every row carries its pinned number.
+    ledger_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "accessions.json")
+    accession_by_sci, ledger_obj = _pin_accessions(ledger_path, species, com_counts, built_at)
+
+    # Compact per-species weeks[] for species.json: sparse [[isoWeek, n], ...]
+    # sorted ascending, from the already-aggregated week rollup.
+    weeks_by_sci = {}
+    for (s, w), n in weeks.items():
+        weeks_by_sci.setdefault(s, []).append([w, n])
+    for s in weeks_by_sci:
+        weeks_by_sci[s].sort(key=lambda t: t[0])
+
     out = sqlite3.connect(tmp_path)
     try:
         out.executescript(SCHEMA_SQL)
@@ -376,6 +482,11 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
                     "last_detected": sp["last_dt"],
                     "detection_count": sp["count"],
                     "art_status": art_status,
+                    # Pinned permanent accession No. (int) once confident, else
+                    # null (heard but never confidently detected -> not accessioned).
+                    "accession": accession_by_sci.get(sci),
+                    # Sparse [[isoWeek, count], ...] ascending; [] if none.
+                    "weeks": weeks_by_sci.get(sci, []),
                 })
 
         out.executemany(
@@ -408,6 +519,13 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
 
     os.replace(tmp_path, out_path)
 
+    # Persist the append-only accession ledger FIRST -- it is the AUTHORITY the
+    # derived species.json merely mirrors. Written the other way round, a crash
+    # between the two writes would publish accession numbers the ledger never
+    # recorded, and the next rebuild could silently renumber them. (Pi-local
+    # only -- the frontend reads `accession` off species.json, never this file.)
+    _write_json_atomic(ledger_path, ledger_obj)
+
     # species.json -- birds only, sorted by first_confident then com_name.
     # Never-confident birds (None) sort last via the ￿ sentinel.
     json_rows.sort(key=lambda r: (
@@ -423,6 +541,7 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
         "source_rows": source_rows,
         "out": out_path,
         "json": json_path,
+        "accessions": ledger_path,
     }
 
 

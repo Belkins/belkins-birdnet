@@ -34,11 +34,13 @@ mat = 0.0              # extra shrink of the content inside the A5 opening (0 = 
 
 # --- Refresh cadence --------------------------------------------------------
 # The panel refreshes only when the species set or a count bracket changes,
-# plus a daily heal. Quiet hours are off so nocturnal detections still show;
-# set quiet_start/quiet_end to a window to mute overnight.
+# plus a daily heal, and never more often than min_refresh_minutes. Quiet
+# hours are off so nocturnal detections still show; set quiet_start/quiet_end
+# to a window to mute overnight.
 quiet_start = 0        # 0/0 = always refresh on change; e.g. 22 and 6 mutes 22:00-06:00
 quiet_end = 0
 heal_hours = 24        # force a refresh at least this often
+min_refresh_minutes = 20  # never flash the panel more often than this (a full refresh is ~35s); 0 disables
 
 # --- Paths ------------------------------------------------------------------
 state = "~/.birdframe/state.json"
