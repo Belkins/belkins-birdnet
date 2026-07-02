@@ -15,6 +15,11 @@ ExecStart=/usr/bin/python3 /home/birdnet/BirdNET-Pi/avian/catalog/rebuild_catalo
 # Optional: point at a non-default birds.db / manifest.
 # Environment=CHRISTINA_BIRDS_DB=/home/birdnet/BirdNET-Pi/scripts/birds.db
 # ExecStart=/usr/bin/python3 /home/birdnet/BirdNET-Pi/avian/catalog/rebuild_catalog.py --manifest-url http://127.0.0.1:8080/manifest.json
+# Derive the honest companion metrics (derived.json, beside species.json) AFTER
+# the catalog has rebuilt. The leading "-" makes systemd IGNORE its exit status:
+# the catalog has already published by this point, so a derive failure must
+# never fail the unit. derive.py also self-guards (logs and exits 0 on error).
+ExecStart=-/usr/bin/python3 /home/birdnet/BirdNET-Pi/avian/catalog/derive.py
 Nice=10
 IOSchedulingClass=idle
 

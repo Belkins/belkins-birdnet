@@ -1,0 +1,13 @@
+[Unit]
+Description=Christina — weekly recap push (species.json + derived.json -> ntfy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# deploy-realtime.sh rewrites User= and the /home/belkins paths at install time.
+User=belkins
+# Reuses the forwarder env: NOTIFY_URL for the push (same var as railway_liveness),
+# and optional RECAP_URL for the tap-through link to the browser /recap route.
+EnvironmentFile=/home/belkins/.christina/forwarder.env
+ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/realtime/weekly_digest.py
