@@ -691,6 +691,7 @@ export default function App() {
         bird={popup}
         windowLabel={windowLabel}
         archiveDay={viewDay}
+        repaintEnabled={settings.repaintPlate}
         onClose={() => setPopup(null)}
         onPoseChange={writePose}
       />

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Christina weekly recap every Sunday evening
+
+[Timer]
+# Sunday 18:00 local. Persistent=true runs a missed timer on next boot, so a Pi
+# that was off on Sunday evening still sends the recap when it comes back up.
+OnCalendar=Sun *-*-* 18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

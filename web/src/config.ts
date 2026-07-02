@@ -23,6 +23,13 @@ export const BASE: string = env.BASE_URL ?? '/';
  *  the bundled public/species.json fixture. Overridable via VITE_CATALOG_URL. */
 export const CATALOG_URL: string = env.VITE_CATALOG_URL ?? `${BASE}species.json`;
 
+/** Honest derived-intelligence bundle (the derive.py single-writer output):
+ *  local rarity, co-occurrence, waking line, first-of-year. Served next to
+ *  species.json under /collage/. Consumed only by the COMPANION surfaces (the
+ *  /lab console) — never the museum frame. Absent until derive.py has run, so
+ *  every reader degrades to silence. Overridable via VITE_DERIVED_URL. */
+export const DERIVED_URL: string = env.VITE_DERIVED_URL ?? `${BASE}derived.json`;
+
 /** Window (hours) for the initial snapshot. Matches the legacy default. */
 export const SNAPSHOT_HOURS = 24;
 

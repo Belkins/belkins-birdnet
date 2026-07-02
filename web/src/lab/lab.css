@@ -1,0 +1,190 @@
+/* THE LAB — deliberately un-museum. Where the frame is warm cream + editorial
+   serif calm, the Lab is a cool dense console: monospace, hairline grids, ink on
+   near-black. This is the companion surface's "allowed to look like Grafana". */
+
+:root {
+  --lab-bg: #0c0d10;
+  --lab-panel: #131519;
+  --lab-line: #23262d;
+  --lab-ink: #d6dae0;
+  --lab-dim: #7c828d;
+  --lab-accent: #8fb7ff;
+  --lab-warn: #e6a95b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--lab-bg);
+  color: var(--lab-ink);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+.lab {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 28px 22px 80px;
+}
+
+.lab-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--lab-line);
+  padding-bottom: 16px;
+}
+.lab-head h1 {
+  margin: 0;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 22px;
+  letter-spacing: 0.22em;
+}
+.lab-sub {
+  margin: 6px 0 0;
+  color: var(--lab-dim);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.lab-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--lab-dim);
+  text-transform: uppercase;
+}
+.lab-live i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lab-dim);
+}
+.lab-live--live i {
+  background: #57c98a;
+  box-shadow: 0 0 8px #57c98a99;
+}
+.lab-live--live {
+  color: #57c98a;
+}
+.lab-live--offline i,
+.lab-live--reconnecting i {
+  background: var(--lab-warn);
+}
+
+.lab-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 0 22px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  color: var(--lab-dim);
+}
+.lab-nav {
+  color: var(--lab-accent);
+  text-decoration: none;
+}
+.lab-nav:hover {
+  text-decoration: underline;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.lab-panel {
+  background: var(--lab-panel);
+  border: 1px solid var(--lab-line);
+  border-radius: 8px;
+  padding: 16px 16px 18px;
+  min-width: 0;
+}
+.lab-panel h2 {
+  margin: 0 0 4px;
+  font-family: 'Space Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--lab-ink);
+}
+.lab-note {
+  margin: 0 0 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--lab-dim);
+}
+
+/* The two wide panels span the whole row on big screens. */
+.lab-feed,
+.lab-list {
+  grid-column: 1 / -1;
+}
+.lab-feed table,
+.lab-list table {
+  max-height: 360px;
+}
+
+.lab-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-y: auto;
+  max-height: 320px;
+  font-size: 13px;
+}
+.lab-panel thead th {
+  position: sticky;
+  top: 0;
+  background: var(--lab-panel);
+  text-align: left;
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lab-dim);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--lab-line);
+}
+.lab-panel td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #1b1e23;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.lab-mono {
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.lab-dim {
+  color: var(--lab-dim);
+}
+.lab-i {
+  font-style: italic;
+}
+.lab-r {
+  text-align: right;
+}
+.lab-empty {
+  font-size: 12px;
+  color: var(--lab-dim);
+  font-style: italic;
+  margin: 6px 0 2px;
+}
+.lab-empty code {
+  font-family: 'Space Mono', monospace;
+  font-style: normal;
+  color: var(--lab-accent);
+}

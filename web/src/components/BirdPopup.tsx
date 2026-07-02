@@ -25,6 +25,8 @@ import { API_BASE } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
 import { useBirdImage } from '../useBirdImage';
+import { useRepaint, type RepaintPhase } from '../repaint';
+import { downloadPlateCard } from '../export-card';
 import './BirdPopup.css';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial — matches the
@@ -106,10 +108,17 @@ function firstSentences(text: string, n: number): string {
   return parts.slice(0, n).join('').trim();
 }
 
+/** One-shot cache-bust after a repaint arrival (the withParam pattern): the
+ *  plain cutout URL may still hold the OLD art in the browser cache. */
+function withBust(url: string, ts: number): string {
+  return `${url}${url.includes('?') ? '&' : '?'}rb=${ts}`;
+}
+
 export function BirdPopup({
   bird,
   windowLabel,
   archiveDay = null,
+  repaintEnabled = false,
   onClose,
   onPoseChange,
 }: {
@@ -118,6 +127,9 @@ export function BirdPopup({
   /** Pinned past day the roster count belongs to (time-travel scrubber), or
    *  null = live window. Keeps the count's label truthful in archive mode. */
   archiveDay?: string | null;
+  /** The `repaintPlate` setting. The Pi pool env is the true gate — even ON,
+   *  an unarmed regen.php answers 503 and the button never renders. */
+  repaintEnabled?: boolean;
   onClose: () => void;
   onPoseChange?: (pose: 1 | 2) => void;
 }): JSX.Element | null {
@@ -130,6 +142,7 @@ export function BirdPopup({
       bird={bird}
       windowLabel={windowLabel}
       archiveDay={archiveDay}
+      repaintEnabled={repaintEnabled}
       onClose={onClose}
       onPoseChange={onPoseChange}
     />
@@ -143,12 +156,14 @@ function Dialog({
   bird,
   windowLabel,
   archiveDay,
+  repaintEnabled,
   onClose,
   onPoseChange,
 }: {
   bird: BirdRef;
   windowLabel: string;
   archiveDay: string | null;
+  repaintEnabled: boolean;
   onClose: () => void;
   onPoseChange?: (pose: 1 | 2) => void;
 }): JSX.Element {
@@ -157,6 +172,11 @@ function Dialog({
   // Phenology ribbon data (the species' 52-week presence strip) — from the
   // nightly catalog's widened `weeks` field; null = no ribbon at all.
   const [phen, setPhen] = useState<Phenology | null>(null);
+  // Pinned museum accession number for this species (from the nightly catalog),
+  // used only to stamp a saved plate card. null until the catalog resolves.
+  const [accession, setAccession] = useState<number | null>(null);
+  // One-shot guard so a double-click never kicks off two card renders at once.
+  const [saving, setSaving] = useState(false);
   // Keyed per species, so this init is per-open (deep-link pose restore stays
   // one-shot and a new bird still resets to perched).
   const [pose, setPose] = useState<Pose>(bird.pose ?? 1);
@@ -166,6 +186,19 @@ function Dialog({
   // url (cache-busted once after a pending→ready flip).
   const imgUrl = birdImageUrl(bird.slug, bird.sci, pose);
   const { phase: imgPhase, src: imgSrc } = useBirdImage(imgUrl);
+  // The `repaint ↺` gesture: a viewer asks the museum to repaint THIS pose. The
+  // machine is dark unless the setting is on AND the Pi's regen.php is armed
+  // (its status probe answers → phase leaves 'unavailable'); the old plate keeps
+  // hanging until a QA-passing successor lands (never-worse). `swappedAt` fires a
+  // one-shot cache-bust so the swapped-in art bypasses the browser's old copy.
+  const repaint = useRepaint(bird.sci, pose, repaintEnabled);
+  const [bust, setBust] = useState(0);
+  useEffect(() => {
+    if (repaint.swappedAt) setBust(repaint.swappedAt);
+  }, [repaint.swappedAt]);
+  // The displayed plate url: the ready art, cache-busted once after a repaint
+  // arrival so the flushed-and-re-proxied fresh plate replaces the stale one.
+  const plateSrc = imgSrc && bust ? withBust(imgSrc, bust) : imgSrc;
   const [playing, setPlaying] = useState<string | null>(null);
   // The single expanded recording row (spectrogram band open). Opening another
   // collapses this one — one clip open/playing at a time. `progress` is the 0..1
@@ -248,6 +281,7 @@ function Dialog({
         if (!alive) return;
         const match = list.find((s) => s.sci_name === bird.sci);
         setPhen(match ? phenologyWeeks(match) : null);
+        setAccession(match?.accession ?? null);
       })
       .catch(() => {
         // defensive — the ribbon just stays hidden.
@@ -384,6 +418,33 @@ function Dialog({
   const genus = bird.sci.split(' ')[0] || '—';
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
   const recordings = detail?.recordings ?? [];
+
+  // Save a museum plate CARD of this bird via the shared export engine — the same
+  // seat-ink + kachō-e treatment as the wall. Every stamped field is a real value
+  // (accession, all-time count, first-heard, rarity band) or omitted; no number is
+  // invented. A missing cutout degrades to a wordmark card. Guarded against
+  // double-fire; failures stay quiet (the modal's degrade contract).
+  async function saveCard(): Promise<void> {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await downloadPlateCard({
+        slug: bird.slug,
+        sci: bird.sci,
+        com: title,
+        pose,
+        accession,
+        detectionCount: detail?.total ?? null,
+        firstConfident: detail?.firstSeen ? detail.firstSeen.split(' ')[0] : null,
+        rarityLabel: rarity,
+        theme: 'day',
+      });
+    } catch {
+      // quiet — a failed export never disrupts the dossier.
+    } finally {
+      setSaving(false);
+    }
+  }
   // An archive-day count is always a real per-day figure, so it always shows;
   // the live count hides only under ALL, where "this window" is a non-claim.
   const showWindowStat = archiveDay !== null || windowLabel !== 'ALL';
@@ -405,8 +466,8 @@ function Dialog({
           {/* ── LEFT · illustration plate + pose toggle ───────────────── */}
           <div className="bp-left">
             <div className="bp-plate">
-              {imgPhase === 'ready' && imgSrc ? (
-                <img className="bp-illus" src={imgSrc} alt={title} />
+              {imgPhase === 'ready' && plateSrc ? (
+                <img className="bp-illus" src={plateSrc} alt={title} />
               ) : imgPhase === 'pending' ? (
                 <div className="bp-gen" role="img" aria-label={`Painting ${title}`}>
                   <span className="bp-gen-sil" aria-hidden="true">
@@ -451,6 +512,15 @@ function Dialog({
                   flight
                 </button>
               </div>
+
+              {/* A quiet corner whisper while a repaint is in flight: the OLD
+                  plate keeps hanging (never-worse), so this is the only signal
+                  that the studio is at work. aria-live so a reader is told. */}
+              {repaint.phase === 'painting' && (
+                <div className="bp-repainting" aria-live="polite">
+                  repainting…
+                </div>
+              )}
             </div>
           </div>
 
@@ -603,8 +673,22 @@ function Dialog({
           </div>
         )}
 
-        {/* ── external links ──────────────────────────────────────────── */}
+        {/* ── actions + external links ────────────────────────────────── */}
         <div className="bp-foot">
+          {/* repaint ↺ — the FIRST footer action (docs/POPUP-BUDGET.md caps the
+              action zone at two: repaint + save plate). The one slot transforms
+              through the whole lifecycle; nothing is ever added or floated.
+              Absent entirely for paused/unavailable — a wall object shows no
+              dead control (Pillar 4, degrade to silence). */}
+          <RepaintControl
+            phase={repaint.phase}
+            retryAfterS={repaint.retryAfterS}
+            pose={pose}
+            silhouette={imgPhase === 'none'}
+            firstPainting={imgPhase === 'pending'}
+            onPress={repaint.press}
+            onKeep={repaint.keep}
+          />
           <a
             className="bp-lnk"
             href={`https://en.wikipedia.org/wiki/${encodeURIComponent(bird.sci.replace(/ /g, '_'))}`}
@@ -621,8 +705,101 @@ function Dialog({
           >
             ebird ↗
           </a>
+          <button
+            type="button"
+            className="bp-lnk bp-lnk-b bp-lnk-right"
+            onClick={saveCard}
+            disabled={saving}
+            aria-label="Save a plate card of this bird"
+          >
+            {saving ? 'saving…' : 'save plate ↓'}
+          </button>
         </div>
       </div>
     </div>
   );
+}
+
+// ── repaint control ───────────────────────────────────────────────────────────
+// One footer slot that transforms across the whole repaint lifecycle — the
+// museum-copy sheet, states 1-11, verbatim. It never adds elements: rest →
+// confirm (two choices) → painting… → silent success, or the calm terminal
+// caption. Never an error, never a percentage, never an exclamation. The button
+// is simply ABSENT for paused / unavailable — a wall object shows no dead
+// control (Pillar 4). `pose` names the confirm ("a new perched / flight plate").
+function RepaintControl({
+  phase,
+  retryAfterS,
+  pose,
+  silhouette,
+  firstPainting,
+  onPress,
+  onKeep,
+}: {
+  phase: RepaintPhase;
+  retryAfterS: number | null;
+  pose: Pose;
+  silhouette: boolean;
+  firstPainting: boolean;
+  onPress: () => void;
+  onKeep: () => void;
+}): JSX.Element | null {
+  // State 3: a plate still on its FIRST painting owns the story via the loader —
+  // there is nothing yet to repaint. States 9/10: paused / unavailable → silence.
+  if (firstPainting || phase === 'unavailable' || phase === 'paused') return null;
+
+  const poseWord = pose === 2 ? 'flight' : 'perched';
+
+  switch (phase) {
+    // State 4 — confirm (after one press): the same slot, transformed.
+    case 'confirm':
+      return (
+        <span className="bp-repaint bp-repaint-confirm" role="group" aria-label="Confirm repaint">
+          <span className="bp-repaint-q">paint a new {poseWord} plate?</span>
+          <button type="button" className="bp-lnk bp-lnk-b" onClick={onPress}>
+            yes, repaint
+          </button>
+          <button type="button" className="bp-lnk bp-lnk-b" onClick={onKeep}>
+            keep
+          </button>
+        </span>
+      );
+    // State 5 — painting (request accepted; the old plate stays on the wall).
+    case 'requesting':
+    case 'painting':
+      return (
+        <span className="bp-lnk bp-repaint-msg" aria-live="polite">
+          painting…
+        </span>
+      );
+    // State 7 — cooldown (this species was repainted recently).
+    case 'cooldown':
+      return (
+        <span
+          className="bp-lnk bp-repaint-msg"
+          aria-label={
+            retryAfterS
+              ? `Recently repainted — available again in about ${Math.ceil(retryAfterS / 60)} minutes`
+              : 'Recently repainted — available again later'
+          }
+        >
+          still drying
+        </span>
+      );
+    // State 8 — parked / failed: the slot becomes a calm caption about the future.
+    case 'parked':
+      return <span className="bp-repaint-caption">The painter will return to this plate.</span>;
+    // States 1/2/6 — rest (real art, or silhouette, or just after a swap).
+    default:
+      return (
+        <button
+          type="button"
+          className="bp-lnk bp-lnk-b"
+          onClick={onPress}
+          aria-label={silhouette ? 'Ask for this plate to be painted' : 'Repaint this plate'}
+        >
+          {silhouette ? 'paint this plate ↺' : 'repaint ↺'}
+        </button>
+      );
+  }
 }

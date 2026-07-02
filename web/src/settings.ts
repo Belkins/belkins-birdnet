@@ -23,6 +23,10 @@ export interface Settings {
   liferTick: boolean;
   /** Golden Hour: solar-tracking ink warmth. Inert without a configured location (profile.ts lat/lon). */
   solarLight: boolean;
+  /** The dossier's `repaint ↺` action. The Pi's pool env is the real arming
+   *  switch (an unarmed regen.php answers 503 and the button never renders);
+   *  OFF here is only for deliberately dark deploys. */
+  repaintPlate: boolean;
 }
 
 export const SETTINGS_DEFAULTS: Settings = {
@@ -39,6 +43,9 @@ export const SETTINGS_DEFAULTS: Settings = {
   // Default ON: configuring lat/lon is the real opt-in gesture — with no
   // location the feature is structurally silent, and a kiosk boots warm.
   solarLight: true,
+  // Default ON: arming the Pi pool env is the real gate — against a dark
+  // endpoint the feature-detect probe hides the button entirely.
+  repaintPlate: true,
 };
 
 /** Validate one parsed blob field-by-field; unknown keys and wrong types drop. */
@@ -55,6 +62,7 @@ function pickKnown(o: Record<string, unknown>): Partial<Settings> {
   if (typeof o.showColophon === 'boolean') out.showColophon = o.showColophon;
   if (typeof o.liferTick === 'boolean') out.liferTick = o.liferTick;
   if (typeof o.solarLight === 'boolean') out.solarLight = o.solarLight;
+  if (typeof o.repaintPlate === 'boolean') out.repaintPlate = o.repaintPlate;
   return out;
 }
 

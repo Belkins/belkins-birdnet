@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Belkins BirdNET — now hearing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400&family=Space+Grotesk:wght@400;500&family=Space+Mono&display=swap"
+  rel="stylesheet"
+/>
+<style>
+  :root {
+    --cream: #f5efe1;
+    --cream-2: #efe7d5;
+    --ink: #2a2016;
+    --ink-2: #4a3f31;
+    --mut: #8a7d68;
+    --line: rgba(42, 32, 22, 0.12);
+    --line-2: rgba(42, 32, 22, 0.06);
+    --live: #3f9d4a;
+    --offline: #c44a3b;
+    --sans: "Space Grotesk", system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: "Space Mono", ui-monospace, Consolas, monospace;
+    --display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    --bold: "Archivo", var(--sans);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(125% 100% at 50% 0%, #faf6ec 0%, var(--cream) 55%, var(--cream-2) 100%);
+    color: var(--ink);
+    font: 16px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    justify-content: center;
+    /* Lining, tabular figures so a "1" never renders as small-cap in counts. */
+    font-variant-numeric: lining-nums tabular-nums;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 620px;
+    padding: 8vh 28px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 34px;
+  }
+
+  /* ── Masthead ─────────────────────────────────────────── */
+  .masthead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mark {
+    font-family: var(--bold);
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--mut);
+    transition: background 0.3s ease;
+  }
+  .dot.live {
+    background: var(--live);
+    box-shadow: 0 0 0 0 rgba(63, 157, 74, 0.5);
+    animation: pulse 2.6s ease-out infinite;
+  }
+  .dot.offline { background: var(--offline); }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(63, 157, 74, 0.45); }
+    70% { box-shadow: 0 0 0 7px rgba(63, 157, 74, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(63, 157, 74, 0); }
+  }
+
+  /* ── Now hearing ──────────────────────────────────────── */
+  .hearing-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mut);
+    margin-bottom: 6px;
+  }
+  .hearing-name {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: clamp(38px, 8vw, 62px);
+    line-height: 1.02;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+  }
+  #hearing.idle .hearing-name {
+    font-style: italic;
+    color: var(--mut);
+  }
+  .hearing-meta {
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--ink-2);
+    min-height: 14px;
+  }
+
+  /* ── Count ────────────────────────────────────────────── */
+  .count-row {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    padding: 22px 0;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+  .count-num {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: 54px;
+    line-height: 1;
+    color: var(--ink);
+  }
+  .count-cap {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--mut);
+  }
+
+  /* ── Recently heard ───────────────────────────────────── */
+  .recent-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mut);
+    margin-bottom: 4px;
+  }
+  .recent-list { display: flex; flex-direction: column; }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .row:last-child { border-bottom: none; }
+  .thumb {
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    border-radius: 4px;
+    background: var(--cream-2);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    position: relative;
+  }
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .thumb .mono-fallback {
+    position: absolute;
+    font-family: var(--display);
+    font-size: 20px;
+    color: var(--mut);
+  }
+  .row-name {
+    flex: 1 1 auto;
+    font-family: var(--display);
+    font-size: 22px;
+    line-height: 1.1;
+    color: var(--ink);
+  }
+  .row-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--mut);
+    white-space: nowrap;
+  }
+  .empty {
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 20px;
+    color: var(--mut);
+    padding: 10px 0;
+  }
+
+  /* ── Footer ───────────────────────────────────────────── */
+  .foot {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--mut);
+    line-height: 1.6;
+    padding-top: 8px;
+  }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <header class="masthead">
+      <span class="mark">Belkins BirdNET</span>
+      <span class="status"><span id="dot" class="dot"></span><span id="statusText">connecting…</span></span>
+    </header>
+
+    <section id="hearing" class="idle">
+      <div class="hearing-label">Now hearing</div>
+      <div id="hearingName" class="hearing-name">listening…</div>
+      <div id="hearingMeta" class="hearing-meta"></div>
+    </section>
+
+    <section class="count-row">
+      <span id="count" class="count-num">—</span>
+      <span id="countCap" class="count-cap">waiting for data</span>
+    </section>
+
+    <section>
+      <div class="recent-label">Recently heard</div>
+      <div id="recent" class="recent-list">
+        <div class="empty" id="recentEmpty">no detections yet — the window is quiet</div>
+      </div>
+    </section>
+
+    <footer class="foot" id="foot">
+      Reads the live BirdNET endpoints directly · nothing is stored · every number is real.
+    </footer>
+  </main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ── CONFIG ──────────────────────────────────────────────────────────────
+  // Same-origin by default: host this file UNDER your BirdNET deploy (e.g. as
+  // /collage/newtab.html or the browser new-tab of that origin) and it just
+  // works. To point it at a REMOTE deploy, set BASE to the full origin, e.g.:
+  //   var BASE = "https://birdnet.example.com";
+  var BASE = "";
+
+  var EVENTS_URL   = BASE + "/events";
+  var SNAPSHOT_URL = BASE + "/avian/api/birdnet-api.php?action=recent&hours=24";
+  function cutoutUrl(sci) {
+    return BASE + "/avian/api/cutout.php?sci=" + encodeURIComponent(sci) + "&pose=1";
+  }
+  var MAX_RECENT = 6;
+
+  // ── STATE ───────────────────────────────────────────────────────────────
+  var seen = {};            // slug -> true : distinct species heard in-window
+  var seenCount = 0;
+  var haveData = false;     // did we ever receive real numbers? (honesty gate)
+  var nowHearing = null;    // { com, conf, time }
+  var rowNodes = {};        // slug -> {node, metaEl}
+  var order = [];           // slugs, most-recent first
+  var lastUpdate = null;
+
+  // slugify — IDENTICAL to the app/PHP/Python algorithm (web/src/data.ts).
+  function slugify(sci) {
+    return String(sci || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+  }
+  function el(id) { return document.getElementById(id); }
+
+  function setStatus(kind, label) {
+    el("dot").className = "dot" + (kind ? " " + kind : "");
+    el("statusText").textContent = label;
+  }
+
+  function fmtClock(t) {
+    if (!t) return "";
+    var m = String(t).match(/^(\d{1,2}:\d{2})/); // server "HH:MM:SS" -> "HH:MM"
+    return m ? m[1] : String(t);
+  }
+
+  function updateFooter() {
+    var stamp = lastUpdate
+      ? "updated " + lastUpdate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : "waiting for the first reading";
+    el("foot").textContent =
+      stamp + " · reads the live endpoints directly · nothing stored · every number real.";
+  }
+
+  function renderCount() {
+    el("count").textContent = haveData ? String(seenCount) : "—";
+    el("countCap").textContent = haveData ? "species · last 24 hours" : "waiting for data";
+  }
+
+  function renderHearing() {
+    var h = el("hearing");
+    if (nowHearing) {
+      el("hearingName").textContent = nowHearing.com;
+      var bits = [];
+      if (nowHearing.conf != null) bits.push(nowHearing.conf + "%");
+      var t = fmtClock(nowHearing.time);
+      if (t) bits.push(t);
+      el("hearingMeta").textContent = bits.join("  ·  ");
+      h.classList.remove("idle");
+    } else {
+      el("hearingName").textContent = "listening…";
+      el("hearingMeta").textContent = "";
+      h.classList.add("idle");
+    }
+  }
+
+  // Insert-or-update a recent-species row without reloading its cutout.
+  function upsertRecent(entry) {
+    var container = el("recent");
+    var empty = el("recentEmpty");
+    if (empty) empty.remove();
+
+    var existing = rowNodes[entry.slug];
+    if (existing) {
+      existing.metaEl.textContent = entry.meta || "";
+      // move to front
+      order = order.filter(function (s) { return s !== entry.slug; });
+      order.unshift(entry.slug);
+      container.insertBefore(existing.node, container.firstChild);
+      return;
+    }
+
+    var row = document.createElement("div");
+    row.className = "row";
+
+    var thumb = document.createElement("div");
+    thumb.className = "thumb";
+    var fallback = document.createElement("span");
+    fallback.className = "mono-fallback";
+    fallback.textContent = (entry.com || "?").charAt(0).toUpperCase();
+    thumb.appendChild(fallback);
+    if (entry.sci) {
+      var img = document.createElement("img");
+      img.alt = entry.com || "";
+      img.loading = "lazy";
+      img.addEventListener("error", function () { img.style.display = "none"; });
+      img.src = cutoutUrl(entry.sci);
+      thumb.appendChild(img);
+    }
+
+    var name = document.createElement("div");
+    name.className = "row-name";
+    name.textContent = entry.com || entry.sci || "Unknown";
+
+    var meta = document.createElement("div");
+    meta.className = "row-meta";
+    meta.textContent = entry.meta || "";
+
+    row.appendChild(thumb);
+    row.appendChild(name);
+    row.appendChild(meta);
+
+    container.insertBefore(row, container.firstChild);
+    rowNodes[entry.slug] = { node: row, metaEl: meta };
+    order.unshift(entry.slug);
+
+    // Trim to MAX_RECENT.
+    while (order.length > MAX_RECENT) {
+      var drop = order.pop();
+      var n = rowNodes[drop];
+      if (n && n.node && n.node.parentNode) n.node.parentNode.removeChild(n.node);
+      delete rowNodes[drop];
+    }
+  }
+
+  // ── Snapshot seed (the 24h window: honest starting numbers) ──────────────
+  function loadSnapshot() {
+    fetch(SNAPSHOT_URL, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("http " + res.status);
+        return res.json();
+      })
+      .then(function (json) {
+        var species = json && Array.isArray(json.species) ? json.species : [];
+        species.forEach(function (s) {
+          if (!s || !s.sci) return;
+          var slug = slugify(s.sci);
+          if (!seen[slug]) { seen[slug] = true; seenCount++; }
+        });
+        if (species.length) haveData = true;
+        // Seed the recent list. These species were all heard in the last 24h;
+        // the API orders them by count, so reverse → busiest ends up on top.
+        species.slice(0, MAX_RECENT).reverse().forEach(function (s) {
+          upsertRecent({
+            slug: slugify(s.sci),
+            sci: s.sci,
+            com: s.com || s.sci,
+            meta: "last 24h",
+          });
+        });
+        lastUpdate = new Date();
+        renderCount();
+        updateFooter();
+      })
+      .catch(function () {
+        // No snapshot → leave haveData false so the count stays "—".
+        // NEVER show a fabricated number. Live SSE can still fill it in.
+        renderCount();
+      });
+  }
+
+  // ── Live stream ──────────────────────────────────────────────────────────
+  function onBird(d) {
+    var slug = d.slug || slugify(d.sci);
+    if (!slug) return;
+    if (!seen[slug]) { seen[slug] = true; seenCount++; }
+    haveData = true;
+    nowHearing = {
+      com: d.com || d.sci || "Unknown",
+      conf: typeof d.conf_pct === "number" ? d.conf_pct : null,
+      time: d.time || "",
+    };
+    var t = fmtClock(d.time);
+    upsertRecent({
+      slug: slug,
+      sci: d.sci,
+      com: d.com || d.sci,
+      meta: t ? "heard " + t : "just now",
+    });
+    lastUpdate = new Date();
+    renderHearing();
+    renderCount();
+    updateFooter();
+  }
+
+  function connect() {
+    if (typeof EventSource === "undefined") {
+      setStatus("offline", "unsupported");
+      return;
+    }
+    var es;
+    try {
+      es = new EventSource(EVENTS_URL);
+    } catch (e) {
+      setStatus("offline", "offline");
+      return;
+    }
+    es.addEventListener("hello", function () { setStatus("live", "live"); });
+    es.addEventListener("bird.detected", function (e) {
+      setStatus("live", "live");
+      var d;
+      try { d = JSON.parse(e.data); } catch (err) { return; }
+      onBird(d);
+    });
+    es.onopen = function () { setStatus("live", "live"); };
+    // EventSource auto-reconnects; onopen/next frame flips us back to live.
+    // Reflecting the real socket state honestly — no fabricated "live".
+    es.onerror = function () { setStatus("offline", "offline"); };
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────────────
+  setStatus("", "connecting…");
+  renderCount();
+  renderHearing();
+  updateFooter();
+  loadSnapshot();
+  connect();
+})();
+</script>
+</body>
+</html>

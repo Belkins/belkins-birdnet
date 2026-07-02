@@ -12,6 +12,10 @@
 // path. Every response is a 200 image/png; a genuine asset carries
 // X-Av-Real:1, an intentional placeholder carries X-Av-Real:0 (the modal's
 // pose toggle reads this so it never lights up a pose that isn't really there).
+// A SUBSTITUTE - real pose-1 art standing in for a missing pose - carries
+// X-Av-Real:0 plus X-Av-Sub:1, so the frontend can tell "nothing is coming,
+// settle for this" from "still generating" and never spins a loader over it.
+// Placeholder/silhouette responses never carry X-Av-Sub.
 //
 // Default LAN deploy ships without auth. To expose publicly, gate
 // /avian/api/* with basic_auth in your Caddyfile - see avian/forwarding/.
@@ -54,11 +58,17 @@ if (!empty($_GET['sil']) || !empty($_GET['fb'])) {
 // Serve a PNG file. $real marks whether these are genuine species bytes
 // (X-Av-Real:1) or an intentional placeholder/substitute (X-Av-Real:0). The
 // modal's pose probe reads X-Av-Real to decide which pose toggles are real.
+// $sub additionally marks a SUBSTITUTE (real art of another pose standing in,
+// X-Av-Sub:1) as distinct from a placeholder - the frontend resolves a
+// substitute immediately instead of treating it as "still generating".
+//
 // Cache contract: short max-age + an mtime/size ETag. Real art used to ship
-// max-age=86400, so a REGENERATED plate kept serving stale from every warm
-// browser for a day. Browsers now revalidate every 10 min (tiny 304 while
-// unchanged), so a regen propagates to every viewer within minutes.
-function serve_png(string $path, int $maxAge = 600, bool $real = true): void {
+// max-age=86400, so a REGENERATED plate (Railway re-painting a species) kept
+// serving stale from every warm browser for a day — the mutilated gull
+// outlived its own fix. Now browsers revalidate every 10 min and get a tiny
+// 304 (no body) while the file is unchanged, so a regen propagates to every
+// viewer — kiosk frame included — within minutes, with near-zero Pi cost.
+function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub = false): void {
     $st = @stat($path);
     if ($st !== false) {
         $etag = sprintf('"%x-%x"', $st['mtime'], $st['size']);
@@ -67,12 +77,14 @@ function serve_png(string $path, int $maxAge = 600, bool $real = true): void {
         // Tolerant compare: handles W/-weak forms and multi-ETag lists.
         if ($inm !== '' && strpos($inm, $etag) !== false) {
             header('X-Av-Real: ' . ($real ? '1' : '0'));
+            if ($sub) header('X-Av-Sub: 1');
             header('Cache-Control: public, max-age=' . $maxAge);
             http_response_code(304);
             exit;
         }
     }
     header('X-Av-Real: ' . ($real ? '1' : '0'));
+    if ($sub) header('X-Av-Sub: 1');
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=' . $maxAge);
     header('Content-Length: ' . (string)filesize($path));
@@ -163,12 +175,13 @@ if (is_file($bundled) && filesize($bundled) > 1024) {
     serve_png($bundled);
 }
 // Pose-2 missing? Fall back to pose-1 so the flight tab still shows the
-// perched render - but mark it X-Av-Real:0 (a substitute, not a real flight
-// asset) so the modal's flight toggle correctly stays hidden.
+// perched render - but mark it X-Av-Real:0 + X-Av-Sub:1 (a substitute, not
+// a real flight asset) so the modal's flight toggle correctly stays hidden
+// and no loader ever spins over art that isn't being generated.
 if ($pose !== 1) {
     $fallback = dirname(__DIR__) . "/assets/illustrations/$slug.png";
     if (is_file($fallback) && filesize($fallback) > 1024) {
-        serve_png($fallback, 600, false);
+        serve_png($fallback, 600, false, true);
     }
 }
 // 2. Bundled cutout (background-removed photo, fallback for species
@@ -178,75 +191,78 @@ if (is_file($cutout) && filesize($cutout) > 1024) {
     serve_png($cutout);
 }
 
-// 3. Dynamic cache from a previous Railway-proxy or Wikipedia+rembg run. The
-//    key is pose-aware ($slug{$poseSuffix}.png): Railway now generates BOTH
-//    poses, so pose-2 (flight) gets its own cache entry and never collapses to
-//    the perched pose-1. This is the hot path once an asset is warmed: every
-//    re-render / modal open / pose probe short-circuits here, instantly, so it
-//    can NEVER collapse to a repeat-hit silhouette.
-$cacheDir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';
-$cachePath = "$cacheDir/{$slug}{$poseSuffix}.png";
-if (is_file($cachePath) && filesize($cachePath) > 1024) {
-    serve_png($cachePath, 600, true);
+// 3. Dynamic cache from a previous Railway-proxy or Wikipedia+rembg run. Keyed
+//    POSE-AWARE ($slug{-pose}.png): Railway generates BOTH poses, so a cached
+//    flight plate is genuine flight art (X-Av-Real:1). A pose>1 request with no
+//    flight art of its own falls back to the pose-1 cache as a SUBSTITUTE
+//    (X-Av-Sub:1) — real perched bytes standing in, never a silhouette. This is
+//    the hot path once an asset is warmed: every re-render / pose flip / modal
+//    open short-circuits here instantly.
+$cacheDir  = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';
+$posePath  = "$cacheDir/{$slug}{$poseSuffix}.png";  // the requested pose (real when present)
+$base1Path = "$cacheDir/$slug.png";                 // pose-1 (substitute for a poseless flight)
+if (is_file($posePath) && filesize($posePath) > 1024) {
+    serve_png($posePath, 600, true, false);
 }
 
 // 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, PROXY the
-//    asset server-side (GET, ignore_errors) so PHP sees the true HTTP status:
-//    on a genuine 200 we write the bytes into the tier-3 cache above and stream
-//    them as real (X-Av-Real:1) - so from the SECOND hit onward every request
-//    short-circuits at tier 3 and this branch is never re-entered for that
-//    species. That structurally eliminates the old repeat-hit 1x1 (which came
-//    from serving a silhouette on the 2nd..Nth hit while the browser re-drew
-//    the tile). The GET still kicks off Railway's on-demand generation. A miss
-//    (still generating / 404 / timeout) records a short negative-cache marker
-//    and serves the 200 silhouette, so a poll/modal storm can't hammer Railway
-//    or the php-fpm pool. Unset env -> fall through to the rembg/Wikipedia path.
+//    POSE-SPECIFIC asset server-side (GET, ignore_errors) so PHP sees the true
+//    HTTP status: on a genuine 200 we cache the bytes at $posePath and stream
+//    them REAL (X-Av-Real:1) - so from the SECOND hit onward every request
+//    short-circuits at tier 3. The GET still kicks off Railway's on-demand
+//    generation. A miss for pose>1 (no flight art) falls back to the pose-1
+//    substitute before the silhouette; a miss for pose-1 records a short
+//    negative-cache marker and serves the 200 silhouette, so a poll/modal storm
+//    can't hammer Railway or the php-fpm pool. Unset env -> rembg/Wikipedia.
 $railwayBase = getenv('AV_RAILWAY_ASSET_BASE');
 if ($railwayBase) {
-    $isReal  = true;                                                    // both poses are genuine illustrations
-    $railUrl = rtrim($railwayBase, '/') . '/asset/' . $slug . $poseSuffix . '.png';   // pose-aware
+    $railUrl = rtrim($railwayBase, '/') . '/asset/' . $slug . $poseSuffix . '.png';
 
-    // Negative cache: if we confirmed this slug isn't generated yet within the
+    // Negative cache: if we confirmed this pose isn't generated yet within the
     // last ~28s (< the frontend's 30s poll, so each poll re-checks exactly
-    // once), serve the silhouette immediately instead of re-proxying Railway on
-    // every re-render / modal HEAD probe. Bounds fpm + Railway egress load.
+    // once), skip re-proxying Railway on every re-render / modal HEAD probe.
+    // Pose-suffixed so a warm perched plate never suppresses a flight probe.
     $missMarker = sys_get_temp_dir() . '/avbn-railmiss-' . $slug . $poseSuffix;
     $mt = @filemtime($missMarker);
-    if ($mt !== false && (time() - $mt) < 28) {
-        serve_silhouette();
-    }
-
-    $rctx = stream_context_create(['http' => [
-        'method'        => 'GET',
-        'timeout'       => 6,
-        'ignore_errors' => true,   // read the body even on a 404 status line
-    ]]);
-    $bytes = @file_get_contents($railUrl, false, $rctx);
-    $code  = 0;
-    if (isset($http_response_header[0]) &&
-        preg_match('{\s(\d{3})\b}', $http_response_header[0], $m)) {
-        $code = (int)$m[1];
-    }
-    if ($bytes !== false && $code === 200 && strlen($bytes) > 1024) {
-        @unlink($missMarker);                       // resolved - clear negative cache
-        if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
-        $tmp = $cachePath . '.tmp' . getmypid();
-        if (@file_put_contents($tmp, $bytes) !== false && @rename($tmp, $cachePath)) {
-            serve_png($cachePath, 600, $isReal);  // cached: instant on every future hit
+    if (!($mt !== false && (time() - $mt) < 28)) {
+        $rctx = stream_context_create(['http' => [
+            'method'        => 'GET',
+            'timeout'       => 6,
+            'ignore_errors' => true,   // read the body even on a 404 status line
+        ]]);
+        $bytes = @file_get_contents($railUrl, false, $rctx);
+        $code  = 0;
+        if (isset($http_response_header[0]) &&
+            preg_match('{\s(\d{3})\b}', $http_response_header[0], $m)) {
+            $code = (int)$m[1];
         }
-        @unlink($tmp);
-        // Cache write failed (read-only FS) - still stream the real bytes.
-        header('X-Av-Real: ' . ($isReal ? '1' : '0'));
-        header('Content-Type: image/png');
-        header('Cache-Control: public, max-age=600');
-        header('Content-Length: ' . (string)strlen($bytes));
-        echo $bytes;
-        exit;
+        if ($bytes !== false && $code === 200 && strlen($bytes) > 1024) {
+            @unlink($missMarker);                       // resolved - clear negative cache
+            if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+            $tmp = $posePath . '.tmp' . getmypid();
+            if (@file_put_contents($tmp, $bytes) !== false && @rename($tmp, $posePath)) {
+                serve_png($posePath, 600, true, false);  // cached real art; instant hereafter
+            }
+            @unlink($tmp);
+            // Cache write failed (read-only FS) - still stream the real bytes.
+            header('X-Av-Real: 1');
+            header('Content-Type: image/png');
+            header('Cache-Control: public, max-age=600');
+            header('Content-Length: ' . (string)strlen($bytes));
+            echo $bytes;
+            exit;
+        }
+        // Not generated yet, or the fetch failed: record the miss so a poll
+        // storm can't hammer Railway. The GET above already kicked off gen.
+        @touch($missMarker);
     }
-    // Not generated yet, or the fetch failed: record the miss + serve a real
-    // 200 silhouette (never a 404, never a 1x1 once php-gd is installed). The
-    // GET above already kicked off Railway's on-demand generation.
-    @touch($missMarker);
+    // This pose has no real art (a fresh miss, or negative-cached). For a
+    // flight request, stand in the real PERCHED plate as a substitute
+    // (X-Av-Sub:1) — real bytes, honestly marked — before any silhouette.
+    if ($pose !== 1 && is_file($base1Path) && filesize($base1Path) > 1024) {
+        serve_png($base1Path, 600, false, true);
+    }
+    // Pose-1 miss (or no perched cache to borrow): the calm 200 silhouette.
     serve_silhouette();
 }
 
@@ -353,5 +369,5 @@ if ($im !== false) {
 // Atomic install: rename is atomic on the same filesystem, so any
 // concurrent reader either sees the old cached file or the new one,
 // never a half-written PNG.
-@rename($tmpOut, $cachePath);
-serve_png($cachePath);
+@rename($tmpOut, $posePath);
+serve_png($posePath);

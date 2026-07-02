@@ -13,6 +13,10 @@
 //              and keep polling (cache-busted) until it flips to ready
 //   none     — the fetch failed, or polling was exhausted; fall to a silhouette
 //
+// A substitute serve (X-Av-Real: 0 + X-Av-Sub: 1 — e.g. a flight request
+// falling back to real perched art) resolves 'none' immediately: nothing is
+// being painted for that pose, so the pending loop would be ~10 min of theater.
+//
 // The placeholder is cached for 5 min (max-age=300), so every re-check MUST
 // cache-bust or the browser keeps serving the stale silhouette; and once a poll
 // sees real art we hand back a one-shot cache-busted `src` so the <img> bypasses
@@ -109,6 +113,12 @@ export function useBirdImage(url: string | null, trusted = false): { phase: ImgP
         }
         // A server without the header (older cutout, mock) → treat as real.
         if (res.headers.get('X-Av-Real') === '0') {
+          // Substitute bytes, not a placeholder: no art is coming for this
+          // pose. Resolve 'none' now — no loader, no poll.
+          if (res.headers.get('X-Av-Sub') === '1') {
+            setPhase('none');
+            return;
+          }
           sawPending = true;
           setPhase('pending');
           schedulePoll();
