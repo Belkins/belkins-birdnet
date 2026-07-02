@@ -90,6 +90,17 @@ function makeTile(
   };
 }
 
+/** Axis-aligned footprint intersection — the guard addBird uses to evict an
+ *  ambient ghost a freshly-placed live bird lands on (the live grid never
+ *  collision-tests against the ambient layer's separate grid). Parked
+ *  (off-screen) tiles never overlap anything. */
+function tilesOverlap(a: Tile, b: Tile): boolean {
+  if (a.x < -9000 || b.x < -9000) return false;
+  return (
+    a.x < b.x + b.fullW && b.x < a.x + a.fullW && a.y < b.y + b.fullH && b.y < a.y + a.fullH
+  );
+}
+
 export interface EngineCallbacks {
   onCount?: (count: number) => void;
   onStatus?: (status: string) => void;
@@ -465,13 +476,17 @@ export class CollageEngine {
 
     this.bumpRoster(sci, ev.com, slug, 1, isNewSpecies);
 
-    // Evict this species' ambient GHOST so a live detection of a currently-ambient
-    // bird doesn't show as BOTH a counted live tile and an uncounted ghost. Mutate
-    // the placed list in place (it's readonly) — no populateAmbient, so the other
-    // ambient tiles keep their positions.
+    // Evict ambient GHOSTS the new live bird invalidates: (a) this species' own
+    // ghost, so a live detection of a currently-ambient bird doesn't show as
+    // BOTH a counted tile and an uncounted ghost; (b) ANY ghost whose footprint
+    // the live tile landed on — placeOne collision-tests against this.grid
+    // (real tiles) only, never the ambient layer's grid, so without this a
+    // solid live bird paints straight over a backdrop ghost. Mutate the placed
+    // list in place (it's readonly) — no populateAmbient, so surviving ghosts
+    // keep their positions. Runs before requestDraw so the overlap never paints.
     if (this.ambientGrid) {
       const kept = this.ambientGrid.placed.filter(
-        (t) => t.sci.toLowerCase() !== sci.toLowerCase(),
+        (t) => t.sci.toLowerCase() !== sci.toLowerCase() && !tilesOverlap(t, tile),
       );
       this.ambientGrid.placed.length = 0;
       this.ambientGrid.placed.push(...kept);
