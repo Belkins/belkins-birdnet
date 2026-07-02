@@ -360,7 +360,32 @@ export class CollageRenderer {
       ctx.shadowColor = ink.color;
       ctx.shadowBlur = ambient ? ink.blur * 0.6 : ink.blur;
       ctx.shadowOffsetY = ink.offsetY;
-      ctx.drawImage(t.img, x, y, w, h);
+      // CONTAIN-fit when the decoded image's aspect disagrees with the tile box
+      // (auto-gen species missing from dims.json get the DEFAULT_ASPECT box):
+      // stretching distorted the art AND pushed opaque pixels flush to the box
+      // edges, where the painted tilt swings them into the neighbour. Bundled
+      // species' boxes were measured from these very images, so they pass the
+      // tolerance and render exactly as before.
+      let dx = x;
+      let dy = y;
+      let dw = w;
+      let dh = h;
+      const iw = t.img.naturalWidth;
+      const ih = t.img.naturalHeight;
+      if (iw > 0 && ih > 0) {
+        const imgAr = iw / ih;
+        const boxAr = w / h;
+        if (Math.abs(imgAr - boxAr) / boxAr > 0.02) {
+          if (imgAr > boxAr) {
+            dh = w / imgAr;
+            dy = y + (h - dh) / 2;
+          } else {
+            dw = h * imgAr;
+            dx = x + (w - dw) / 2;
+          }
+        }
+      }
+      ctx.drawImage(t.img, dx, dy, dw, dh);
       // Reset so the halo never bleeds onto a subsequent primitive.
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
