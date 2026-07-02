@@ -26,10 +26,22 @@ Security (CONTRACT.md "Auth (lite)"):
     Gemini key -- that lives only on Railway.
 
 Dedup / state (CONTRACT.md "Dedup / state"):
-  * Cheap, STATELESS Pi pre-filter: drop ``conf < AV_CONF`` (0.80); drop if
-    ``<slug>.png`` is already bundled locally. There is NO persisted Pi sent-set
-    (the sent-set x threshold deadlock is the headline red-team kill). Re-POSTing
-    a still-pending species is fine -- Railway dedups idempotently on ``slug``.
+  * Cheap, STATELESS Pi pre-filter: drop ``conf < AV_CONF`` (0.70 -- matches
+    what BirdNET-Pi itself records, so anything that earns a roster place earns
+    art); drop if ``<slug>.png`` is already bundled locally. There is NO
+    persisted Pi sent-set (the sent-set x threshold deadlock is the headline
+    red-team kill). Re-POSTing a still-pending species is fine -- Railway
+    dedups idempotently on ``slug``.
+
+Reconcile sweep (the missed-bird healer):
+  * The live SSE stream is a point-in-time gate: a species whose best call
+    fired below AV_CONF, or fired while the forwarder/Railway was down, was
+    missed FOREVER (the Black-headed Gull scar: heard at 0.73 under the old
+    0.80 gate -> permanent silhouette). A background sweep re-reads birds.db
+    (READ-ONLY -- honesty firewall) on start and every AV_RECONCILE_HOURS,
+    and re-POSTs every species whose best-ever confidence clears AV_CONF.
+    Railway's /detected dedups (done/queued/bundled all no-op), so the sweep
+    is idempotent and cheap; POSTs are spaced to respect its rate bucket.
 
 Config (env):
   BIRDCAST_EVENTS          SSE source (default http://127.0.0.1:8090/events)
@@ -38,12 +50,18 @@ Config (env):
   AV_ILLUSTRATIONS         bundled illustrations dir (default:
                            <repo>/avian/assets/illustrations, derived from
                            this file's location)
-  AV_CONF                  confidence threshold (default 0.80)
+  AV_CONF                  confidence threshold (default 0.70)
+  AV_BIRDS_DB              birds.db path for the reconcile sweep (default:
+                           <repo>/scripts/birds.db; opened read-only)
+  AV_RECONCILE_HOURS       hours between reconcile sweeps (default 6; 0 off)
 """
 
 import json
 import logging
 import os
+import re
+import sqlite3
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -62,10 +80,21 @@ AV_ILLUSTRATIONS = os.environ.get(
         "avian", "assets", "illustrations",
     ),
 )
+AV_BIRDS_DB = os.environ.get(
+    "AV_BIRDS_DB",
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "scripts", "birds.db",
+    ),
+)
 try:
-    AV_CONF = float(os.environ.get("AV_CONF", "0.80"))
+    AV_CONF = float(os.environ.get("AV_CONF", "0.70"))
 except (TypeError, ValueError):
-    AV_CONF = 0.80
+    AV_CONF = 0.70
+try:
+    AV_RECONCILE_HOURS = float(os.environ.get("AV_RECONCILE_HOURS", "6"))
+except (TypeError, ValueError):
+    AV_RECONCILE_HOURS = 6.0
 
 # ---- tunables --------------------------------------------------------------
 
@@ -74,6 +103,13 @@ READ_TIMEOUT = 60.0            # SSE socket read timeout (> birdcast 15s keepali
 BUNDLED_REFRESH_SECONDS = 300  # ~5 min re-scan of the illustrations dir
 BACKOFF_START = 1.0           # reconnect backoff floor (s)
 BACKOFF_MAX = 30.0            # reconnect backoff ceiling (s)
+RECONCILE_FIRST_DELAY = 90.0   # let the box settle after boot before sweeping
+RECONCILE_POST_GAP = 1.5       # s between sweep POSTs (respect Railway's bucket)
+
+
+def slugify(sci):
+    """Identical to the Python/PHP/JS slug contract (birdcast.slugify)."""
+    return re.sub(r"[^a-z0-9]+", "-", (sci or "").lower()).strip("-")
 
 
 # ---- bundled-illustration cache -------------------------------------------
@@ -175,6 +211,66 @@ def post_detected(event):
         log.warning("POST /detected %s failed: %s", payload["slug"], e)
 
 
+# ---- reconcile sweep (missed-bird healer) ----------------------------------
+
+def reconcile_once(bundled):
+    """One catch-up sweep over birds.db: every species whose best-ever
+    confidence clears AV_CONF and isn't bundled gets re-POSTed. FULLY GUARDED
+    and idempotent -- Railway dedups done/queued/bundled species server-side,
+    so the only real work is whatever the live stream missed."""
+    if not AV_RAILWAY_BASE:
+        return
+    try:
+        con = sqlite3.connect("file:%s?mode=ro" % AV_BIRDS_DB, uri=True, timeout=5)
+    except Exception as e:
+        log.warning("reconcile: cannot open %s read-only: %s", AV_BIRDS_DB, e)
+        return
+    try:
+        rows = con.execute(
+            "SELECT Sci_Name, Com_Name, MAX(Confidence) FROM detections "
+            "GROUP BY Sci_Name"
+        ).fetchall()
+    except Exception as e:
+        log.warning("reconcile: query failed: %s", e)
+        return
+    finally:
+        con.close()
+
+    posted = 0
+    for sci, com, conf in rows:
+        try:
+            conf_f = float(conf)
+        except (TypeError, ValueError):
+            continue
+        if conf_f < AV_CONF:
+            continue
+        slug = slugify(sci)
+        if not slug or bundled.contains(slug):
+            continue
+        post_detected({
+            "sci": sci or "",
+            "com": com or "",
+            "slug": slug,
+            "conf": conf_f,
+            "cursor": None,
+        })
+        posted += 1
+        time.sleep(RECONCILE_POST_GAP)
+    log.info("reconcile sweep done: %d/%d species posted", posted, len(rows))
+
+
+def reconcile_loop(bundled):
+    """Daemon-thread loop: first sweep shortly after start (heals anything
+    missed while we were down), then every AV_RECONCILE_HOURS."""
+    time.sleep(RECONCILE_FIRST_DELAY)
+    while True:
+        try:
+            reconcile_once(bundled)
+        except Exception as e:
+            log.warning("reconcile sweep failed: %s", e)
+        time.sleep(max(AV_RECONCILE_HOURS * 3600.0, 3600.0))
+
+
 # ---- SSE parsing -----------------------------------------------------------
 
 def iter_sse(resp):
@@ -233,6 +329,14 @@ def run():
         log.warning("WATCHER_WEBHOOK_SECRET is unset; Railway will reject POSTs (401)")
 
     bundled = BundledSet(AV_ILLUSTRATIONS)
+
+    if AV_RECONCILE_HOURS > 0:
+        threading.Thread(
+            target=reconcile_loop, args=(bundled,), name="reconcile", daemon=True
+        ).start()
+        log.info("reconcile sweep armed: first in %ds, then every %.1fh",
+                 int(RECONCILE_FIRST_DELAY), AV_RECONCILE_HOURS)
+
     last_id = None
     backoff = BACKOFF_START
 
