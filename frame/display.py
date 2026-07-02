@@ -53,6 +53,7 @@ DEFAULTS = {
     "panel": "",            # "el133uf1" forces the 13.3" driver if auto() fails
     "quiet_start": 0, "quiet_end": 0,    # 0/0 = no quiet hours
     "heal_hours": 24,
+    "min_refresh_minutes": 20,  # floor between physical pushes; 0 disables
     "state": "~/.birdframe/state.json",
     "cache": "~/.birdframe",
     "timeout": 45,
@@ -334,6 +335,9 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
             return
         if not changed and not heal_due:
             print("no change; skip")
+            return
+        if now - state.get("last_refresh", 0) < cfg["min_refresh_minutes"] * 60:
+            print(f"refreshed under {cfg['min_refresh_minutes']}m ago; skip")
             return
         print("refresh:", "changed" if changed else "heal")
 
