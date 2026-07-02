@@ -15,6 +15,7 @@
 // the bird silhouette — never a flat gray letter disc. Fetches its own data on
 // mount (the all-time catalog, independent of the live engine roster).
 import { useEffect, useState } from 'react';
+import { currentSeasonFacts, anniversariesFor } from '../almanac';
 import type { CatalogSpecies } from '../catalog';
 import { fetchCatalog } from '../catalog';
 import { BirdThumb } from '../components/BirdThumb';
@@ -32,6 +33,15 @@ function firstSeenLabel(iso: string | null): string {
   if (!m) return iso;
   const month = MONTHS[Number(m[2]) - 1];
   return month ? `${month} ${m[1]}` : m[1];
+}
+
+/** Anniversary vitrine date: the leading `YYYY-MM-DD` of a first_confident
+ *  stamp as "first heard Mon D, YYYY" (same MONTHS as the plate captions). */
+function annivDateLine(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return iso;
+  const month = MONTHS[Number(m[2]) - 1];
+  return month ? `first heard ${month} ${Number(m[3])}, ${m[1]}` : `first heard ${m[1]}`;
 }
 
 /** Catalogue order: earliest first_confident first (ISO strings sort
@@ -94,10 +104,21 @@ export function CollectionWallView() {
 
   const hasBirds = species !== null && species.length > 0;
 
-  // Assign each species a PERMANENT accession No. in first-appearance order, then
-  // reorder the plates by the selected sort — so a rarity sort never renumbers.
-  const numbered = species
-    ? [...species].sort(catalogOrder).map((s, i) => ({ s, no: i + 1 }))
+  // Almanac dateline + anniversary vitrine — pure facts over the catalog the
+  // wall already fetched (zero extra plumbing); null renders nothing.
+  const now = new Date();
+  const almanac = species ? currentSeasonFacts(species, now) : null;
+  const anniv = species ? anniversariesFor(species, now) : null;
+
+  // Use the PERMANENT accession No. the nightly build pins into species.json when
+  // present; fall back to a client-side first-appearance derivation for old builds
+  // that predate the pin. Either way, reorder the plates by the selected sort — so
+  // a rarity sort never renumbers.
+  const pinnedMode = species != null && species.some((s) => s.accession !== undefined);
+  const numbered: Array<{ s: CatalogSpecies; no: number | null }> = species
+    ? pinnedMode
+      ? [...species].sort(catalogOrder).map((s) => ({ s, no: s.accession ?? null }))
+      : [...species].sort(catalogOrder).map((s, i) => ({ s, no: i + 1 }))
     : [];
   const ordered = sort === 'rarity' ? [...numbered].sort((x, y) => rarityOrder(x.s, y.s)) : numbered;
 
@@ -111,6 +132,14 @@ export function CollectionWallView() {
         <div className="wall-note">
           {sort === 'rarity' ? 'rarest at your window first' : 'in order of first appearance'}
         </div>
+        {/* Almanac dateline — only when this month has a true "first heard". */}
+        {almanac && (
+          <div className="wall-almanac">
+            {almanac.count === 1
+              ? `In ${almanac.monthName}, one was first heard here — the ${almanac.soleName}.`
+              : `In ${almanac.monthName}, ${almanac.count} of the collection were first heard here.`}
+          </div>
+        )}
         {hasBirds && (
           <div className="wall-sort" role="group" aria-label="Sort the wall">
             <button
@@ -132,6 +161,19 @@ export function CollectionWallView() {
           </div>
         )}
       </div>
+
+      {/* "On this day" vitrine — only when a first-heard anniversary is
+          literally true (silent the whole first year). */}
+      {anniv && (
+        <div className="wall-anniv" role="note">
+          <span className="wall-anniv-k">on this day</span>
+          <span className="wall-anniv-t">
+            {anniv.yearsAgo === 1 ? 'One year ago today' : `${anniv.yearsAgo} years ago today`} — the
+            first {anniv.com}.
+          </span>
+          <span className="wall-anniv-d">{annivDateLine(anniv.firstConfident)}</span>
+        </div>
+      )}
 
       {species === null ? (
         // Quiet loading state — never a spinner, never an error.
@@ -155,7 +197,7 @@ export function CollectionWallView() {
                     rarity band + all-time call tally on the right. */}
                 <div className="wall-h">
                   <span className="wall-cat">
-                    <span className="acard-no">No. {String(no).padStart(3, '0')}</span>
+                    <span className="acard-no">No. {no == null ? '—' : String(no).padStart(3, '0')}</span>
                     <span className="wall-seen">first seen {firstSeenLabel(s.first_confident)}</span>
                   </span>
                   <span className="wall-tally">
@@ -166,7 +208,7 @@ export function CollectionWallView() {
                     </span>
                   </span>
                 </div>
-                <BirdThumb slug={s.slug} sci={s.sci_name} com={s.com_name} />
+                <BirdThumb slug={s.slug} sci={s.sci_name} com={s.com_name} art={s.art_status} />
                 <div className="acard-cn">{s.com_name || s.sci_name}</div>
                 <div className="acard-ln">{s.sci_name}</div>
               </div>

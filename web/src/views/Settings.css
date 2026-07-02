@@ -207,6 +207,16 @@
   color: var(--ink);
 }
 
+/* ── one-line caption under a setting row ──────────────────── */
+.set-note {
+  margin: 6px 2px 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  color: var(--mut);
+}
+
 /* ── focus-visible a11y rings ──────────────────────────────── */
 .set-panel button:focus-visible,
 .set-panel a:focus-visible {

@@ -1,0 +1,98 @@
+/* ── time-travel scrubber (collage, one band above the bottom nav) ──
+   A slim day-ruler in the same glass chrome register as .nav: one tick per
+   real day, heights = the real detection ridge, month initials at the
+   boundaries, NOW at the right end. Theme-var driven; hidden on phones
+   (the tabs win) and never rendered framed / live / on an old API. */
+.scrub {
+  position: absolute;
+  bottom: calc(4.6% + 56px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--bg1) 90%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+.scrub-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  max-width: min(64vw, 720px);
+  overflow-x: auto;
+  scrollbar-width: none; /* the ruler scrolls; a scrollbar would shout */
+}
+.scrub-track::-webkit-scrollbar {
+  display: none;
+}
+/* One day column: the tick above, an (optional) month initial in the reserved
+   bottom band. Fixed height gives the % tick heights a definite base. */
+.scrub-day {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 4px;
+  height: 38px;
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 12px;
+}
+.scrub-tick {
+  width: 100%;
+  height: var(--h);
+  min-height: 3px;
+  padding: 0;
+  background: var(--ink-2);
+  border: 0;
+  border-radius: 1px;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.scrub-tick:not(:disabled):hover {
+  opacity: 0.9;
+}
+.scrub-tick:disabled {
+  opacity: 0.18;
+  cursor: default;
+}
+.scrub-tick.on {
+  background: var(--ink);
+  opacity: 1;
+}
+.scrub-mo {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  color: var(--mut);
+  pointer-events: none;
+}
+/* NOW — the .filter button register; armed (a day pinned) = the amber .on state. */
+.scrub-now {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  color: var(--mut);
+  background: none;
+  border: 0;
+  border-bottom: 1.5px solid transparent;
+  padding: 0 0 3px;
+  margin-bottom: 9px; /* optically align with the tick baseline */
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.scrub-now.armed {
+  color: var(--ink);
+  border-color: var(--amber);
+}
+@media (max-width: 560px) {
+  .scrub {
+    display: none; /* a phone gets the tabs, not the ruler */
+  }
+}

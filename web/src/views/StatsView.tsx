@@ -5,10 +5,19 @@
 // label, never a wall of dashes.
 import { useEffect, useRef, useState } from 'react';
 import type { RosterRow } from '../types';
+import { formatDay } from '../days';
 import { loadStats, type StatsData } from '../views-data';
 import './StatsView.css';
 
-export function StatsView({ rows }: { rows: RosterRow[] }) {
+export function StatsView({
+  rows,
+  archiveDay = null,
+}: {
+  rows: RosterRow[];
+  /** Pinned past day the roster reflects, or null = live window. The station
+   *  panels below carry their own all-time labels and stay truthful either way. */
+  archiveDay?: string | null;
+}) {
   const [stats, setStats] = useState<StatsData | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
@@ -46,7 +55,7 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
   return (
     <div className="view stats-view">
       <div className="view-mast">
-        <div className="eyebrow">your window</div>
+        <div className="eyebrow">{archiveDay ? `${formatDay(archiveDay)} · archive` : 'your window'}</div>
         <div className="t">THE RECORD</div>
       </div>
       {species === 0 ? (
@@ -102,7 +111,7 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
                 {species}
                 <span className="u"> species</span>
               </div>
-              <div className="cap">heard so far</div>
+              <div className="cap">{archiveDay ? `heard · ${formatDay(archiveDay)}` : 'heard so far'}</div>
             </div>
             <div className="sb">
               <div className="sh">By Period</div>
@@ -135,7 +144,7 @@ export function StatsView({ rows }: { rows: RosterRow[] }) {
             </div>
             <div className="sb">
               <div className="sh">Top Species</div>
-              <div className="ss">most-heard, today</div>
+              <div className="ss">{archiveDay ? `most-heard · ${formatDay(archiveDay)}` : 'most-heard, today'}</div>
               {top.map((r, i) => (
                 <div className="r" key={r.sci}>
                   <span className="k">{String(i + 1).padStart(2, '0')}</span>

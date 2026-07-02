@@ -10,6 +10,9 @@
 //
 // Readiness comes from useBirdImage, which reads cutout.php's X-Av-Real header;
 // the client only bridges the gap while a newly-heard species is being painted.
+// A caller that already knows the catalog's art_status can pass it via `art` —
+// a species marked 'ready' skips the probe/poll entirely (plain lazy <img>).
+import { useEffect, useState } from 'react';
 import { birdImageUrl } from '../img';
 import { useBirdImage } from '../useBirdImage';
 
@@ -34,20 +37,45 @@ export function BirdThumb({
   sci,
   com,
   feature,
+  art,
 }: {
   slug: string;
   sci: string;
   com: string;
   feature?: boolean;
+  /** The catalog's raw art_status; 'ready' skips the readiness probe. */
+  art?: string;
 }) {
   const url = birdImageUrl(slug, sci);
-  const { phase, src } = useBirdImage(url);
+  // Gate strictly on === 'ready' — any unknown/future value takes the probe path.
+  const trusted = art === 'ready' && !!url;
+  const { phase, src } = useBirdImage(url, trusted);
   const well = feature ? 'acard-img feat' : 'acard-img';
 
+  // A trusted <img> that fails to load falls to the silhouette, never a broken
+  // glyph; reset on url change so a new species gets a fresh try.
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    setBroken(false);
+  }, [url]);
+
+  if (broken) {
+    return (
+      <div className={well}>
+        <BirdSilhouette />
+      </div>
+    );
+  }
   if (phase === 'ready' && src) {
     return (
       <div className={well}>
-        <img src={src} alt={com || sci} />
+        <img
+          src={src}
+          alt={com || sci}
+          loading="lazy"
+          decoding="async"
+          onError={() => setBroken(true)}
+        />
       </div>
     );
   }

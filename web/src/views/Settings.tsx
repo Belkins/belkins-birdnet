@@ -8,6 +8,7 @@
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { Settings } from '../settings';
+import { PROFILE } from '../profile';
 import './Settings.css';
 
 // Segmented option tables — typed via indexed access so each picker stays in
@@ -97,6 +98,11 @@ export function SettingsPanel(props: {
 }) {
   const { open, settings, onChange, onClose, onEnterFrame } = props;
 
+  // Golden Hour is structurally silent without a configured location — the
+  // toggle stays interactive (the engine gate makes it harmless) and the note
+  // below it is the honest one-line explanation of what's missing.
+  const hasLocation = PROFILE.lat !== null && PROFILE.lon !== null;
+
   // Esc closes; only listen while the drawer is open. (Hook runs every render —
   // the early return below is after this, per rules-of-hooks.)
   useEffect(() => {
@@ -132,6 +138,16 @@ export function SettingsPanel(props: {
               <span className="set-row-l">Theme</span>
               <Segmented value={settings.theme} options={THEME_OPTS} onPick={(v) => onChange({ theme: v })} />
             </div>
+            <Toggle
+              label="Golden hour light"
+              on={settings.solarLight}
+              onToggle={(v) => onChange({ solarLight: v })}
+            />
+            <p className="set-note">
+              {hasLocation
+                ? 'Warms the gallery ink with the real sun — sunrise and sunset computed offline from this frame’s location.'
+                : 'Needs a location: add ?lat=&lon= to the URL (or set VITE_LAT/VITE_LON). Until then this does nothing.'}
+            </p>
             <button type="button" className="set-primary" onClick={onEnterFrame}>
               Enter frame mode ⤢
             </button>

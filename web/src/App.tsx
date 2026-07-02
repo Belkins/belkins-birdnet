@@ -19,6 +19,12 @@ import { BirdPopup, type BirdRef } from './components/BirdPopup';
 import { CollectionWallView } from './views/CollectionWallView';
 import { LiveView } from './views/LiveView';
 import type { FeedRow } from './views/LiveView';
+import { readUrl, writeTab, writeBird, clearBird, writePose, writeOn } from './url';
+import { fetchCatalog } from './catalog';
+import { Scrubber } from './components/Scrubber';
+import { fetchDayActivity, formatDay, isoDay } from './days';
+import type { DayActivity } from './days';
+import { fetchDaySnapshot } from './snapshot';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall';
 
@@ -38,11 +44,20 @@ function windowLabelFor(hours: number): string {
 
 const TAB_STORAGE_KEY = 'belkins-birdnet-tab';
 
+// Deep-link params, parsed once at module load (the profile.ts parse-once
+// pattern): ?tab= seeds the initial tab, ?bird=/?pose= restore a dossier after
+// the boot snapshot settles.
+const BOOT_URL = readUrl();
+
+/** Narrow an untrusted string (URL param / localStorage) to a Tab, else null. */
+function asTab(v: string | null): Tab | null {
+  return v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas' || v === 'wall' ? v : null;
+}
+
 /** Restore the last-viewed tab (persisted separately from the Settings blob). */
 function loadTab(): Tab {
   try {
-    const v = localStorage.getItem(TAB_STORAGE_KEY);
-    if (v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas' || v === 'wall') return v;
+    return asTab(localStorage.getItem(TAB_STORAGE_KEY)) ?? 'collage';
   } catch {
     /* storage unavailable — fall through to the default */
   }
@@ -67,10 +82,29 @@ function applyEffects(engine: CollageEngine, next: Settings, changed: Partial<Se
   if ('windowHours' in changed) void engine.setWindow(next.windowHours);
   if ('ambientFill' in changed || 'density' in changed) engine.setAmbient(next.ambientFill, next.density);
   if ('ambientMotion' in changed) engine.setMotion(next.ambientMotion);
+  if ('solarLight' in changed) engine.setSolar(next.solarLight);
 }
 
 function Overlay({ children }: { children: ReactNode }) {
   return <div className="overlay">{children}</div>;
+}
+
+/** Archive-mode stand-in for the LiveCounter (same tombstone register): the
+ *  pinned day over its species figure over a quiet ARCHIVE row with the
+ *  one-tap NOW return. No dot, no ticker — a past day has no live state. */
+function ArchiveCaption({ day, species, onNow }: { day: string; species: number; onNow: () => void }) {
+  return (
+    <div className="archive-cap">
+      <div className="ac-day">{formatDay(day)}</div>
+      <div className="ac-fig">{species} species</div>
+      <div className="ac-row">
+        <span className="ac-lab">ARCHIVE</span>
+        <button className="ac-now" onClick={onNow}>
+          NOW
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {
@@ -90,7 +124,8 @@ export default function App() {
   // read the latest values without a fresh closure every render.
   const settingsRef = useRef(settings);
 
-  const [tab, setTab] = useState<Tab>(loadTab);
+  // URL wins over localStorage so a shared ?tab= link boots into that view.
+  const [tab, setTab] = useState<Tab>(() => asTab(BOOT_URL.tab) ?? loadTab());
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [status, setStatus] = useState('starting');
   const [latest, setLatest] = useState('');
@@ -99,6 +134,18 @@ export default function App() {
   // The bird-detail modal target (C5). null = closed; a click on the collage
   // canvas or an Atlas plate sets it, and BirdPopup enriches it on open.
   const [popup, setPopup] = useState<BirdRef | null>(null);
+  // Always-current roster mirror (same pattern as settingsRef) so the deep-link
+  // resolver reads the live roster without re-subscribing on every SSE tick.
+  const rowsRef = useRef<RosterRow[]>([]);
+  // One-shot boot ?bird= deep link, consumed once the roster is real.
+  const pendingBirdRef = useRef(
+    BOOT_URL.birdSlug ? { slug: BOOT_URL.birdSlug, pose: BOOT_URL.pose } : null,
+  );
+  // Open→closed edge detection for the popup→URL sync (null→null never writes).
+  const prevPopupRef = useRef<BirdRef | null>(null);
+  // Flips true once the boot snapshot — and any persisted-window re-seed — has
+  // settled, so ?bird= resolves against a REAL roster, never a guess.
+  const [bootDone, setBootDone] = useState(false);
   // Hover affordance: a cursor-following tooltip over the collage canvas. Its
   // POSITION is written straight to the ref's transform on every mousemove (no
   // re-render); its CONTENT changes state only when the hovered species flips —
@@ -109,6 +156,21 @@ export default function App() {
   // Real-time feed for the 1H live dashboard, derived from roster deltas.
   const [feed, setFeed] = useState<FeedRow[]>([]);
   const feedBaseRef = useRef<{ hours: number; counts: Map<string, number> } | null>(null);
+  // Time-travel scrubber: the pinned past day (null = live NOW), the zero-filled
+  // per-day activity strip, and whether the deployed API can serve days at all
+  // (the mount probe + `on` echo keep an old Pi's live data from ever
+  // masquerading as an archive day).
+  const [viewDay, setViewDay] = useState<string | null>(null);
+  const [dayStrip, setDayStrip] = useState<DayActivity[]>([]);
+  const [scrubOk, setScrubOk] = useState(false);
+  // Always-current mirrors (settingsRef pattern) for the stable keyboard /
+  // popstate handlers, plus a selection seq so a stale setDay resolution can
+  // never pin the wrong day or hide the scrubber after a newer action.
+  const viewDayRef = useRef<string | null>(null);
+  const dayStripRef = useRef<DayActivity[]>([]);
+  const selectSeqRef = useRef(0);
+  // One-shot boot ?on= deep link (a kiosk may park on ?frame=1&on=<day>).
+  const pendingOnRef = useRef(BOOT_URL.on);
 
   const theme = settings.theme;
 
@@ -133,6 +195,47 @@ export default function App() {
     if (engine) applyEffects(engine, next, p);
   }, []);
 
+  // Resolve a ?bird= slug into an open dossier: the live roster first (real
+  // window count), else the all-time catalog (honest zero in this window),
+  // else strip the params silently — never fabricate a species.
+  const openFromUrl = useCallback((slug: string, pose: 1 | 2): void => {
+    const row = rowsRef.current.find((r) => r.slug === slug);
+    if (row) {
+      setPopup({ sci: row.sci, com: row.com, slug: row.slug, n: row.n, pose });
+      return;
+    }
+    void fetchCatalog().then((cat) => {
+      const c = cat.find((s) => s.slug === slug && s.sci_name !== '');
+      if (c) setPopup({ sci: c.sci_name, com: c.com_name || c.sci_name, slug: c.slug, n: 0, pose });
+      else clearBird();
+    });
+  }, []);
+
+  // Pin the collage to one past day, or null = the one-tap return to NOW.
+  // App NEVER writes viewDay here: the engine emits every re-seed tagged with
+  // its day (onData), and that emission is the single writer — so the label,
+  // the roster, and the feed can never disagree about WHICH data is on screen
+  // (a failed return-to-NOW honestly stays in archive mode). Only a true
+  // 'unsupported' (old API) hides the scrubber; a transient error or a
+  // superseded click never does.
+  const selectDay = useCallback((day: string | null): void => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    ++selectSeqRef.current;
+    if (day === null) {
+      void engine.setWindow(settingsRef.current.windowHours);
+      return;
+    }
+    void engine.setDay(day).then((res) => {
+      if (res === 'unsupported') setScrubOk(false); // API can't do days — hide, silently
+    });
+  }, []);
+
+  // Mirror kept in step for the stable keyboard / popstate handlers.
+  useEffect(() => {
+    viewDayRef.current = viewDay;
+  }, [viewDay]);
+
   // Engine + canvas live for the whole session — never unmounted on tab switch.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -141,7 +244,13 @@ export default function App() {
     const engine = new CollageEngine(canvas, {
       onStatus: setStatus,
       onLatest: setLatest,
-      onData: setRows,
+      onData: (r, archiveDay) => {
+        rowsRef.current = r;
+        // Batched with setRows: rows and their archive/live tag land in ONE
+        // commit, so no render can pair archive counts with a live label.
+        setRows(r);
+        setViewDay(archiveDay);
+      },
       onLive: setLiveState,
       onReady: markFrameReady, // spec §5.4 — signal shoot.py the frame is settled
     });
@@ -156,6 +265,7 @@ export default function App() {
       ambientFill: s0.ambientFill,
       density: s0.density,
       ambientMotion: s0.ambientMotion,
+      solarLight: s0.solarLight,
     });
 
     const ro = new ResizeObserver((entries) => {
@@ -164,9 +274,16 @@ export default function App() {
     });
     ro.observe(wrap);
 
-    void engine.start().then(() => {
+    void engine.start().then(async () => {
       if (engineRef.current !== engine) return; // torn down / remounted (StrictMode)
-      if (s0.windowHours !== SNAPSHOT_HOURS) void engine.setWindow(s0.windowHours);
+      // Skip the persisted-window re-seed if the user already pinned an
+      // archive day (the scrubber renders before boot settles) — the re-seed
+      // would silently replace the pinned day with live data.
+      if (engine.day === null && s0.windowHours !== SNAPSHOT_HOURS) {
+        await engine.setWindow(s0.windowHours);
+      }
+      if (engineRef.current !== engine) return; // teardown can land mid-setWindow
+      setBootDone(true); // roster is real → the ?bird= restore may resolve
     });
 
     return () => {
@@ -181,6 +298,74 @@ export default function App() {
     if (FRAME_AT_BOOT) enterFrame();
   }, [enterFrame]);
 
+  // Scrubber day strip + capability probe, once at mount. The probe requests
+  // yesterday (client clock): a zero-detection day still echoes `on`, so it
+  // probes true — only an old API (no echo) or a dead DB probes false, and the
+  // scrubber then simply never renders (degrade to silence).
+  useEffect(() => {
+    let alive = true;
+    void fetchDayActivity(366).then((strip) => {
+      if (!alive) return;
+      dayStripRef.current = strip;
+      setDayStrip(strip);
+    });
+    if (MOCK) {
+      setScrubOk(true);
+    } else {
+      const y = new Date();
+      y.setDate(y.getDate() - 1);
+      void fetchDaySnapshot(isoDay(y)).then((rows) => {
+        if (alive && Array.isArray(rows)) setScrubOk(true);
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Any window change IS the return to live (period buttons and ←/→ alike):
+  // the engine's setWindow re-seeds and its emission clears the pin — App
+  // never clears it optimistically (the archive label must outlive a failed
+  // return). Bumping the selection seq drops any in-flight setDay.
+  useEffect(() => {
+    selectSeqRef.current++;
+  }, [settings.windowHours]);
+
+  // One-shot boot ?on= restore, once the boot snapshot has settled. Unlike
+  // ?bird=, it APPLIES under FRAME_AT_BOOT (a kiosk may park on
+  // ?frame=1&on=<day> — a memorial wall); boot params are still never
+  // rewritten in frame mode — an unsupported day is cleared only when unframed.
+  useEffect(() => {
+    if (!bootDone) return;
+    const want = pendingOnRef.current;
+    if (want === null) return;
+    const engine = engineRef.current;
+    if (!engine || viewDayRef.current !== null) {
+      // The user already pinned a (different) day mid-boot: drop the boot
+      // param and publish the day actually on screen, so the address bar
+      // never claims a day the collage isn't showing.
+      pendingOnRef.current = null;
+      if (!FRAME_AT_BOOT) writeOn(viewDayRef.current);
+      return;
+    }
+    const seq = ++selectSeqRef.current;
+    void engine.setDay(want).then((res) => {
+      pendingOnRef.current = null;
+      if (seq !== selectSeqRef.current) return;
+      // 'ok' pins via the engine's tagged emission; only a truly unsupported
+      // day clears the param (and only unframed — kiosk boot params stay).
+      if (res === 'unsupported' && !FRAME_AT_BOOT) writeOn(null);
+    });
+  }, [bootDone]);
+
+  // viewDay → URL (?on=), replace-only. Skipped while the boot ?on= is still
+  // pending (the mount run must not eat the param before the restore consumes
+  // it) and under a framed boot (kiosk boot params stay verbatim).
+  useEffect(() => {
+    if (FRAME_AT_BOOT || pendingOnRef.current !== null) return;
+    writeOn(viewDay);
+  }, [viewDay]);
+
   // Persist the active tab so a reload restores the last view.
   useEffect(() => {
     try {
@@ -190,8 +375,53 @@ export default function App() {
     }
   }, [tab]);
 
-  // Global keys App owns: 1–5 switch tabs, ←/→ cycle the window. `F` (toggle) and
-  // `Esc` (exit) stay owned by useFrameMode; the Settings drawer owns its own Esc.
+  // One-shot boot restore: consume the ?bird= deep link once the roster is
+  // real. FRAME_AT_BOOT suppresses it entirely (a kiosk never boots into a
+  // modal) and leaves the boot params untouched.
+  useEffect(() => {
+    if (!bootDone) return;
+    const want = pendingBirdRef.current;
+    pendingBirdRef.current = null;
+    if (!want || FRAME_AT_BOOT) return;
+    openFromUrl(want.slug, want.pose);
+  }, [bootDone, openFromUrl]);
+
+  // Back/Forward: the URL is the source of truth. The sync effects below are
+  // compare-before-write, so re-applying the parsed state never loops.
+  useEffect(() => {
+    const onPop = () => {
+      const u = readUrl();
+      setTab(asTab(u.tab) ?? 'collage');
+      if (u.birdSlug) openFromUrl(u.birdSlug, u.pose);
+      else setPopup(null);
+      if (u.on !== viewDayRef.current) selectDay(u.on);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [openFromUrl, selectDay]);
+
+  // Tab → URL (replaceState only — arrow-key/1–5 cycling never spams history);
+  // the first run also publishes a localStorage-restored tab so the address
+  // bar is always truthful. Never while framed: a kiosk parked on its boot
+  // URL keeps it verbatim (tab state is pinned to the collage there anyway).
+  useEffect(() => {
+    if (FRAME_AT_BOOT || framed) return;
+    writeTab(tab);
+  }, [tab, framed]);
+
+  // Popup → URL. null→null never writes (a boot ?bird= survives until the
+  // restore consumes it); open pushes exactly once via writeBird's had-no-bird
+  // check; close replace-deletes bird+pose.
+  useEffect(() => {
+    const prev = prevPopupRef.current;
+    prevPopupRef.current = popup;
+    if (popup) writeBird(popup.sci, popup.pose ?? 1);
+    else if (prev) clearBird();
+  }, [popup]);
+
+  // Global keys App owns: 1–5 switch tabs, ←/→ cycle the window (or step
+  // archive days while a past day is pinned). `F` (toggle) and `Esc` (exit)
+  // stay owned by useFrameMode; the Settings drawer owns its own Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -200,6 +430,25 @@ export default function App() {
         return;
       }
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
+        const pinned = viewDayRef.current;
+        if (pinned !== null) {
+          // Past mode: ←/→ step across ACTIVE archive days (zero days are
+          // honest gaps — skipped, same as the scrubber's disabled ticks).
+          // Stepping right past the newest archive day is the return to NOW.
+          const strip = dayStripRef.current;
+          const idx = strip.findIndex((d) => d.date === pinned);
+          if (idx < 0) return;
+          for (let i = idx + dir; i >= 0 && i < strip.length; i += dir) {
+            if (i === strip.length - 1) break; // today's tick belongs to NOW
+            if (strip[i].detections > 0) {
+              selectDay(strip[i].date);
+              return;
+            }
+          }
+          if (dir > 0) selectDay(null); // walked off the right edge → NOW
+          return;
+        }
         const cur = PERIODS.findIndex((p) => p.hours === settingsRef.current.windowHours);
         const base = cur < 0 ? 2 : cur;
         const nextIdx =
@@ -209,7 +458,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [framed, patch]);
+  }, [framed, patch, selectDay]);
 
   // Honest counter figures + active-window label, both from the real roster.
   const windowLabel = windowLabelFor(settings.windowHours);
@@ -220,6 +469,12 @@ export default function App() {
   // raises a species' count emits a fresh detection row. Honesty firewall intact:
   // the feed only ever mirrors real counted roster increments.
   useEffect(() => {
+    if (viewDay !== null) {
+      // A pinned past day re-seeds the roster; diffing that against the live
+      // baseline would fabricate "live" feed rows out of archive data.
+      feedBaseRef.current = null;
+      return;
+    }
     if (settings.windowHours !== 1) {
       feedBaseRef.current = null;
       return;
@@ -241,12 +496,14 @@ export default function App() {
     }
     feedBaseRef.current = { hours: 1, counts: cur };
     if (fresh.length) setFeed((f) => [...fresh, ...f].slice(0, 40));
-  }, [rows, settings.windowHours]);
+  }, [rows, settings.windowHours, viewDay]);
 
   // Tab is pinned to the collage while framed (the other tabs' chrome is hidden).
   const shownTab: Tab = framed ? 'collage' : tab;
-  // The rolling-1H window turns the collage surface into the live dashboard.
-  const liveActive = !framed && shownTab === 'collage' && settings.windowHours === 1;
+  // The rolling-1H window turns the collage surface into the live dashboard —
+  // never while a past day is pinned (an archive has no live dashboard).
+  const liveActive =
+    !framed && shownTab === 'collage' && settings.windowHours === 1 && viewDay === null;
 
   return (
     <div
@@ -301,6 +558,13 @@ export default function App() {
         ))}
       </div>
 
+      {/* Time-travel scrubber: only on the collage, never framed / on the live
+          dashboard, and only when the API passed the day-capability probe and
+          the strip has more than today to offer. */}
+      {shownTab === 'collage' && !framed && !liveActive && scrubOk && dayStrip.length > 1 && (
+        <Scrubber days={dayStrip} selected={viewDay} onSelect={selectDay} />
+      )}
+
       <div className="menu-wrap">
         <button
           className="theme-quick"
@@ -317,8 +581,14 @@ export default function App() {
 
       {shownTab === 'collage' && !liveActive && (
         <header className="mast">
-          <div className="eyebrow">your window{MOCK ? ' · demo' : ''}</div>
-          <div className="mast-t">{mastTitle(species)}</div>
+          <div className="eyebrow">
+            {viewDay ? `${formatDay(viewDay)} · archive` : `your window${MOCK ? ' · demo' : ''}`}
+          </div>
+          {/* Archive days get archival titles — never "HEARD TODAY" over a past
+              day. A zero-detection day is an honest quiet wall, not LISTENING. */}
+          <div className="mast-t">
+            {viewDay ? (species === 0 ? 'A QUIET DAY' : 'FROM THE ARCHIVE') : mastTitle(species)}
+          </div>
         </header>
       )}
 
@@ -328,7 +598,8 @@ export default function App() {
         </Overlay>
       )}
 
-      {shownTab === 'collage' && !liveActive && species === 0 && settings.listeningAnim && (
+      {/* The pulse implies live listening — never shown while a past day is pinned. */}
+      {shownTab === 'collage' && !liveActive && viewDay === null && species === 0 && settings.listeningAnim && (
         <div className="listen">
           <div className="pulse">
             <span />
@@ -342,18 +613,19 @@ export default function App() {
 
       {shownTab === 'index' && (
         <Overlay>
-          <IndexView rows={rows} />
+          <IndexView rows={rows} archiveDay={viewDay} />
         </Overlay>
       )}
       {shownTab === 'stats' && (
         <Overlay>
-          <StatsView rows={rows} />
+          <StatsView rows={rows} archiveDay={viewDay} />
         </Overlay>
       )}
       {shownTab === 'atlas' && (
         <Overlay>
           <AtlasView
             rows={rows}
+            archiveDay={viewDay}
             onOpen={(r) => setPopup({ sci: r.sci, com: r.com, slug: r.slug, n: r.n })}
           />
         </Overlay>
@@ -372,16 +644,19 @@ export default function App() {
         ))}
       </nav>
 
-      {!framed && (
-        <LiveCounter
-          species={species}
-          calls={calls}
-          windowLabel={windowLabel}
-          live={liveState}
-          latest={latest}
-          compact={framed}
-        />
-      )}
+      {!framed &&
+        (viewDay ? (
+          <ArchiveCaption day={viewDay} species={species} onNow={() => selectDay(null)} />
+        ) : (
+          <LiveCounter
+            species={species}
+            calls={calls}
+            windowLabel={windowLabel}
+            live={liveState}
+            latest={latest}
+            compact={framed}
+          />
+        ))}
 
       {settings.showColophon && shownTab === 'collage' && !framed && (
         <div className="colophon">Belkins BirdNET</div>
@@ -405,7 +680,13 @@ export default function App() {
         )}
       </div>
 
-      <BirdPopup bird={popup} windowLabel={windowLabel} onClose={() => setPopup(null)} />
+      <BirdPopup
+        bird={popup}
+        windowLabel={windowLabel}
+        archiveDay={viewDay}
+        onClose={() => setPopup(null)}
+        onPoseChange={writePose}
+      />
 
       <SettingsPanel
         open={settingsOpen}

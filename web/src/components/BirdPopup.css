@@ -334,6 +334,61 @@
   letter-spacing: 0.02em;
 }
 
+/* ── PHENOLOGY — 52-week presence ribbon ───────────────────── */
+/* One slim cell per ISO week; unheard weeks stay faint grooves, heard weeks
+   fill with ink whose opacity tracks the real weekly count. All theme-var
+   driven (reads in night + day). No animation. */
+.bp-phen {
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.bp-phen-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.bp-phen-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.bp-phen-cap {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--mut);
+}
+.bp-phen-ribbon {
+  display: flex;
+  gap: 1px;
+  height: 34px;
+  align-items: stretch;
+}
+.bp-phen-cell {
+  flex: 1;
+  background: var(--line-2);
+  border-radius: 1px;
+}
+.bp-phen-cell[data-on='true'] {
+  background: var(--ink-2);
+}
+.bp-phen-ax {
+  position: relative;
+  height: 12px;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--mut-2);
+  display: flex;
+  justify-content: space-between;
+}
+
 /* ── RECORDINGS ────────────────────────────────────────────── */
 .bp-rec {
   margin-top: 26px;

@@ -10,11 +10,12 @@
 
 import type { BirdEvent, EventStream, LiveState, RosterRow, SpeciesRow, Tile } from './types';
 import type { Theme } from './theme';
+import { solarTint } from './theme';
 import type { Settings } from './settings';
 import { CollageGrid, COLLAGE_PAD, GRID_STRIDE } from './packer';
 import { CollageRenderer } from './renderer';
 import { aspect, loadData, loadMask, slugify } from './data';
-import { fetchSnapshot } from './snapshot';
+import { fetchDaySnapshot, fetchSnapshot } from './snapshot';
 import { ambientRoster } from './ambient';
 import { MockStream, SseStream } from './events';
 import { EVENTS_URL, MOCK } from './config';
@@ -93,8 +94,11 @@ export interface EngineCallbacks {
   onCount?: (count: number) => void;
   onStatus?: (status: string) => void;
   onLatest?: (com: string) => void;
-  /** The live species roster (snapshot + live increments), for the React views. */
-  onData?: (rows: RosterRow[]) => void;
+  /** The species roster (snapshot + live increments), for the React views.
+   *  `archiveDay` tags WHICH data these rows are: the pinned past day, or null
+   *  for live NOW. The tag travels WITH the rows so a consumer can never diff
+   *  or label archive counts as live ones (honesty firewall). */
+  onData?: (rows: RosterRow[], archiveDay: string | null) => void;
   /** Live SSE connection state — drives the counter's live/idle/offline dot. */
   onLive?: (s: LiveState) => void;
   /** Fired at most once after the seed's illustrations settle, so the frame /
@@ -116,9 +120,19 @@ export class CollageEngine {
   private areaHint = 0;
   private started = false;
   private disposed = false;
+  /** pinned past day (time-travel scrubber), or null = live NOW. While set,
+   *  live SSE deltas are gated off — a detection belongs to NOW, never to a
+   *  pinned archive day. */
+  private viewDay: string | null = null;
+  /** monotonic seed sequence: a slow setDay/setWindow response landing after a
+   *  faster later one must never seed under the wrong label (honesty guard). */
+  private seedSeq = 0;
   /** failed-tile retry loop (auto-gen watcher live-update). */
   private retryTimer: ReturnType<typeof setInterval> | null = null;
   private retryCount = 0;
+  /** Golden Hour: whether the once-a-minute solar recompute loop is running. */
+  private solarOn = false;
+  private solarTimer: ReturnType<typeof setInterval> | null = null;
   private readonly cb: EngineCallbacks;
   /** species roster (snapshot counts + live increments) → React views. */
   private readonly roster = new Map<string, RosterRow>();
@@ -227,9 +241,12 @@ export class CollageEngine {
 
     this.cb.onStatus?.('loading snapshot');
     try {
+      const seq = ++this.seedSeq;
       const snapshot = await fetchSnapshot();
       if (this.disposed) return;
-      this.seed(snapshot);
+      // A setDay/setWindow issued while the boot snapshot was in flight owns
+      // the label now — skip the stale boot seed, but still connect live.
+      if (seq === this.seedSeq) this.seed(snapshot);
     } catch (err) {
       this.cb.onStatus?.(`snapshot failed: ${String(err)}`);
     }
@@ -413,6 +430,7 @@ export class CollageEngine {
 
   /** Add ONE bird incrementally — no re-wipe, no re-pack (contract). */
   addBird(ev: BirdEvent): void {
+    if (this.viewDay !== null) return; // a live detection belongs to NOW, never painted onto a pinned past day
     const sci = ev.sci;
     const slug = ev.slug || slugify(sci);
     const ar = aspect(sci);
@@ -582,18 +600,53 @@ export class CollageEngine {
   }
 
   /** Re-fetch the snapshot for a new time window and re-seed; live SSE keeps
-   *  running. The 1H/12H/24H/7D/ALL filter calls this. */
+   *  running. The 1H/12H/24H/7D/ALL filter calls this — and it is the single
+   *  return-to-live path: any window change clears a pinned past day. */
   async setWindow(hours: number): Promise<void> {
     if (this.disposed) return;
+    const seq = ++this.seedSeq;
     this.cb.onStatus?.('loading snapshot');
     try {
       const snapshot = await fetchSnapshot(hours);
-      if (this.disposed) return;
+      if (this.disposed || seq !== this.seedSeq) return;
+      // The return to live commits only WITH a real snapshot: clearing the pin
+      // before the fetch would let a failed return leave the archive collage
+      // on screen in full live mode, with SSE painting into a past day.
+      this.viewDay = null;
       this.roster.clear();
       this.seed(snapshot);
     } catch (err) {
       this.cb.onStatus?.(`snapshot failed: ${String(err)}`);
     }
+  }
+
+  /** Travel the collage to ONE real past local day. Re-seeds through the same
+   *  pipeline as setWindow; live SSE deltas are gated off while pinned (they
+   *  belong to NOW). The result disambiguates WHY nothing was pinned so the
+   *  caller only hides the scrubber when the API truly can't serve days —
+   *  never on a transient fetch error or a superseded click. */
+  async setDay(day: string): Promise<'ok' | 'stale' | 'unsupported' | 'error'> {
+    if (this.disposed) return 'stale';
+    const seq = ++this.seedSeq;
+    this.cb.onStatus?.('loading day');
+    const snapshot = await fetchDaySnapshot(day);
+    if (this.disposed || seq !== this.seedSeq) return 'stale';
+    if (snapshot === 'unsupported') return 'unsupported';
+    if (snapshot === 'error') {
+      this.cb.onStatus?.('day fetch failed');
+      return 'error';
+    }
+    this.viewDay = day;
+    this.roster.clear();
+    this.seed(snapshot);
+    // seed() closes on a 'live' status; the archive label written after it wins.
+    this.cb.onStatus?.(`archive · ${day}`);
+    return 'ok';
+  }
+
+  /** The pinned past day, or null = live NOW (mirrors what emitRoster tags). */
+  get day(): string | null {
+    return this.viewDay;
   }
 
   /** Forward the active theme to the canvas renderer (glow vs contact shadow). */
@@ -605,6 +658,36 @@ export class CollageEngine {
    *  Reduced-motion / e-ink already zero the amplitudes inside the renderer. */
   setMotion(on: boolean): void {
     this.renderer.setMotion(on);
+  }
+
+  /** Golden Hour: fold the REAL sun's elevation (offline NOAA math from the
+   *  configured lat/lon) into the renderer's ink warmth. Recomputed once a
+   *  minute, never per frame. Structurally silent when the toggle is off, no
+   *  location is configured, or the surface is an e-ink print. */
+  setSolar(on: boolean): void {
+    const active = on && PROFILE.lat !== null && PROFILE.lon !== null && PROFILE.surface !== 'eink';
+    if (active === this.solarOn) return;
+    this.solarOn = active;
+    if (active) {
+      this.solarTick();
+      this.solarTimer = setInterval(() => this.solarTick(), 60_000);
+    } else {
+      this.stopSolarLoop();
+      this.renderer.setSolar(0, false);
+    }
+  }
+
+  private solarTick(): void {
+    if (PROFILE.lat === null || PROFILE.lon === null) return;
+    const t = solarTint(new Date(), PROFILE.lat, PROFILE.lon);
+    this.renderer.setSolar(t.warmth, t.golden);
+  }
+
+  private stopSolarLoop(): void {
+    if (this.solarTimer !== null) {
+      clearInterval(this.solarTimer);
+      this.solarTimer = null;
+    }
   }
 
   /** Hit-test a click at CSS px (px,py) against the REAL placed birds and return
@@ -748,12 +831,13 @@ export class CollageEngine {
 
   private emitRoster(): void {
     if (!this.cb.onData) return;
-    this.cb.onData([...this.roster.values()].sort((a, b) => b.n - a.n));
+    this.cb.onData([...this.roster.values()].sort((a, b) => b.n - a.n), this.viewDay);
   }
 
   destroy(): void {
     this.disposed = true;
     this.stopRetryLoop();
+    this.stopSolarLoop();
     this.stream?.stop();
     this.renderer.destroy();
   }

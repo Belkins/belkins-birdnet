@@ -4,6 +4,8 @@
 // CSS vars, so it reads `birdInk()` here for the per-theme bird treatment
 // (a warm spotlight glow at night, a soft contact shadow by day).
 
+import { solarElevationDeg } from './solar';
+
 export type Theme = 'night' | 'day';
 
 const KEY = 'belkins-birdnet-theme';
@@ -42,4 +44,25 @@ export function birdInk(t: Theme): BirdInk {
   return t === 'day'
     ? { shadowColor: 'rgba(50, 38, 22, 0.22)', shadowBlur: 12, shadowOffsetY: 8 }
     : { shadowColor: 'rgba(255, 196, 120, 0.42)', shadowBlur: 26, shadowOffsetY: 0 };
+}
+
+export interface SolarTint {
+  warmth: number;
+  golden: boolean;
+}
+
+/** Golden Hour ink warmth (delight-motion §1). Maps the REAL sun elevation
+ *  (offline NOAA math, the device's own clock) to 0..1 warmth the renderer
+ *  folds into seatInk/paintVignette. A lighting treatment, never data:
+ *  warmth 0 leaves the theme's inks unchanged. */
+export function solarTint(now: Date, lat: number, lon: number): SolarTint {
+  const e = solarElevationDeg(now, lat, lon);
+  // Tent peaking at the horizon: neutral above 10° (midday), fading to a
+  // neutral deep-calm by −8° (night). Low winter sun stays honestly warm.
+  const warmth = clamp01(Math.min((10 - e) / 10, 1 + e / 8));
+  return { warmth, golden: e >= -4 && e <= 6 };
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
