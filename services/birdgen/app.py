@@ -55,7 +55,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image
+from PIL import Image, ImageFilter
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
@@ -623,33 +623,49 @@ def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:
     ~5% of ripples and re-rolled forever under a reject-only gate); past the
     ceiling the render is rejected — that much detached paint could be a second
     bird or a severed wing, and silently erasing it would mutilate the plate.
+
+    Connectivity runs on a ONE-CELL-DILATED mask: legs and toes join the body
+    through joints so thin that the NEAREST downscale disconnects them, and a
+    literal-adjacency scrub then erased the robin's and plover's legs as
+    "debris". Dilation bridges those artifact gaps (anything within ~2 scan
+    cells of the body is the bird); genuinely detached debris sits farther
+    away and still scrubs. Component sizes are measured on the ORIGINAL
+    opaque pixels so the dilation never inflates the ratios.
+
     Returns None (already clean) or an erase mask (1 = clear this pixel)."""
     on = QA_ALPHA_ON
     n = w * h
+    dil = list(
+        Image.frombytes("L", (w, h), bytes(255 if a > on else 0 for a in apx))
+        .filter(ImageFilter.MaxFilter(3))
+        .getdata()
+    )
     visited = bytearray(n)
-    comps = []  # (size, seed index)
+    comps = []  # (original-opaque size, seed index)
     for start in range(n):
-        if apx[start] > on and not visited[start]:
+        if dil[start] and not visited[start]:
             comp = 0
             dq = deque((start,))
             visited[start] = 1
             while dq:
                 idx = dq.popleft()
-                comp += 1
+                if apx[idx] > on:
+                    comp += 1  # size = real opaque pixels, not dilated halo
                 x = idx % w
-                if x > 0 and apx[idx - 1] > on and not visited[idx - 1]:
+                if x > 0 and dil[idx - 1] and not visited[idx - 1]:
                     visited[idx - 1] = 1
                     dq.append(idx - 1)
-                if x < w - 1 and apx[idx + 1] > on and not visited[idx + 1]:
+                if x < w - 1 and dil[idx + 1] and not visited[idx + 1]:
                     visited[idx + 1] = 1
                     dq.append(idx + 1)
-                if idx >= w and apx[idx - w] > on and not visited[idx - w]:
+                if idx >= w and dil[idx - w] and not visited[idx - w]:
                     visited[idx - w] = 1
                     dq.append(idx - w)
-                if idx < n - w and apx[idx + w] > on and not visited[idx + w]:
+                if idx < n - w and dil[idx + w] and not visited[idx + w]:
                     visited[idx + w] = 1
                     dq.append(idx + w)
-            comps.append((comp, start))
+            if comp > 0:
+                comps.append((comp, start))
     if not comps:
         raise QAReject("no opaque component")
     comps.sort(reverse=True)
@@ -659,23 +675,24 @@ def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:
         return None
     if others / frame > QA_ISLAND_SCRUB:
         raise QAReject("alpha islands: non-largest=%.3f of frame" % (others / frame))
-    # Re-flood the dominant blob, then mark every other opaque pixel for erase.
+    # Re-flood the dominant blob over the dilated mask, then mark every
+    # opaque pixel outside it for erase.
     keep = bytearray(n)
     dq = deque((comps[0][1],))
     keep[comps[0][1]] = 1
     while dq:
         idx = dq.popleft()
         x = idx % w
-        if x > 0 and apx[idx - 1] > on and not keep[idx - 1]:
+        if x > 0 and dil[idx - 1] and not keep[idx - 1]:
             keep[idx - 1] = 1
             dq.append(idx - 1)
-        if x < w - 1 and apx[idx + 1] > on and not keep[idx + 1]:
+        if x < w - 1 and dil[idx + 1] and not keep[idx + 1]:
             keep[idx + 1] = 1
             dq.append(idx + 1)
-        if idx >= w and apx[idx - w] > on and not keep[idx - w]:
+        if idx >= w and dil[idx - w] and not keep[idx - w]:
             keep[idx - w] = 1
             dq.append(idx - w)
-        if idx < n - w and apx[idx + w] > on and not keep[idx + w]:
+        if idx < n - w and dil[idx + w] and not keep[idx + w]:
             keep[idx + w] = 1
             dq.append(idx + w)
     erase = bytearray(n)
