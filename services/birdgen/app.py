@@ -845,6 +845,13 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None
         # A fragment (lone wing, severed part, transparent body) is unambiguous
         # at any confidence — the second net under the deterministic fill floor.
         reason = "not a whole bird (fragment)"
+    elif pose == 1 and v["leg_count"] == 0:
+        # A PERCHED bird with no visible legs at all: needle-legged waders
+        # (the plover scar) lose their legs to the key/scan — geometry can't
+        # see them, but the vision gate can count them. leg_count defaults to
+        # 2 on partial data, so only an explicit zero lands here. Flight
+        # renders legitimately tuck legs away — pose-2 is exempt.
+        reason = "no visible legs (perched)"
     elif (not v["matches_target"]) and v["guess_confidence"] == "high":
         reason = "reads as %s (conf=high), not %s" % (v.get("guessed_species_com", "?"), com)
     elif v["wing_count"] > 2:
@@ -880,6 +887,18 @@ PALE_GROUND_NOTE = (
     "bright so the silhouette separates crisply from the ground."
 )
 
+# Species whose needle-thin pale legs vanish in keying/scanning (waders — the
+# plover scar): once the verify gate sees a legless perched render, later gens
+# ask for visibly weighted legs. Same in-memory lifecycle as the pale set.
+_LEGS_HINT_SLUGS: set = set()
+
+LEGS_NOTE = (
+    "Render the bird's legs and feet CLEARLY VISIBLE and fully attached to "
+    "the body: confident, slightly thicker dark ink strokes for both legs and "
+    "the toes (this species' thin pale legs otherwise disappear against the "
+    "ground). The bird must stand on its own two unmistakable legs."
+)
+
 
 def _gen_pose(slug: str, sci: str, com: str, pose: int,
               pos, anti, anti_key) -> float:
@@ -897,10 +916,12 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
     tmp_tag = slug if pose == 1 else "%s-%d" % (slug, pose)
     style = _resolve_style_ref(sci, pose)
 
-    def attempt(dark_ground: bool) -> float:
+    def attempt() -> float:
         note = NOTES.get(sci)
-        if dark_ground:
-            note = ((note + "\n\n") if note else "") + PALE_GROUND_NOTE
+        for hinted, hint in ((slug in _PALE_GROUND_SLUGS, PALE_GROUND_NOTE),
+                             (slug in _LEGS_HINT_SLUGS, LEGS_NOTE)):
+            if hinted:
+                note = ((note + "\n\n") if note else "") + hint
         _throttle_spacing()  # MIN_SPACING before every Gemini image call
         png = pregen.gen_one(
             GEMINI_API_KEY, PROMPT, sci, com, pose,
@@ -936,12 +957,23 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
                     pass
 
     try:
-        return attempt(slug in _PALE_GROUND_SLUGS)
+        return attempt()
     except QAReject as e:
-        if "hollow cutout" in str(e) and slug not in _PALE_GROUND_SLUGS:
+        # Deterministic per-species failures get ONE immediate mechanism-change
+        # retry (same-recipe backoff re-rolls can never converge on these):
+        # hollow cutout -> darker ground; legless perched -> weighted legs.
+        msg = str(e)
+        hinted = False
+        if "hollow cutout" in msg and slug not in _PALE_GROUND_SLUGS:
             _PALE_GROUND_SLUGS.add(slug)
             log.info("qa-hollow slug=%s pose=%d — immediate retry on darker ground", slug, pose)
-            return attempt(True)
+            hinted = True
+        if "no visible legs" in msg and slug not in _LEGS_HINT_SLUGS:
+            _LEGS_HINT_SLUGS.add(slug)
+            log.info("qa-legless slug=%s pose=%d — immediate retry with weighted legs", slug, pose)
+            hinted = True
+        if hinted:
+            return attempt()
         raise
 
 
