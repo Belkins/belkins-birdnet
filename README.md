@@ -239,9 +239,10 @@ detection → forwarder (Pi) ──HTTPS──▶ birdgen (Railway) ──▶ Ge
 ```
 
 - **[`services/birdgen/`](services/birdgen/)** — a small **FastAPI** service that deploys to **Railway**: a Bearer-auth `POST /detected` webhook, a single-flight queue, `pregen.gen_one` + the cream-key cutout, an SQLite-lease dedup state machine (`queued → generating → done/dead`), and `GET /asset/<slug>.png` off a persistent volume. The **Gemini key lives only here** — never on the Pi.
-- **[`avian/realtime/forwarder.py`](avian/realtime/)** — a Pi-side daemon that subscribes to the birdcast SSE, drops bundled / low-confidence (`<0.80`) detections, and forwards genuinely-new species to Railway. Holds only a rotatable webhook secret.
+- **[`avian/realtime/forwarder.py`](avian/realtime/)** — a Pi-side daemon that subscribes to the birdcast SSE, drops bundled / low-confidence (`<0.70`) detections, and forwards genuinely-new species to Railway (plus a reconcile sweep every 6 h that heals anything the live stream missed). Holds only a rotatable webhook secret.
 - **[`avian/api/cutout.php`](avian/api/cutout.php)** — with `AV_RAILWAY_ASSET_BASE` set, a long-tail miss `302`-redirects to the Railway asset (unset → unchanged behavior).
 - **[`avian/realtime/railway_liveness.py`](avian/realtime/)** — a 6-hourly systemd timer that pushes a phone alert (ntfy) if the Railway service ever goes dark.
+- **[`avian/api/regen.php`](avian/api/regen.php)** — the **repaint** gesture: anyone on the LAN can ask the museum to repaint a plate from the bird dossier (`repaint ↺`). The old plate stays on the wall until its replacement passes every QA gate (never-worse, atomic swap, previous plate archived to `_prev/`); presses are cooled down per species (15 min) and globally, spend is fenced by a **$6/month manual sub-budget** inside the $20 ledger, and the endpoint stays **dark until armed** with pool-env credentials (`AV_RAILWAY_API_BASE` + `AV_REGEN_SECRET` in the php-fpm pool — the secret never reaches a browser). The popup's control budget is constitutional: see [`docs/POPUP-BUDGET.md`](docs/POPUP-BUDGET.md).
 
 ```bash
 # deploy the generator (needs a Railway account + a billing-enabled Gemini key)
