@@ -504,6 +504,16 @@ export default function App() {
   // never while a past day is pinned (an archive has no live dashboard).
   const liveActive =
     !framed && shownTab === 'collage' && settings.windowHours === 1 && viewDay === null;
+  // The time-travel ruler earns its place only on the collage, unframed, off the
+  // live dashboard, when the API can serve days AND there is a real archive to
+  // travel (3+ past days with detections). It now rides in the bottom nav row,
+  // right after the tabs — a matched time control beside the view tabs.
+  const showScrub =
+    shownTab === 'collage' &&
+    !framed &&
+    !liveActive &&
+    scrubOk &&
+    dayStrip.slice(0, -1).filter((d) => d.detections > 0).length >= 3;
 
   return (
     <div
@@ -558,19 +568,6 @@ export default function App() {
         ))}
       </div>
 
-      {/* Time-travel scrubber: only on the collage, never framed / on the live
-          dashboard, only when the API passed the day-capability probe, and only
-          once there is a real archive to travel — a young station's strip is a
-          single lonely tick beside NOW (useless chrome, not a timeline). It
-          earns its place at 3+ past days with detections. ?on= deep links keep
-          working regardless — this gates the chrome, not the capability. */}
-      {shownTab === 'collage' &&
-        !framed &&
-        !liveActive &&
-        scrubOk &&
-        dayStrip.slice(0, -1).filter((d) => d.detections > 0).length >= 3 && (
-          <Scrubber days={dayStrip} selected={viewDay} onSelect={selectDay} />
-        )}
 
       <div className="menu-wrap">
         <button
@@ -643,13 +640,19 @@ export default function App() {
         </Overlay>
       )}
 
-      <nav className="nav">
-        {TABS.map((t) => (
-          <button key={t} className={t === shownTab ? 'on' : ''} onClick={() => setTab(t)}>
-            {t.toUpperCase()}
-          </button>
-        ))}
-      </nav>
+      {/* The bottom control row: the view tabs, and — right after them — the
+          time-travel ruler when there is an archive to travel. One matched
+          cluster instead of a lonely strip floating above the nav. */}
+      <div className="navrow">
+        <nav className="nav">
+          {TABS.map((t) => (
+            <button key={t} className={t === shownTab ? 'on' : ''} onClick={() => setTab(t)}>
+              {t.toUpperCase()}
+            </button>
+          ))}
+        </nav>
+        {showScrub && <Scrubber days={dayStrip} selected={viewDay} onSelect={selectDay} />}
+      </div>
 
       {!framed &&
         (viewDay ? (

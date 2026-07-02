@@ -1,28 +1,25 @@
-/* ── time-travel scrubber (collage, one band above the bottom nav) ──
-   A slim day-ruler in the same glass chrome register as .nav: one tick per
-   real day, heights = the real detection ridge, month initials at the
-   boundaries, NOW at the right end. Theme-var driven; hidden on phones
-   (the tabs win) and never rendered framed / live / on an old API. */
+/* ── time-travel scrubber (collage, inline in the bottom nav row) ──
+   A slim day-ruler in the same glass chrome register as .nav, sitting right
+   after the view tabs: one tick per real day, heights = the real detection
+   ridge, month initials at the boundaries, NOW at the right end. Theme-var
+   driven; hidden on phones (the tabs win) and never rendered framed / live /
+   on an old API. Positioning is owned by the parent .navrow. */
 .scrub {
-  position: absolute;
-  bottom: calc(4.6% + 56px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
   display: flex;
   align-items: flex-end;
   gap: 12px;
   padding: 8px 14px;
+  min-width: 0;
   background: color-mix(in srgb, var(--bg1) 90%, transparent);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 14px;
   backdrop-filter: blur(16px) saturate(1.15);
 }
 .scrub-track {
   display: flex;
   align-items: flex-end;
   gap: 1px;
-  max-width: min(64vw, 720px);
+  max-width: min(40vw, 460px);
   overflow-x: auto;
   scrollbar-width: none; /* the ruler scrolls; a scrollbar would shout */
 }

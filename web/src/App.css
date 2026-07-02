@@ -157,15 +157,22 @@
   margin-top: 0.04em;
 }
 
-/* ── bottom nav ────────────────────────────────────────────── */
-.nav {
+/* ── bottom control row (view tabs + the time-travel ruler) ──── */
+.navrow {
   position: absolute;
   bottom: 4.6%;
   left: 50%;
   transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 94vw;
+}
+.nav {
   display: flex;
   gap: 2px;
-  z-index: 50;
+  flex: none;
   background: color-mix(in srgb, var(--bg1) 90%, transparent);
   border: 1px solid var(--line);
   border-radius: 999px;
@@ -884,7 +891,7 @@
    night both read. */
 .stage.frame .filter,
 .stage.frame .menu-wrap,
-.stage.frame .nav {
+.stage.frame .navrow {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.24s ease;
