@@ -28,8 +28,13 @@ Contract obligations honored here:
     border-contact / mangled aspect) and an optional AV_VERIFY Gemini gate; a
     failed gate re-queues on a short backoff (then dead after MAX_ATTEMPTS), and
     never publishes.
-  - POST /requeue (Bearer): reset dirty done/dead species to queued over HTTP so
-    the volume state can be wiped after a redeploy without shell access.
+  - POST /requeue (Bearer) v2: explicit slugs only (empty => 422 — the old
+    requeue-everything fallback was a wall-wipe footgun), per-pose directives
+    (poses), keep_current generate-then-swap (the old plate keeps serving and
+    is only replaced by a QA-passing successor; the outgoing file is archived
+    to _prev/, ring-of-1), manual-source refusals (bundled / manual budget).
+  - GET /job/<slug> (Bearer): repaint poll target — job state, asset mtimes,
+    budget flags, queue depth.
   - GEMINI_API_KEY via x-goog-api-key header (in pregen.gen_one), NEVER logged.
   - /manifest = bundled(manifest.json) UNION generated(volume): single dedup SoT.
 
@@ -44,6 +49,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sqlite3
 import threading
 import time
@@ -154,6 +160,7 @@ STYLES_DIR: Optional[Path] = Path(_styles) if _styles else None
 COST_PER_GEN_USD = float(os.environ.get("COST_PER_GEN_USD", "0.04"))
 COST_PER_VERIFY_USD = float(os.environ.get("COST_PER_VERIFY_USD", "0.002"))  # gemini-2.5-flash verify call (image-in, ~500 tok out) — much cheaper than image-out; ESTIMATE
 MONTHLY_BUDGET_USD = float(os.environ.get("MONTHLY_BUDGET_USD", "20"))       # soft ceiling on ESTIMATED month spend; 0 = unlimited
+MANUAL_BUDGET_USD = float(os.environ.get("MANUAL_BUDGET_USD", "6"))           # sub-ceiling on ESTIMATED manual (viewer-repaint) spend; past it /requeue refuses source=manual per-slug and auto-gen keeps the remaining monthly budget exclusively; 0 = no manual ceiling
 AV_VERIFY_MAX_REJECTS = int(os.environ.get("AV_VERIFY_MAX_REJECTS", "3"))    # per-species verify-reject budget before accept-with-flag (keep < MAX_ATTEMPTS)
 LEDGER_PATH = ASSETS_DIR / "gen-ledger.json"  # persistent spend ledger on the SAME volume as PNGs + state.db
 
@@ -227,19 +234,26 @@ def db() -> sqlite3.Connection:
                 lease_until INTEGER DEFAULT 0,
                 fail_reason TEXT,
                 verify_rejects INTEGER DEFAULT 0,
+                regen_poses TEXT,            -- '1' | '2' | '1,2' directive; NULL = legacy (generate what's missing)
+                source      TEXT DEFAULT 'auto',  -- 'auto' (forwarder/admin) | 'manual' (viewer repaint)
                 updated_ts  INTEGER
             )
             """
         )
         _conn.commit()
-        # Guarded migration: existing volumes have the table but not the
-        # verify_rejects column. A bare ADD COLUMN on redeploy would crash the
-        # second boot, so swallow the "duplicate column" OperationalError.
-        try:
-            _conn.execute("ALTER TABLE species_jobs ADD COLUMN verify_rejects INTEGER DEFAULT 0")
-            _conn.commit()
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Guarded migrations: existing volumes have the table but not the
+        # later columns. A bare ADD COLUMN on redeploy would crash the second
+        # boot, so swallow the "duplicate column" OperationalError per column.
+        for ddl in (
+            "ALTER TABLE species_jobs ADD COLUMN verify_rejects INTEGER DEFAULT 0",
+            "ALTER TABLE species_jobs ADD COLUMN regen_poses TEXT",
+            "ALTER TABLE species_jobs ADD COLUMN source TEXT DEFAULT 'auto'",
+        ):
+            try:
+                _conn.execute(ddl)
+                _conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
     return _conn
 
 
@@ -270,22 +284,26 @@ def insert_queued(slug: str, sci: str, com: str, conf: float) -> None:
 
 def claim_one_due() -> Optional[dict]:
     """CAS-claim the next eligible job. Single-flight, so a lock suffices.
-    Reclaims a 'generating' row whose lease has expired (crash recovery)."""
+    Reclaims a 'generating' row whose lease has expired (crash recovery).
+    Auto/new-species rows claim BEFORE manual repaints (new-species-first
+    ruling: a first-hearing silhouette is a worse museum state than a
+    mediocre existing plate)."""
     now = int(time.time())
     with _db_lock:
         row = db().execute(
             """
-            SELECT slug, sci, com, attempts FROM species_jobs
+            SELECT slug, sci, com, attempts, regen_poses, source FROM species_jobs
             WHERE (state='queued'     AND next_retry  <= ?)
                OR (state='generating' AND lease_until <  ?)
-            ORDER BY next_retry ASC
+            ORDER BY CASE WHEN source='manual' THEN 1 ELSE 0 END ASC,
+                     next_retry ASC
             LIMIT 1
             """,
             (now, now),
         ).fetchone()
         if not row:
             return None
-        slug, sci, com, attempts = row
+        slug, sci, com, attempts, regen_poses, source = row
         db().execute(
             """
             UPDATE species_jobs
@@ -295,17 +313,31 @@ def claim_one_due() -> Optional[dict]:
             (now + LEASE_TTL, now, slug),
         )
         db().commit()
-        return {"slug": slug, "sci": sci, "com": com, "attempts": attempts + 1}
+        return {"slug": slug, "sci": sci, "com": com, "attempts": attempts + 1,
+                "regen_poses": regen_poses, "source": source or "auto"}
 
 
 def mark_done(slug: str) -> None:
+    """Terminal 'done' transition, guarded on WHERE state='generating': if a
+    /requeue landed mid-gen (the swallowed-press race) the row is 'queued'
+    again and this UPDATE must NOT clobber that repaint intent — it logs and
+    no-ops instead. The in-flight publish already landed (it passed QA) and
+    the queued row is re-claimed on the worker's next loop. Clears
+    regen_poses: the directive this run carried is fulfilled."""
     now = int(time.time())
     with _db_lock:
-        db().execute(
-            "UPDATE species_jobs SET state='done', fail_reason=NULL, updated_ts=? WHERE slug=?",
+        cur = db().execute(
+            """
+            UPDATE species_jobs
+               SET state='done', fail_reason=NULL, regen_poses=NULL, updated_ts=?
+             WHERE slug=? AND state='generating'
+            """,
             (now, slug),
         )
         db().commit()
+    if cur.rowcount == 0:
+        log.warning("mark_done raced slug=%s: row no longer 'generating' "
+                    "(requeued mid-gen?) — no-op, repaint intent preserved", slug)
 
 
 def get_verify_rejects(slug: str) -> int:
@@ -360,26 +392,41 @@ def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
         backoff = min(BACKOFF_BASE * (2 ** (attempts - 1)), BACKOFF_MAX)
         next_retry = now + int(backoff)
     reason_str = ("%s:%s" % (fail_class, reason))[:300]
+    # Guarded on WHERE state='generating' (same swallowed-press race as
+    # mark_done): a /requeue that landed mid-gen already reset the row to a
+    # fresh 'queued' — stamping a backoff/fail over it would delay or clobber
+    # the deliberate repaint. 0 rows matched -> log + no-op.
     with _db_lock:
         if reset_attempts:
-            db().execute(
+            cur = db().execute(
                 """
                 UPDATE species_jobs
                    SET state=?, next_retry=?, attempts=0, fail_reason=?, updated_ts=?
-                 WHERE slug=?
+                 WHERE slug=? AND state='generating'
                 """,
                 (state, next_retry, reason_str, now, slug),
             )
         else:
-            db().execute(
+            cur = db().execute(
                 """
                 UPDATE species_jobs
                    SET state=?, next_retry=?, fail_reason=?, updated_ts=?
-                 WHERE slug=?
+                 WHERE slug=? AND state='generating'
                 """,
                 (state, next_retry, reason_str, now, slug),
             )
         db().commit()
+        if cur.rowcount == 0:
+            row = db().execute(
+                "SELECT state FROM species_jobs WHERE slug=?", (slug,)
+            ).fetchone()
+            actual = row[0] if row else "unknown"
+        else:
+            actual = None
+    if actual is not None:
+        log.warning("mark_fail raced slug=%s: row no longer 'generating' "
+                    "(requeued mid-gen?) — no-op, row stays '%s'", slug, actual)
+        return actual
     return state
 
 
@@ -429,42 +476,66 @@ def _ledger_save(data: dict) -> None:
     os.replace(str(tmp), str(LEDGER_PATH))  # atomic, same fs
 
 
-def _record(kind: str, n: int = 1) -> None:  # kind in {'gens','verifies'}
+def _record(kind: str, n: int = 1) -> None:  # kind in {'gens','verifies','manual_gens','manual_verifies'}
     mk = _month_key()
     with _ledger_lock:
         data = _ledger_load()
         months = data.setdefault("months", {})
-        b = months.setdefault(mk, {"gens": 0, "verifies": 0})
+        b = months.setdefault(mk, {"gens": 0, "verifies": 0,
+                                   "manual_gens": 0, "manual_verifies": 0})
         b[kind] = int(b.get(kind, 0)) + n
         _ledger_save(data)
 
 
-def record_gen(n: int = 1) -> None:
-    _record("gens", n)
+def record_gen(n: int = 1, manual: bool = False) -> None:
+    _record("manual_gens" if manual else "gens", n)
 
 
-def record_verify(n: int = 1) -> None:
-    _record("verifies", n)
+def record_verify(n: int = 1, manual: bool = False) -> None:
+    _record("manual_verifies" if manual else "verifies", n)
 
 
-def month_spend_snapshot() -> tuple:
-    """(spend_usd, gens, verifies) for the CURRENT UTC month. Spend is derived,
-    never stored as dollars — an estimate, not a billed figure."""
+def month_snapshot() -> dict:
+    """Counts + derived spend for the CURRENT UTC month. Spend stays derived,
+    never stored as dollars — an estimate, not a billed figure. gens/verifies
+    are the AUTO counters; manual (viewer-repaint) work is tallied separately
+    so the manual sub-budget is enforceable. Buckets written before the split
+    simply read the manual keys as 0. spend_usd is the TOTAL (auto + manual)
+    — the monthly ceiling covers everything."""
     mk = _month_key()
     with _ledger_lock:
         data = _ledger_load()
     b = (data.get("months", {}) or {}).get(mk, {}) or {}
     gens = int(b.get("gens", 0))
     verifies = int(b.get("verifies", 0))
-    spend = gens * COST_PER_GEN_USD + verifies * COST_PER_VERIFY_USD
-    return spend, gens, verifies
+    manual_gens = int(b.get("manual_gens", 0))
+    manual_verifies = int(b.get("manual_verifies", 0))
+    manual_spend = manual_gens * COST_PER_GEN_USD + manual_verifies * COST_PER_VERIFY_USD
+    spend = gens * COST_PER_GEN_USD + verifies * COST_PER_VERIFY_USD + manual_spend
+    return {
+        "gens": gens,
+        "verifies": verifies,
+        "manual_gens": manual_gens,
+        "manual_verifies": manual_verifies,
+        "manual_spend_usd": manual_spend,
+        "spend_usd": spend,
+    }
 
 
 def budget_exhausted() -> bool:
     if MONTHLY_BUDGET_USD <= 0:
         return False  # 0 = unlimited
-    spend, _, _ = month_spend_snapshot()
-    return spend >= MONTHLY_BUDGET_USD
+    return month_snapshot()["spend_usd"] >= MONTHLY_BUDGET_USD
+
+
+def manual_budget_exhausted() -> bool:
+    """Manual-repaint sub-ceiling: once ESTIMATED manual spend crosses
+    MANUAL_BUDGET_USD, /requeue refuses source=manual per-slug ("manual_budget")
+    while auto-gen keeps the rest of the monthly budget exclusively. Same
+    UTC-month bucket as the main ledger, so it auto-resets at the rollover."""
+    if MANUAL_BUDGET_USD <= 0:
+        return False
+    return month_snapshot()["manual_spend_usd"] >= MANUAL_BUDGET_USD
 
 
 # --------------------------------------------------------------------------- #
@@ -489,40 +560,35 @@ def slug_to_sci(slug: str) -> str:
     return " ".join([parts[0].capitalize()] + parts[1:])
 
 
-def slugs_in_states(states: tuple) -> list:
-    """Slugs whose terminal DB state is one of `states` (e.g. dead/done)."""
-    placeholders = ",".join("?" for _ in states)
-    with _db_lock:
-        rows = db().execute(
-            "SELECT slug FROM species_jobs WHERE state IN (%s)" % placeholders,
-            states,
-        ).fetchall()
-    return [r[0] for r in rows]
-
-
-def requeue_row(slug: str) -> None:
+def requeue_row(slug: str, regen_poses: Optional[str] = None,
+                source: str = "auto") -> None:
     """Reset an existing job to a fresh queued state (attempts/backoff/lease
     cleared so the worker claims it immediately), or insert a queued row for a
-    slug we've never seen. sci is derived from the slug for a brand-new row."""
+    slug we've never seen. sci is derived from the slug for a brand-new row.
+    regen_poses ('1' | '2' | '1,2' | None=legacy) directs the worker which
+    poses to force past the existence-skip; source tags the spend ledger and
+    the claim priority (auto rows claim before manual ones)."""
     now = int(time.time())
     with _db_lock:
         cur = db().execute(
             """
             UPDATE species_jobs
                SET state='queued', attempts=0, next_retry=0, lease_until=0,
-                   fail_reason=NULL, verify_rejects=0, updated_ts=?
+                   fail_reason=NULL, verify_rejects=0, regen_poses=?, source=?,
+                   updated_ts=?
              WHERE slug=?
             """,
-            (now, slug),
+            (regen_poses, source, now, slug),
         )
         if cur.rowcount == 0:
             db().execute(
                 """
                 INSERT INTO species_jobs (slug, sci, com, conf, state, attempts,
-                                          next_retry, lease_until, updated_ts)
-                VALUES (?, ?, '', ?, 'queued', 0, 0, 0, ?)
+                                          next_retry, lease_until, regen_poses,
+                                          source, updated_ts)
+                VALUES (?, ?, '', ?, 'queued', 0, 0, 0, ?, ?, ?)
                 """,
-                (slug, slug_to_sci(slug), CONF_THRESHOLD, now),
+                (slug, slug_to_sci(slug), CONF_THRESHOLD, regen_poses, source, now),
             )
         db().commit()
 
@@ -540,10 +606,24 @@ def _delete_published(slug: str) -> None:
             pass
 
 
+def _delete_pose1(slug: str) -> None:
+    """Remove ONLY the perched pose (<slug>.png), preserving a clean flight
+    pose-2 — used by /requeue's delete-first path when only pose 1 is directed
+    (poses:[1] with keep_current:false), so a perched re-roll never takes a
+    good flight render with it. Best-effort."""
+    p = ASSETS_DIR / ("%s.png" % slug)
+    try:
+        if p.exists():
+            p.unlink()
+    except OSError:
+        pass
+
+
 def _delete_pose2(slug: str) -> None:
     """Remove ONLY the flight pose (<slug>-2.png), preserving a clean perched
-    pose-1 — used by /requeue keep_pose1 to backfill a missing/duplicate flight
-    without re-rolling an already-good perched render."""
+    pose-1 — used by /requeue's delete-first path when only pose 2 is directed
+    (poses:[2] with keep_current:false), so a flight wipe never takes a good
+    perched render with it."""
     p = ASSETS_DIR / ("%s-2.png" % slug)
     try:
         if p.exists():
@@ -816,7 +896,8 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
     return "scrubbed islands=%.3f of frame" % (sum(erase) / float(w * h))
 
 
-def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None:
+def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
+               manual: bool = False, protect_existing: bool = False) -> None:
     """Adversarial ID/anatomy gate (AV_VERIFY on). One Gemini-Vision call via
     verify.verify_one; rejects an off-species or malformed render so it
     regenerates. Fails OPEN (never rejects) when the model errors or the response
@@ -832,7 +913,7 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None
     except Exception as e:  # network/API error -> not a QA verdict; keep the clean render
         log.warning("verify_one error slug=%s err=%s (skipping verify gate)", slug, e)
         return  # NOT billed as a verdict — don't count
-    record_verify()  # the call returned -> count the paid verify
+    record_verify(manual=manual)  # the call returned -> count the paid verify
     if not v:
         return  # unparseable -> fail open
     # A perched bird's folded wings routinely read as a single visible wing, so
@@ -865,6 +946,12 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path) -> None
     if pose != 1:
         raise QAReject("verify: " + reason)  # pose-2: bounded by POSE2_TRIES, no budget needed
     if get_verify_rejects(slug) >= AV_VERIFY_MAX_REJECTS:
+        if protect_existing:
+            # NEVER-WORSE (refusal 4): a good plate already hangs. accept-with-flag
+            # exists so a NEW species beats a permanent silhouette — but here a
+            # verify-failed render would overwrite a correct plate, making the
+            # wall worse. Keep the old plate; the press parks honestly.
+            raise QAReject("verify: %s (protected — keeping the existing plate)" % reason)
         log.warning("verify: publishing best-effort after %d verify rejects slug=%s (last: %s)",
                     AV_VERIFY_MAX_REJECTS, slug, reason)
         return  # accept-with-flag: a real bird in slightly-off plumage beats a permanent silhouette
@@ -902,12 +989,13 @@ LEGS_NOTE = (
 
 
 def _gen_pose(slug: str, sci: str, com: str, pose: int,
-              pos, anti, anti_key) -> float:
+              pos, anti, anti_key, manual: bool = False) -> float:
     """One pose end-to-end: MIN_SPACING throttle -> gen_one(pose) -> creamkey
     cutout -> QA gate -> atomic publish. pose 1 -> <slug>.png (perched),
     pose N -> <slug>-N.png (flight). Returns the opaque fraction. Raises
     QAReject / RuntimeError / urllib errors — the caller decides whether the
-    failure is fatal (pose-1) or swallowed (pose-2).
+    failure is fatal (pose-1) or swallowed (pose-2). manual tags the spend
+    ledger (viewer repaint vs auto/first-hearing).
 
     A 'hollow cutout' reject (white bird merging into the cream ground) is
     retried ONCE immediately on a darker ground — the failure is deterministic
@@ -916,6 +1004,13 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
     out_name = "%s.png" % slug if pose == 1 else "%s-%d.png" % (slug, pose)
     tmp_tag = slug if pose == 1 else "%s-%d" % (slug, pose)
     style = _resolve_style_ref(sci, pose)
+    # A good plate already hangs iff its file exists at gen start — true exactly
+    # for a keep_current regen. Under this flag the verify accept-with-flag
+    # fallback must NOT publish a flagged render over the good plate (never-worse,
+    # refusal 4): it raises instead, and the press parks honestly. Delete-first
+    # regens and first-hearings have no file here, so accept-with-flag keeps its
+    # original "a real bird beats a permanent silhouette" behavior.
+    protect_existing = (ASSETS_DIR / out_name).exists()
 
     def attempt() -> float:
         note = NOTES.get(sci)
@@ -929,7 +1024,7 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             positive_ref=pos, anti_ref=anti, anti_ref_key=anti_key,
             species_note=note, style_ref=style,
         )
-        record_gen()  # count the billable image now — QA-rejected ones still cost
+        record_gen(manual=manual)  # count the billable image now — QA-rejected ones still cost
         tmp_raw = ASSETS_DIR / (".%s.raw.png" % tmp_tag)
         tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
         try:
@@ -945,9 +1040,27 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
                 log.info("qa-scrub slug=%s pose=%s %s", slug, pose, scrub_note)
             # adversarial species/anatomy gate (one Gemini-Vision call).
             if AV_VERIFY:
-                _qa_verify(slug, sci, com, pose, tmp_cut)
+                _qa_verify(slug, sci, com, pose, tmp_cut, manual=manual,
+                           protect_existing=protect_existing)
+            # Never-worse insurance: archive the outgoing plate to the _prev/
+            # SUBDIRECTORY (ring-of-1 — each publish overwrites the previous
+            # archive) before replacing it. A sibling "<slug>.prev.png" would
+            # surface a phantom slug via generated_slugs()/manifest; the
+            # subdirectory is invisible to that listing. Best-effort: a failed
+            # archive never blocks a QA-passed publish.
+            out_path = ASSETS_DIR / out_name
+            if out_path.exists():
+                try:
+                    prev_dir = ASSETS_DIR / "_prev"
+                    prev_dir.mkdir(parents=True, exist_ok=True)
+                    tmp_prev = prev_dir / (".%s.tmp" % out_name)
+                    shutil.copy2(str(out_path), str(tmp_prev))
+                    os.replace(str(tmp_prev), str(prev_dir / out_name))
+                except OSError as e:
+                    log.warning("prev-archive failed slug=%s pose=%d err=%s (publishing anyway)",
+                                slug, pose, e)
             # atomic publish (same filesystem -> os.replace is atomic)
-            os.replace(str(tmp_cut), str(ASSETS_DIR / out_name))
+            os.replace(str(tmp_cut), str(out_path))
             return frac
         finally:
             for p in (tmp_raw, tmp_cut):
@@ -982,8 +1095,17 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
         raise
 
 
-def _generate_sync(slug: str, sci: str, com: str) -> float:
-    """Generate BOTH poses for a species so the collage's flight toggle works.
+def _generate_sync(slug: str, sci: str, com: str,
+                   regen_poses: Optional[str] = None,
+                   manual: bool = False) -> float:
+    """Generate the species' poses so the collage's flight toggle works.
+
+    regen_poses is the job row's directive ('1' | '2' | '1,2'; None = legacy):
+    a DIRECTED pose is force-regenerated even when its file exists (keep-current
+    repaint — intent can't be inferred from the filesystem, because under
+    generate-then-swap the old plate stays on disk the whole time). An
+    UNDIRECTED pose is generated only when its file is missing, so a pose-1
+    repaint never churns (and possibly regresses) a good existing flight.
 
     Pose-1 (perched, <slug>.png) is REQUIRED: its failure propagates so the
     species stays un-done and retries per the backoff policy; its opaque
@@ -993,29 +1115,36 @@ def _generate_sync(slug: str, sci: str, com: str) -> float:
     endpoint falls a flight request back to pose-1 when <slug>-2.png is absent.
     Species-level refs are resolved once and shared across both poses;
     MIN_SPACING is honored before each Gemini call inside _gen_pose."""
+    directed = {p for p in (regen_poses or "").split(",") if p}
+    force1, force2 = "1" in directed, "2" in directed
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     pos, anti, anti_key = _resolve_species_refs(slug, sci, com)
     # POSE-1 (perched) — required. Skip the gen when a clean pose-1 already
-    # exists (a keep_pose1 flight-backfill requeue): never re-roll an already-good
-    # perched render — just (re)make the flight below.
-    if (ASSETS_DIR / ("%s.png" % slug)).exists():
+    # exists and the job doesn't direct pose-1 (a flight-backfill requeue):
+    # never re-roll an already-good perched render the viewer didn't ask about.
+    if not force1 and (ASSETS_DIR / ("%s.png" % slug)).exists():
         frac = -1.0  # sentinel: pose-1 preserved, not regenerated this run
         log.info("gen-pose1-kept slug=%s", slug)
     else:
-        frac = _gen_pose(slug, sci, com, 1, pos, anti, anti_key)
+        frac = _gen_pose(slug, sci, com, 1, pos, anti, anti_key, manual=manual)
     # POSE-2 (flight) — best-effort but RETRIED: pose-2 gen/QA is a ~50%
     # stochastic roll, so try up to POSE2_TRIES times before giving up (was one
     # shot, which left ~half of species with a flight toggle that fell back to
     # perched). A final miss is logged + swallowed — the species stays done on
     # pose-1 and /asset serves the perched fallback, never blocking the species.
-    for attempt in range(1, POSE2_TRIES + 1):
-        try:
-            f2 = _gen_pose(slug, sci, com, 2, pos, anti, anti_key)
-            log.info("gen-pose2-done slug=%s opaque=%.1f%% try=%d", slug, f2 * 100, attempt)
-            break
-        except Exception as e:  # noqa: BLE001 — pose-2 is optional, never fatal
-            log.warning("gen-pose2-miss slug=%s try=%d/%d err=%s",
-                        slug, attempt, POSE2_TRIES, e)
+    # Runs only when DIRECTED or the file is absent: the old unconditional roll
+    # would double-spend and possibly regress a good flight on every repaint.
+    if force2 or not (ASSETS_DIR / ("%s-2.png" % slug)).exists():
+        for attempt in range(1, POSE2_TRIES + 1):
+            try:
+                f2 = _gen_pose(slug, sci, com, 2, pos, anti, anti_key, manual=manual)
+                log.info("gen-pose2-done slug=%s opaque=%.1f%% try=%d", slug, f2 * 100, attempt)
+                break
+            except Exception as e:  # noqa: BLE001 — pose-2 is optional, never fatal
+                log.warning("gen-pose2-miss slug=%s try=%d/%d err=%s",
+                            slug, attempt, POSE2_TRIES, e)
+    else:
+        log.info("gen-pose2-kept slug=%s", slug)
     return frac
 
 
@@ -1064,11 +1193,12 @@ async def worker() -> None:
         # ceiling. Fail-open: a corrupt ledger reads empty, so gen keeps running.
         if MONTHLY_BUDGET_USD > 0 and await asyncio.to_thread(budget_exhausted):
             if not budget_paused:
-                spend, gens, _ = month_spend_snapshot()
+                snap = month_snapshot()
                 log.warning(
                     "budget-exhausted month_spend~=$%.2f >= budget=$%.2f gens=%d — pausing gen; "
                     "species stay queued, resume next month or on MONTHLY_BUDGET_USD raise",
-                    spend, MONTHLY_BUDGET_USD, gens,
+                    snap["spend_usd"], MONTHLY_BUDGET_USD,
+                    snap["gens"] + snap["manual_gens"],
                 )
                 budget_paused = True
             # drain _wakeup while paused so /detected still returns queued
@@ -1103,13 +1233,16 @@ async def worker() -> None:
         log.info("gen-start slug=%s attempt=%s", slug, job["attempts"])
         t0 = time.monotonic()
         try:
-            frac = await asyncio.to_thread(_generate_sync, slug, job["sci"], job["com"])
+            frac = await asyncio.to_thread(
+                _generate_sync, slug, job["sci"], job["com"],
+                job.get("regen_poses"), job.get("source") == "manual",
+            )
             await asyncio.to_thread(mark_done, slug)
-            month_spend = await asyncio.to_thread(month_spend_snapshot)
+            snap = await asyncio.to_thread(month_snapshot)
             log.info(
                 "gen-done slug=%s pose1=%s dur=%.1fs cost-estimate>=$%.3f month~=$%.2f",
                 slug, ("kept" if frac < 0 else "%.1f%%" % (frac * 100)),
-                time.monotonic() - t0, COST_PER_GEN_USD, month_spend[0],
+                time.monotonic() - t0, COST_PER_GEN_USD, snap["spend_usd"],
             )
         except Exception as e:  # noqa: BLE001 - classify + persist, never crash the worker
             fail_class = _classify(e)
@@ -1186,16 +1319,22 @@ async def health():
     # ops-only spend telemetry (ESTIMATE = count × unit cost). MUST NOT be
     # rendered on the museum frontend — honesty firewall.
     q, d = counts()
-    spend, gens, verifies = month_spend_snapshot()
+    snap = month_snapshot()
+    spend, manual_spend = snap["spend_usd"], snap["manual_spend_usd"]
     return {
         "ok": True,
+        "regen_api": 2,  # capability advert: /requeue v2 (poses/keep_current/source) + GET /job
         "queue_depth": q,
         "done_count": d,
         "month_spend_usd": round(spend, 4),
         "budget_usd": MONTHLY_BUDGET_USD,
-        "gens_this_month": gens,
-        "verifies_this_month": verifies,
+        "gens_this_month": snap["gens"],
+        "verifies_this_month": snap["verifies"],
         "budget_exhausted": (MONTHLY_BUDGET_USD > 0 and spend >= MONTHLY_BUDGET_USD),
+        "manual_gens_this_month": snap["manual_gens"],
+        "manual_verifies_this_month": snap["manual_verifies"],
+        "manual_spend_usd": round(manual_spend, 4),
+        "manual_frac": (manual_spend / spend if spend > 0 else 0.0),
     }
 
 
@@ -1282,11 +1421,21 @@ async def detected(payload: Detection, authorization: Optional[str] = Header(Non
 
 @app.post("/requeue")
 async def requeue(request: Request, authorization: Optional[str] = Header(None)):
-    """Admin reset over HTTP: delete published PNGs and reset the named slugs
-    (or, when none are given, every dead/done row) to a fresh queued state, then
-    wake the worker. Lets us wipe stale/dirty volume state after a redeploy
-    without shell access. Body {"slugs": [...]} is optional (empty => all
-    dead+done). Returns {"requeued": [...]}.  Same Bearer auth as /detected."""
+    """Admin/manual regen over HTTP (v2, contract C1). Body:
+        {"slugs": ["erithacus-rubecula"],  # REQUIRED, non-empty (422 otherwise)
+         "poses": [1] | [2] | [1,2],       # which poses to (re)generate; default [1,2]
+         "keep_current": false,            # true => NO pre-delete: the old plate keeps
+                                           #   serving and is only overwritten by a
+                                           #   QA-passing successor (never-worse)
+         "source": "auto" | "manual",      # "manual" = viewer repaint: bundled slugs
+                                           #   and over-manual-budget requests refused
+         "keep_pose1": false}              # legacy alias == poses:[2] + keep_current:true
+    Response 200: {"requeued": [...]} plus, when any slug was refused,
+    {"refused": {slug: "bundled" | "manual_budget"}} — partial acceptance.
+    Absent new fields => today's delete-first behavior, byte-identical response
+    (the SSH harness is untouched). The old empty-list fallback ("requeue every
+    dead+done row") is GONE: a LAN button reaching this endpoint made that a
+    wall-wipe footgun, so empty slugs now 422. Same Bearer auth as /detected."""
     # 0. misconfiguration -> fail loud
     if not WATCHER_WEBHOOK_SECRET:
         return JSONResponse({"error": "auth not configured"}, status_code=503)
@@ -1296,36 +1445,132 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
     if not authorization or not hmac.compare_digest(authorization, expected):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    # 2. resolve targets: explicit list (sanitized), or all dead+done rows.
+    # 2. resolve targets: an explicit, sanitized, NON-EMPTY slug list.
     try:
         body = await request.json()
     except Exception:
         body = {}
-    raw = body.get("slugs", []) if isinstance(body, dict) else []
-    requested = [s.strip() for s in raw if isinstance(s, str) and s.strip()]
-    if requested:
-        targets = [s for s in requested if _valid_slug(s)]
-    else:
-        targets = [s for s in slugs_in_states(("dead", "done")) if _valid_slug(s)]
-    # keep_pose1=true => backfill ONLY the flight pose, preserving a clean
-    # perched pose-1 (used to fill in missing/duplicate flights without re-rolling
-    # good perched renders). Combined with _generate_sync's pose-1-kept skip, the
-    # requeued run regenerates just <slug>-2.png.
-    keep_pose1 = bool(body.get("keep_pose1")) if isinstance(body, dict) else False
+    if not isinstance(body, dict):
+        body = {}
+    raw = body.get("slugs", [])
+    requested = ([s.strip() for s in raw if isinstance(s, str) and s.strip()]
+                 if isinstance(raw, list) else [])
+    targets = [s for s in requested if _valid_slug(s)]
+    if not targets:
+        return JSONResponse({"error": "empty slugs"}, status_code=422)
 
-    # 3. delete PNG + reset row + wake worker for each target.
-    requeued = []
-    for slug in targets:
-        if keep_pose1:
-            _delete_pose2(slug)
+    source = body.get("source", "auto")
+    if source not in ("auto", "manual"):
+        return JSONResponse({"error": "invalid source"}, status_code=422)
+
+    keep_current = bool(body.get("keep_current", False))
+    # keep_pose1=true is the legacy flight-backfill alias == poses:[2] +
+    # keep_current:true — the directed pose-2 forces the flight re-roll, pose-1
+    # is neither deleted nor re-rolled, and (new) the old flight keeps serving
+    # until its QA-passed successor atomically replaces it.
+    if bool(body.get("keep_pose1", False)):
+        poses = [2]
+        keep_current = True
+    else:
+        raw_poses = body.get("poses")
+        if raw_poses is None:
+            poses = [1, 2]
         else:
-            _delete_published(slug)
-        requeue_row(slug)
+            if (not isinstance(raw_poses, list) or not raw_poses
+                    or any(type(p) is not int or p not in (1, 2) for p in raw_poses)):
+                return JSONResponse({"error": "invalid poses"}, status_code=422)
+            poses = sorted(set(raw_poses))
+    regen_poses = ",".join(str(p) for p in poses)
+
+    manual = source == "manual"
+    manual_spent = manual and manual_budget_exhausted()
+
+    # 3. per-slug: manual refusals -> (delete-first unless keep_current) ->
+    #    reset row with the pose directive -> wake worker. Partial acceptance:
+    #    refused slugs are reported, accepted ones still requeue, always 200.
+    requeued: list = []
+    refused: dict = {}
+    for slug in targets:
+        if manual and slug in BUNDLED:
+            # bundled plates are served from the Pi's own tiers before the
+            # Railway proxy — regen art here would never be seen on the wall.
+            refused[slug] = "bundled"
+            continue
+        if manual_spent:
+            refused[slug] = "manual_budget"
+            continue
+        if not keep_current:
+            # legacy delete-first: a dirty plate must stop serving NOW, but only
+            # the DIRECTED poses — a single-pose re-roll never wipes a good
+            # render of the pose it wasn't asked to touch.
+            if poses == [1]:
+                _delete_pose1(slug)
+            elif poses == [2]:
+                _delete_pose2(slug)
+            else:
+                _delete_published(slug)
+        requeue_row(slug, regen_poses=regen_poses, source=source)
         if _wakeup is not None:
             try:
                 _wakeup.put_nowait(slug)
             except asyncio.QueueFull:
                 pass
         requeued.append(slug)
-    log.info("requeue: reset %d slug(s) -> queued", len(requeued))
-    return {"requeued": requeued}
+    log.info("requeue: reset %d slug(s) -> queued (poses=%s keep_current=%s source=%s refused=%d)",
+             len(requeued), regen_poses, keep_current, source, len(refused))
+    resp: dict = {"requeued": requeued}
+    if refused:
+        resp["refused"] = refused
+    return resp
+
+
+@app.get("/job/{slug}")
+async def job_status(slug: str, authorization: Optional[str] = Header(None)):
+    """Repaint poll target (contract C2). Bearer-gated like /detected — the
+    Pi's regen.php proxies it, so queue state never faces the open internet.
+    state 'unknown' = no row for that slug; asset mtimes are the swap signal
+    (a done job whose mtime advanced past the press-time stamp has landed)."""
+    if not WATCHER_WEBHOOK_SECRET:
+        return JSONResponse({"error": "auth not configured"}, status_code=503)
+    expected = "Bearer " + WATCHER_WEBHOOK_SECRET
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not _valid_slug(slug):
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    with _db_lock:
+        row = db().execute(
+            "SELECT state, attempts, next_retry, fail_reason FROM species_jobs WHERE slug=?",
+            (slug,),
+        ).fetchone()
+        q = db().execute(
+            "SELECT COUNT(*) FROM species_jobs WHERE state='queued'"
+        ).fetchone()[0]
+    if row:
+        state, attempts, next_retry, fail_reason = row
+        if state not in ("queued", "generating", "done", "dead"):
+            state = "unknown"
+    else:
+        state, attempts, next_retry, fail_reason = "unknown", 0, 0, None
+
+    def _mtime(name: str) -> Optional[float]:
+        try:
+            return (ASSETS_DIR / name).stat().st_mtime
+        except OSError:
+            return None
+
+    snap = month_snapshot()
+    return {
+        "slug": slug,
+        "state": state,
+        "attempts": int(attempts or 0),
+        "next_retry": float(next_retry or 0),
+        "fail_reason": fail_reason,
+        "asset_mtime": _mtime("%s.png" % slug),
+        "asset2_mtime": _mtime("%s-2.png" % slug),
+        "budget_exhausted": (MONTHLY_BUDGET_USD > 0
+                             and snap["spend_usd"] >= MONTHLY_BUDGET_USD),
+        "manual_paused": (MANUAL_BUDGET_USD > 0
+                          and snap["manual_spend_usd"] >= MANUAL_BUDGET_USD),
+        "queue_depth": q,
+    }
