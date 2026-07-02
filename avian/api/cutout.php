@@ -54,7 +54,27 @@ if (!empty($_GET['sil']) || !empty($_GET['fb'])) {
 // Serve a PNG file. $real marks whether these are genuine species bytes
 // (X-Av-Real:1) or an intentional placeholder/substitute (X-Av-Real:0). The
 // modal's pose probe reads X-Av-Real to decide which pose toggles are real.
-function serve_png(string $path, int $maxAge = 86400, bool $real = true): void {
+//
+// Cache contract: short max-age + an mtime/size ETag. Real art used to ship
+// max-age=86400, so a REGENERATED plate (Railway re-painting a species) kept
+// serving stale from every warm browser for a day — the mutilated gull
+// outlived its own fix. Now browsers revalidate every 10 min and get a tiny
+// 304 (no body) while the file is unchanged, so a regen propagates to every
+// viewer — kiosk frame included — within minutes, with near-zero Pi cost.
+function serve_png(string $path, int $maxAge = 600, bool $real = true): void {
+    $st = @stat($path);
+    if ($st !== false) {
+        $etag = sprintf('"%x-%x"', $st['mtime'], $st['size']);
+        header('ETag: ' . $etag);
+        $inm = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
+        // Tolerant compare: handles W/-weak forms and multi-ETag lists.
+        if ($inm !== '' && strpos($inm, $etag) !== false) {
+            header('X-Av-Real: ' . ($real ? '1' : '0'));
+            header('Cache-Control: public, max-age=' . $maxAge);
+            http_response_code(304);
+            exit;
+        }
+    }
     header('X-Av-Real: ' . ($real ? '1' : '0'));
     header('Content-Type: image/png');
     header('Cache-Control: public, max-age=' . $maxAge);
@@ -151,7 +171,7 @@ if (is_file($bundled) && filesize($bundled) > 1024) {
 if ($pose !== 1) {
     $fallback = dirname(__DIR__) . "/assets/illustrations/$slug.png";
     if (is_file($fallback) && filesize($fallback) > 1024) {
-        serve_png($fallback, 86400, false);
+        serve_png($fallback, 600, false);
     }
 }
 // 2. Bundled cutout (background-removed photo, fallback for species
@@ -170,7 +190,7 @@ if (is_file($cutout) && filesize($cutout) > 1024) {
 $cacheDir = dirname(__DIR__, 3) . '/BirdSongs/Extracted/cutouts';
 $cachePath = "$cacheDir/$slug.png";
 if (is_file($cachePath) && filesize($cachePath) > 1024) {
-    serve_png($cachePath, 86400, $pose === 1);
+    serve_png($cachePath, 600, $pose === 1);
 }
 
 // 4. Auto-gen watcher (Railway). When AV_RAILWAY_ASSET_BASE is set, PROXY the
@@ -215,13 +235,13 @@ if ($railwayBase) {
         if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
         $tmp = $cachePath . '.tmp' . getmypid();
         if (@file_put_contents($tmp, $bytes) !== false && @rename($tmp, $cachePath)) {
-            serve_png($cachePath, 86400, $isReal);  // cached: instant on every future hit
+            serve_png($cachePath, 600, $isReal);  // cached: instant on every future hit
         }
         @unlink($tmp);
         // Cache write failed (read-only FS) - still stream the real bytes.
         header('X-Av-Real: ' . ($isReal ? '1' : '0'));
         header('Content-Type: image/png');
-        header('Cache-Control: public, max-age=86400');
+        header('Cache-Control: public, max-age=600');
         header('Content-Length: ' . (string)strlen($bytes));
         echo $bytes;
         exit;
