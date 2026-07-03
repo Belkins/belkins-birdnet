@@ -62,13 +62,18 @@ if (!empty($_GET['sil']) || !empty($_GET['fb'])) {
 // X-Av-Sub:1) as distinct from a placeholder - the frontend resolves a
 // substitute immediately instead of treating it as "still generating".
 //
-// Cache contract: short max-age + an mtime/size ETag. Real art used to ship
-// max-age=86400, so a REGENERATED plate (Railway re-painting a species) kept
-// serving stale from every warm browser for a day — the mutilated gull
-// outlived its own fix. Now browsers revalidate every 10 min and get a tiny
-// 304 (no body) while the file is unchanged, so a regen propagates to every
-// viewer — kiosk frame included — within minutes, with near-zero Pi cost.
+// Cache contract: an mtime/size ETag + REVALIDATION. Real art used to ship
+// max-age=86400 (stale for a DAY after a repaint — the mutilated gull outlived
+// its own fix), then max-age=600 (stale for up to 10 MIN — why every feet-fix
+// this session looked like "still the same": the browser reused its cached
+// plate for 10 min and a normal reload never asked the Pi). Real art now ships
+// `no-cache`: the browser revalidates on EVERY load and gets a tiny header-only
+// 304 while the file is unchanged, so a REGENERATED plate shows on the very
+// next reload — no hard-refresh, no 10-min wait — at near-zero Pi cost.
+// Placeholders/substitutes keep a short max-age (they self-clear fast and a
+// brief stale silhouette is harmless).
 function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub = false): void {
+    $cc = $real ? 'no-cache' : ('public, max-age=' . $maxAge);
     $st = @stat($path);
     if ($st !== false) {
         $etag = sprintf('"%x-%x"', $st['mtime'], $st['size']);
@@ -78,7 +83,7 @@ function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub
         if ($inm !== '' && strpos($inm, $etag) !== false) {
             header('X-Av-Real: ' . ($real ? '1' : '0'));
             if ($sub) header('X-Av-Sub: 1');
-            header('Cache-Control: public, max-age=' . $maxAge);
+            header('Cache-Control: ' . $cc);
             http_response_code(304);
             exit;
         }
@@ -86,7 +91,7 @@ function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub
     header('X-Av-Real: ' . ($real ? '1' : '0'));
     if ($sub) header('X-Av-Sub: 1');
     header('Content-Type: image/png');
-    header('Cache-Control: public, max-age=' . $maxAge);
+    header('Cache-Control: ' . $cc);
     header('Content-Length: ' . (string)filesize($path));
     readfile($path);
     exit;
