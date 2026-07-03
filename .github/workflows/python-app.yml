@@ -28,6 +28,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install flake8 pytest
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # birdgen is a self-contained microservice with its own deps; its
+        # FastAPI TestClient additionally needs httpx. Installed here so the
+        # birdgen suite (run scoped to its dir below) can import + exercise app.
+        pip install -r services/birdgen/requirements.txt httpx
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
@@ -36,4 +40,11 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --statistics
     - name: Test with pytest
       run: |
-        pytest
+        # This repo hosts three independent components, each shipping its OWN
+        # tests/ package meant to run from its own directory. A single root
+        # `pytest` collects three like-named `tests` packages (which collide:
+        # "No module named 'tests.test_analysis'") and mixes incompatible deps,
+        # so each suite is run scoped to its directory instead.
+        python -m pytest tests/                       # stock BirdNET-Pi (root requirements)
+        (cd avian/catalog && python -m pytest tests/) # christina catalog builder (stdlib)
+        (cd services/birdgen && python -m pytest tests/)  # birdgen microservice (own deps)
