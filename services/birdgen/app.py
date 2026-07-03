@@ -906,6 +906,7 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
 CLEAN_SOLID_T = int(os.environ.get("CLEAN_SOLID_T", "140"))       # alpha >= this = confident body/leg/tail ink
 CLEAN_HALO_FRAC = float(os.environ.get("CLEAN_HALO_FRAC", "0.010"))  # keep-halo radius as a fraction of the long edge
 CLEAN_MIN_CORE_FRAC = float(os.environ.get("CLEAN_MIN_CORE_FRAC", "0.002"))  # min solid component to keep (drops specks)
+CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.10"))  # a DETACHED solid component smaller than this fraction of the body is a defect (dangling feet / ghost leg) -> dropped
 
 
 def clean_alpha(cut_path: str) -> Optional[str]:
@@ -919,12 +920,10 @@ def clean_alpha(cut_path: str) -> Optional[str]:
     apx = list(A.getdata())
     on = CLEAN_SOLID_T
     core = [1 if v >= on else 0 for v in apx]
-    # Connected components of the SOLID core (legs/toes at full ink ARE solid);
-    # keep components >= CLEAN_MIN_CORE_FRAC of the frame — the bird + its
-    # attached extremities survive, tiny solid specks don't.
+    # Connected components of the SOLID core (legs/toes at full ink ARE solid).
     seen = bytearray(n)
-    keepcore = bytearray(n)
     min_sz = max(1, int(CLEAN_MIN_CORE_FRAC * n))
+    comps = []  # (size, indices) for every solid component >= min_sz
     for start in range(n):
         if core[start] and not seen[start]:
             comp = []
@@ -943,15 +942,36 @@ def clean_alpha(cut_path: str) -> Optional[str]:
                 if i < n - w and core[i + w] and not seen[i + w]:
                     seen[i + w] = 1; dq.append(i + w)
             if len(comp) >= min_sz:
-                for i in comp:
-                    keepcore[i] = 1
-    if not any(keepcore):
+                comps.append((len(comp), comp))
+    if not comps:
         return None  # nothing confident to keep — leave the plate untouched
+    # The bird is ONE connected silhouette = the largest solid component. Keep it,
+    # plus its attached extremities. A SECOND solid component that both (a) sits
+    # beyond a hairline reach of the body AND (b) is small relative to it is a
+    # render defect — dangling detached feet, a doubled ghost leg, a floating
+    # fragment — NOT an extremity. Drop it. (A large second region, or one hugging
+    # the body through a chromakey nick the halo would rejoin, is kept.) This is
+    # what removes the talons Gemini paints floating below a flight bird's belly.
+    comps.sort(key=lambda c: c[0], reverse=True)
+    body_sz, body_idx = comps[0]
+    keepcore = bytearray(n)
+    for i in body_idx:
+        keepcore[i] = 1
+    r = max(2, int(CLEAN_HALO_FRAC * max(w, h)))
+    if len(comps) > 1:
+        bodymask = Image.frombytes("L", (w, h),
+                                   bytes(255 if b else 0 for b in keepcore))
+        reachpx = bodymask.filter(ImageFilter.MaxFilter(4 * r + 1)).load()  # ~2r each side
+        for sz, idx in comps[1:]:
+            if sz >= CLEAN_SATELLITE_MAX_FRAC * body_sz or \
+                    any(reachpx[i % w, i // w] for i in idx):
+                for i in idx:
+                    keepcore[i] = 1
+            # else: detached satellite -> left out of keepcore (dropped)
     coreim = Image.frombytes("L", (w, h), bytes(255 if b else 0 for b in keepcore))
     # A tight halo around the kept core: preserves the bird's OWN anti-aliased
     # edge and its connected legs/tail, but excludes DETACHED faint ghosts
     # sitting beyond the halo.
-    r = max(2, int(CLEAN_HALO_FRAC * max(w, h)))
     halo = coreim.filter(ImageFilter.MaxFilter(2 * r + 1))
     # Final alpha: original inside the halo, zero outside (C op, no pixel loop).
     black = Image.new("L", (w, h), 0)

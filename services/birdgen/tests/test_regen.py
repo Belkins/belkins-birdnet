@@ -418,3 +418,67 @@ def test_health_advertises_regen_api_and_manual_split(client):
     for k in ("manual_gens_this_month", "manual_verifies_this_month",
               "manual_spend_usd", "manual_frac"):
         assert k in body, "missing manual telemetry key: %s" % k
+
+
+# --------------------------------------------------------------------------- #
+# clean_alpha detached-satellite drop — the "floating feet" fix
+#
+# A bird cutout is ONE connected silhouette. A second solid component that is
+# both small relative to the body AND separated from it by a real gap is a
+# render defect (talons Gemini paints floating below a flight bird's belly, a
+# doubled ghost leg) and must be removed WITHOUT touching the bird. A genuinely
+# attached extremity (a leg a hairline gap from the body) must survive.
+# --------------------------------------------------------------------------- #
+from PIL import Image, ImageDraw  # noqa: E402
+
+
+def _plate(w, h, boxes):
+    """An RGBA plate with solid dark ink filling each (x0,y0,x1,y1) box."""
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for b in boxes:
+        d.rectangle(list(b), fill=(20, 20, 20, 255))
+    return im
+
+
+def test_clean_alpha_drops_detached_satellite_keeps_body(tmp_path):
+    """The regression: a small solid blob far below the body (the floating
+    talons) is removed; the body stays fully opaque."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)        # ~83k px — the bird
+    feet = (470, 330, 505, 365)      # ~1.5% of body, ~110px away — floating talons
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, feet]).save(p)
+
+    note = app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "the body must survive untouched"
+    assert A[487, 347] == 0, "the detached satellite (floating feet) must be removed"
+    assert note and "detached" in note, "note should report a detached-pixel removal"
+
+
+def test_clean_alpha_keeps_a_hairline_detached_extremity(tmp_path):
+    """A leg-like blob a few px from the body (a chromakey nick, not a defect)
+    is within reach and must be preserved — the drop is for FAR satellites."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)
+    leg = (150, 308, 190, 348)       # 8px below the body — within the keep-reach
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, leg]).save(p)
+
+    app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[170, 328] >= 200, "a near (attached) extremity must NOT be dropped"
+
+
+def test_clean_alpha_preserves_a_clean_single_component_plate(tmp_path):
+    """No second component -> the satellite logic is a no-op: the body is kept
+    and nothing is invented outside it."""
+    w, h = 600, 400
+    p = tmp_path / "cut.png"
+    _plate(w, h, [(40, 40, 360, 300)]).save(p)
+
+    app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "clean body must remain opaque"
+    assert A[500, 350] == 0, "empty space stays empty"
