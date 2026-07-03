@@ -61,7 +61,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
@@ -896,6 +896,80 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
     return "scrubbed islands=%.3f of frame" % (sum(erase) / float(w * h))
 
 
+# Edge cleanup: the chromakey feather leaves a thin semi-transparent fringe
+# around the whole silhouette. On a broad body it's invisible, but on THIN
+# extremities (tail tips, toes, legs) that same-width fuzzy band is a large
+# fraction of the feature, so it reads as frayed / torn / "ripped". Faint
+# semi-transparent ghost fragments (a keyed-away second leg, a reflection
+# remnant) also survive under the island scrub's connectivity. This pass
+# hardens the edge and drops detached faint bits — WITHOUT re-rolling the art.
+CLEAN_SOLID_T = int(os.environ.get("CLEAN_SOLID_T", "140"))       # alpha >= this = confident body/leg/tail ink
+CLEAN_HALO_FRAC = float(os.environ.get("CLEAN_HALO_FRAC", "0.010"))  # keep-halo radius as a fraction of the long edge
+CLEAN_MIN_CORE_FRAC = float(os.environ.get("CLEAN_MIN_CORE_FRAC", "0.002"))  # min solid component to keep (drops specks)
+
+
+def clean_alpha(cut_path: str) -> Optional[str]:
+    """Harden thin-feature edges + drop detached faint ghosts on a published
+    RGBA cutout, preserving the art. Deterministic, Pillow-only. Returns a note
+    or None. Safe to re-run (idempotent-ish: a clean plate barely changes)."""
+    im = Image.open(cut_path).convert("RGBA")
+    w, h = im.size
+    n = w * h
+    A = im.getchannel("A")
+    apx = list(A.getdata())
+    on = CLEAN_SOLID_T
+    core = [1 if v >= on else 0 for v in apx]
+    # Connected components of the SOLID core (legs/toes at full ink ARE solid);
+    # keep components >= CLEAN_MIN_CORE_FRAC of the frame — the bird + its
+    # attached extremities survive, tiny solid specks don't.
+    seen = bytearray(n)
+    keepcore = bytearray(n)
+    min_sz = max(1, int(CLEAN_MIN_CORE_FRAC * n))
+    for start in range(n):
+        if core[start] and not seen[start]:
+            comp = []
+            dq = deque((start,))
+            seen[start] = 1
+            while dq:
+                i = dq.popleft()
+                comp.append(i)
+                x = i % w
+                if x > 0 and core[i - 1] and not seen[i - 1]:
+                    seen[i - 1] = 1; dq.append(i - 1)
+                if x < w - 1 and core[i + 1] and not seen[i + 1]:
+                    seen[i + 1] = 1; dq.append(i + 1)
+                if i >= w and core[i - w] and not seen[i - w]:
+                    seen[i - w] = 1; dq.append(i - w)
+                if i < n - w and core[i + w] and not seen[i + w]:
+                    seen[i + w] = 1; dq.append(i + w)
+            if len(comp) >= min_sz:
+                for i in comp:
+                    keepcore[i] = 1
+    if not any(keepcore):
+        return None  # nothing confident to keep — leave the plate untouched
+    coreim = Image.frombytes("L", (w, h), bytes(255 if b else 0 for b in keepcore))
+    # A tight halo around the kept core: preserves the bird's OWN anti-aliased
+    # edge and its connected legs/tail, but excludes DETACHED faint ghosts
+    # sitting beyond the halo.
+    r = max(2, int(CLEAN_HALO_FRAC * max(w, h)))
+    halo = coreim.filter(ImageFilter.MaxFilter(2 * r + 1))
+    # Final alpha: original inside the halo, zero outside (C op, no pixel loop).
+    black = Image.new("L", (w, h), 0)
+    masked = Image.composite(A, black, halo)
+    # The meaningful cleanup number: opaque pixels the halo removed (detached
+    # ghosts / fuzz beyond the core) — measured BEFORE the feather re-adds soft
+    # edge pixels, so it honestly reflects what was cut, not the net count.
+    before = sum(1 for v in apx if v > QA_ALPHA_ON)
+    after_mask = sum(1 for v in masked.getdata() if v > QA_ALPHA_ON)
+    dropped = (before - after_mask) / float(before) if before else 0.0
+    # Smooth ragged notches (a morphological close) then a clean 0.6px feather.
+    out = masked.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+    out = out.filter(ImageFilter.GaussianBlur(0.6))
+    im.putalpha(out)
+    im.save(cut_path)
+    return "cleaned edge (removed %.3f detached, halo=%dpx)" % (dropped, r)
+
+
 def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
                manual: bool = False, protect_existing: bool = False) -> None:
     """Adversarial ID/anatomy gate (AV_VERIFY on). One Gemini-Vision call via
@@ -1042,6 +1116,11 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             if AV_VERIFY:
                 _qa_verify(slug, sci, com, pose, tmp_cut, manual=manual,
                            protect_existing=protect_existing)
+            # Edge cleanup: harden thin-feature edges + drop faint ghosts so the
+            # published plate is clean and whole (no frayed/ripped tails or toes).
+            clean_note = clean_alpha(str(tmp_cut))
+            if clean_note:
+                log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
             # Never-worse insurance: archive the outgoing plate to the _prev/
             # SUBDIRECTORY (ring-of-1 — each publish overwrites the previous
             # archive) before replacing it. A sibling "<slug>.prev.png" would
@@ -1521,6 +1600,80 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
     resp: dict = {"requeued": requeued}
     if refused:
         resp["refused"] = refused
+    return resp
+
+
+@app.post("/reclean")
+async def reclean(request: Request, authorization: Optional[str] = Header(None)):
+    """Re-run the edge cleanup over ALREADY-PUBLISHED plates — no Gemini call,
+    no ledger cost, the SAME art. Fixes frayed/ripped thin features and faint
+    ghosts that predate the cleanup step, without a stochastic re-roll. Body:
+    {"slugs": [...], "poses": [1]|[2]|[1,2] (default [1,2])}. Bearer auth.
+    Atomic + never-worse: each plate is archived to _prev/ and only overwritten
+    when the cleaned version writes successfully."""
+    if not WATCHER_WEBHOOK_SECRET:
+        return JSONResponse({"error": "auth not configured"}, status_code=503)
+    expected = "Bearer " + WATCHER_WEBHOOK_SECRET
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    raw = body.get("slugs", [])
+    targets = ([s.strip() for s in raw if isinstance(s, str) and _valid_slug(s.strip())]
+               if isinstance(raw, list) else [])
+    if not targets:
+        return JSONResponse({"error": "empty slugs"}, status_code=422)
+    raw_poses = body.get("poses")
+    if raw_poses is None:
+        poses = [1, 2]
+    elif (isinstance(raw_poses, list) and raw_poses
+          and all(type(p) is int and p in (1, 2) for p in raw_poses)):
+        poses = sorted(set(raw_poses))
+    else:
+        return JSONResponse({"error": "invalid poses"}, status_code=422)
+
+    recleaned: list = []
+    skipped: dict = {}
+    for slug in targets:
+        for pose in poses:
+            name = "%s.png" % slug if pose == 1 else "%s-%d.png" % (slug, pose)
+            out_path = ASSETS_DIR / name
+            key = "%s#%d" % (slug, pose)
+            if not out_path.exists():
+                skipped[key] = "absent"
+                continue
+            tmp = ASSETS_DIR / (".%s.clean.png" % name)
+            try:
+                shutil.copy2(str(out_path), str(tmp))
+                note = clean_alpha(str(tmp))
+                if note is None:
+                    skipped[key] = "nothing-to-clean"
+                    os.unlink(str(tmp))
+                    continue
+                # never-worse: archive the current plate, then atomic swap.
+                prev_dir = ASSETS_DIR / "_prev"
+                prev_dir.mkdir(parents=True, exist_ok=True)
+                tprev = prev_dir / (".%s.tmp" % name)
+                shutil.copy2(str(out_path), str(tprev))
+                os.replace(str(tprev), str(prev_dir / name))
+                os.replace(str(tmp), str(out_path))
+                log.info("reclean slug=%s pose=%d %s", slug, pose, note)
+                recleaned.append(key)
+            except OSError as e:
+                skipped[key] = "error"
+                log.warning("reclean failed slug=%s pose=%d: %s", slug, pose, e)
+                try:
+                    if tmp.exists():
+                        os.unlink(str(tmp))
+                except OSError:
+                    pass
+    resp: dict = {"recleaned": recleaned}
+    if skipped:
+        resp["skipped"] = skipped
     return resp
 
 
