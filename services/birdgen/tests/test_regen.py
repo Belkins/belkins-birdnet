@@ -471,6 +471,31 @@ def test_clean_alpha_keeps_a_hairline_detached_extremity(tmp_path):
     assert A[170, 328] >= 200, "a near (attached) extremity must NOT be dropped"
 
 
+def test_clean_alpha_tuck_drops_even_a_near_attached_foot(tmp_path):
+    """tuck=True keeps ONLY the body — a near (within-reach) foot component that
+    the default keeps is dropped, leaving a clean rounded belly. This is the
+    'tucked feet' fix for a bird Gemini won't stop drawing an awkward leg on."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)
+    foot = (150, 306, 190, 340)      # a small foot 6px below the body (within reach)
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, foot]).save(p)
+
+    # default: the near foot survives (it's an attached extremity)
+    _plate(w, h, [body, foot]).save(p)
+    app.clean_alpha(str(p), tuck=False)
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[170, 322] >= 200, "default clean_alpha must keep a near extremity"
+
+    # tuck: the foot is dropped, the body stays
+    _plate(w, h, [body, foot]).save(p)
+    note = app.clean_alpha(str(p), tuck=True)
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "tuck must keep the body"
+    assert A[170, 322] == 0, "tuck must drop the near foot (tucked belly)"
+    assert note and "tucked" in note
+
+
 def test_clean_alpha_preserves_a_clean_single_component_plate(tmp_path):
     """No second component -> the satellite logic is a no-op: the body is kept
     and nothing is invented outside it."""

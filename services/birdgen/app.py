@@ -909,10 +909,17 @@ CLEAN_MIN_CORE_FRAC = float(os.environ.get("CLEAN_MIN_CORE_FRAC", "0.002"))  # m
 CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.10"))  # a DETACHED solid component smaller than this fraction of the body is a defect (dangling feet / ghost leg) -> dropped
 
 
-def clean_alpha(cut_path: str) -> Optional[str]:
+def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
     """Harden thin-feature edges + drop detached faint ghosts on a published
     RGBA cutout, preserving the art. Deterministic, Pillow-only. Returns a note
-    or None. Safe to re-run (idempotent-ish: a clean plate barely changes)."""
+    or None. Safe to re-run (idempotent-ish: a clean plate barely changes).
+
+    tuck=True keeps ONLY the largest solid component (drops EVERY other one,
+    even a near-attached extremity): the "tucked feet" cleanup for a bird whose
+    only defect is an awkward thin dangling leg/foot Gemini won't stop drawing —
+    it leaves a clean rounded belly (the classic compact resting pose). Opt-in
+    per call (never the default), so a real connected foot is only removed when
+    a caller explicitly asks for a slug."""
     im = Image.open(cut_path).convert("RGBA")
     w, h = im.size
     n = w * h
@@ -958,7 +965,7 @@ def clean_alpha(cut_path: str) -> Optional[str]:
     for i in body_idx:
         keepcore[i] = 1
     r = max(2, int(CLEAN_HALO_FRAC * max(w, h)))
-    if len(comps) > 1:
+    if len(comps) > 1 and not tuck:
         bodymask = Image.frombytes("L", (w, h),
                                    bytes(255 if b else 0 for b in keepcore))
         reachpx = bodymask.filter(ImageFilter.MaxFilter(4 * r + 1)).load()  # ~2r each side
@@ -987,7 +994,8 @@ def clean_alpha(cut_path: str) -> Optional[str]:
     out = out.filter(ImageFilter.GaussianBlur(0.6))
     im.putalpha(out)
     im.save(cut_path)
-    return "cleaned edge (removed %.3f detached, halo=%dpx)" % (dropped, r)
+    kind = "tucked (kept body only)" if tuck else "detached"
+    return "cleaned edge (removed %.3f %s, halo=%dpx)" % (dropped, kind, r)
 
 
 def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
@@ -1655,6 +1663,9 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
         poses = sorted(set(raw_poses))
     else:
         return JSONResponse({"error": "invalid poses"}, status_code=422)
+    # tuck=True keeps ONLY the body (drops even a near-attached foot) — the
+    # "tucked feet / clean rounded belly" cleanup for the passed slugs only.
+    tuck = body.get("tuck") is True
 
     recleaned: list = []
     skipped: dict = {}
@@ -1669,7 +1680,7 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
             tmp = ASSETS_DIR / (".%s.clean.png" % name)
             try:
                 shutil.copy2(str(out_path), str(tmp))
-                note = clean_alpha(str(tmp))
+                note = clean_alpha(str(tmp), tuck=tuck)
                 if note is None:
                     skipped[key] = "nothing-to-clean"
                     os.unlink(str(tmp))
