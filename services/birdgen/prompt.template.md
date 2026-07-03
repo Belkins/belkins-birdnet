@@ -45,14 +45,14 @@ Treat IMAGE 1 for anatomy and color information ONLY. If IMAGE 3 is attached, tr
 
 ### Feet
 
-- BOTH FEET visible at the bottom of the body.
+- BOTH legs and BOTH feet fully visible at the bottom of the body, and COMPLETE: each leg is an unbroken dark ink stroke (the tarsus) that visibly CONNECTS the belly feathers down to a planted foot. NEVER a floating foot, NEVER a single thin dangling line, NEVER a gap between belly and leg, NEVER a curled hook hanging in empty space.
 - Songbird feet are SMALL relative to the body. Tarsi (legs below the feathers) are roughly 10-15% of body height for finches/sparrows/warblers/chickadees, 15-20% for jays/thrushes/mockingbirds. For larger birds (ducks, hawks, owls), match the proportion in the reference photo - typically still under 25%.
 - Draw slim tarsi, small delicate toes. Do NOT exaggerate feet or claws; the bird is not a chicken or a crab.
 - Match foot proportion to the attached reference photo.
 
 ### Pose
 
-- PERCHED (pose 1): one wing folded against the body, the other tucked behind. Both feet visible at the bottom, toes curled gently forward as if grasping a thin perch - but the perch itself is NOT drawn. The bird floats in space, posture suggesting it's perched.
+- PERCHED (pose 1): one wing folded against the body, the other tucked behind. The bird STANDS UPRIGHT AT REST on both legs, both feet planted flat and level at the very bottom of the bird as if standing on a flat twig, toes relaxed (a few forward, one back) - NOT clenched, NOT grasping. Draw the two legs as short, straight, confident dark strokes descending from the belly to the two planted feet, clearly connecting body to feet with NO gap. The twig/perch itself is NOT drawn (no branch, no line, no substrate) - the bird simply stands, feet level, as if on an invisible flat surface. The bird is a COMPLETE, WHOLE, grounded bird: do NOT let it float legless above empty space, and do NOT leave a single thin dangling stroke where the legs should be.
 - IN FLIGHT (pose 2): both wings fully extended in a natural flapping position. Legs and feet either (a) tucked tight against the belly with toes folded out of sight, or (b) extended straight back along the line of the tail. Do NOT dangle the feet below the body with toes splayed.
 
 ### Output

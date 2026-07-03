@@ -150,6 +150,13 @@ MANIFEST_PATH = HERE / "manifest.json"
 # style lock). Anti-refs are still NOT bundled; if an anti dir is mounted they
 # are used, otherwise gen_one degrades gracefully (these args are optional).
 FETCH_REFS = os.environ.get("FETCH_REFS", "1") not in ("0", "false", "False", "")
+# Species whose cached Wikipedia anatomy ref anchors a legless plump crouch that
+# Gemini copies over EVERY text instruction (the European Robin — 6+ escalating
+# prompt/note attempts all footless): skip the positive ref for these so the leggy
+# house-style plate + the species-note DIAGNOSTICS drive a standing, legged pose
+# instead of an anatomically-matched plump crouch. Per-species opt-in only.
+NO_POSITIVE_REF_SLUGS = set(
+    s.strip() for s in os.environ.get("NO_POSITIVE_REF_SLUGS", "erithacus-rubecula").split(",") if s.strip())
 REFS_DIR = Path(os.environ.get("REFS_DIR", str(ASSETS_DIR / "_refs")))
 ANTI_DIR = Path(os.environ.get("ANTI_DIR", str(REFS_DIR)))
 _styles = os.environ.get("AV_STYLES_DIR", str(HERE / "styles"))
@@ -668,12 +675,14 @@ def _resolve_species_refs(slug: str, sci: str, com: str):
     fetched + cached on the volume; the anti-ref (lookalike) only if a dir is
     mounted. All optional — gen_one degrades gracefully when any is None."""
     pos = None
-    if FETCH_REFS:
+    if FETCH_REFS and slug not in NO_POSITIVE_REF_SLUGS:
         try:
             pos = pregen.ensure_reference(REFS_DIR, slug, sci, com)
         except Exception as e:
             log.warning("ref fetch failed slug=%s err=%s", slug, e)
             pos = None
+    elif slug in NO_POSITIVE_REF_SLUGS:
+        log.info("skip positive ref slug=%s (legless-crouch anchor)", slug)
     anti = None
     anti_key = pregen.select_anti_ref_key(sci)
     if anti_key:
