@@ -174,6 +174,14 @@ echo "   collage:   $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/co
 echo "   /events:   $(curl -s -N --max-time 3 http://127.0.0.1/events | head -1)"
 echo "   catalog:   $(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null || echo 0) species in christina.db"
 [ -n "$RAILWAY_BASE" ] && echo "   forwarder: $(systemctl is-active forwarder)"
+# Serving-chain smoke (pipeline-hardening P0): prove headers + cache contract
+# on one plate through the REAL cutout path. Warn-only — a transient probe
+# flake must not fail an otherwise-good deploy (open question in the plan).
+if [ -x "$HERE/scripts/verify.sh" ]; then
+  echo "   serving:"
+  AV_PI_BASE=http://127.0.0.1 bash "$HERE/scripts/verify.sh" erithacus-rubecula 1 2>&1 | sed 's/^/     /' \
+    || warn "verify.sh smoke flagged a serving problem (see above) — deploy completed, but eyeball the wall"
+fi
 echo
 echo "============================================================"
 echo " Christina deployed. Open  http://$(hostname).local/collage"

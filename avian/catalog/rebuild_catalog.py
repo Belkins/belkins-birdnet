@@ -35,7 +35,9 @@ import urllib.request
 
 # ---- locked constants ------------------------------------------------------
 
-# Matches the forwarder's confident-detection threshold.
+# The catalog's own confident-DETECTION bar for derived stats. Independent of
+# the paint gate: the forwarder/birdgen pair moved to 0.70 in 987d9da, so this
+# deliberately no longer matches it.
 CONFIDENT_THRESHOLD = 0.80
 
 SCHEMA_VERSION = "1"

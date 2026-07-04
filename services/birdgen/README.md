@@ -24,7 +24,7 @@ forwarder.
 - In-memory token-bucket rate-limit (else `429`).
 - Body: `{"sci":"Apus apus","com":"Common Swift","slug":"apus-apus","conf":0.93}`
   (extra fields like `v`/`type`/`cursor` are accepted and ignored).
-- `conf < 0.80` → `{"status":"low_confidence"}`.
+- `conf < CONF_THRESHOLD` (default `0.70`) → `{"status":"low_confidence"}`.
 - Dedup against the authoritative SQLite terminal state on the volume:
   - already generated/`done` → `{"status":"cached"}`
   - `queued`/`generating` → `{"status":"in_progress"}`
@@ -52,7 +52,7 @@ forwarder.
 |---|---|---|---|
 | `GEMINI_API_KEY` | **yes** | — | paid Gemini key; sent via `x-goog-api-key` header, **never logged** |
 | `WATCHER_WEBHOOK_SECRET` | **yes** | — | Bearer secret the Pi holds; low-value, rotatable |
-| `CONF_THRESHOLD` | no | `0.80` | confidence gate |
+| `CONF_THRESHOLD` | no | `0.70` | confidence gate (`app.py` is the source of truth — a stricter pair here strands 0.70-0.79 birds, the 987d9da regression) |
 | `MIN_SPACING` | no | `6` | seconds between Gemini calls |
 | `MAX_ATTEMPTS` | no | `4` | consecutive fails → dead |
 | `QA_MIN_FRAC` / `QA_MAX_FRAC` | no | `0.015` / `0.75` | creamkey opaque-fraction QA band |

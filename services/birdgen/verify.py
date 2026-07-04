@@ -29,9 +29,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Vision model for the adversarial verify gate. Env-overridable like
+# pregen's AV_GEN_MODEL: verify_one fails OPEN on error, so a deprecated model
+# id here silently disarms the gate — bump AV_VERIFY_MODEL on Railway instead
+# of redeploying (and watch /health's verify_fail_open_since_boot).
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    # `or` so a BLANK Railway variable falls back too (a blank here would 404
+    # every verify call -> the gate fails open on every render, silently).
+    "%s:generateContent" % (os.environ.get("AV_VERIFY_MODEL") or "gemini-2.5-flash")
 )
 
 VERIFY_PROMPT = """You are a rigorous ornithologist examining a stylized kachō-e woodblock-style bird illustration. The bird in the image is intended to be a {target_com} ({target_sci}).

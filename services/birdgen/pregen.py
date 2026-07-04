@@ -65,11 +65,16 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-# Gemini's image-out model. The endpoint changes occasionally; if you
-# get a 404 here, check Google's model catalog and bump this.
+# Gemini's image-out model. The endpoint changes occasionally; if you get a
+# 404 here, check Google's model catalog and bump AV_GEN_MODEL — an env var so
+# a deprecation is a Railway variable flip, not a redeploy. (On deprecation the
+# 404 classifies as 'transient' and every species retries forever, looking
+# exactly like normal backoff — watch /health's queue_depth vs done_count.)
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash-image:generateContent"
+    # `or` (not a .get default) so a BLANK Railway variable — the easy UI slip —
+    # also falls back instead of building the bricked "models/:generateContent".
+    "%s:generateContent" % (os.environ.get("AV_GEN_MODEL") or "gemini-2.5-flash-image")
 )
 POSES = {1: "perched", 2: "in flight with wings spread"}
 

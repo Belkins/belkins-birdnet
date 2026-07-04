@@ -16,6 +16,7 @@ Run from ``services/birdgen/``:
 import json
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -507,3 +508,75 @@ def test_clean_alpha_preserves_a_clean_single_component_plate(tmp_path):
     A = Image.open(p).convert("RGBA").getchannel("A").load()
     assert A[200, 170] >= 200, "clean body must remain opaque"
     assert A[500, 350] == 0, "empty space stays empty"
+
+
+# --------------------------------------------------------------------------- #
+# TUCK_SLUGS registry — a tuck fix must survive regens/recleans, not live only
+# in the operator's memory of a one-off /reclean {tuck:true} call.
+# --------------------------------------------------------------------------- #
+def test_tuck_slugs_applies_tuck_on_regen_publish_perched_only(monkeypatch):
+    """A TUCK_SLUGS species gets clean_alpha(tuck=True) on its PERCHED plate on
+    EVERY publish — and tuck=False on flight (pose-2 keeps the satellite-drop
+    path). Without the registry the next repaint resurrects the dangling leg."""
+    calls = []
+    real_clean = app.clean_alpha
+
+    def spy(path, tuck=False):
+        calls.append(tuck)
+        return real_clean(path, tuck=tuck)
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    assert calls, "publish must run the edge cleanup"
+    assert calls[0] is True, "pose-1 of a TUCK_SLUGS species must publish tucked"
+    assert all(t is False for t in calls[1:]), "flight poses must NOT tuck"
+
+
+def test_reclean_honors_tuck_slugs_without_the_flag(client, auth, monkeypatch):
+    """A casual /reclean (no tuck flag) of a TUCK_SLUGS species must keep the
+    tuck on pose-1 — otherwise routine maintenance silently undoes the fix."""
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    seen = {}
+
+    def spy(path, tuck=False):
+        seen[Path(path).name] = tuck
+        return "cleaned edge (removed 0.001 detached, halo=2px)"
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"]}, headers=auth)
+    assert r.status_code == 200
+    assert seen[".turdus-merula.png.clean.png"] is True, "pose-1 must tuck via the registry"
+    assert seen[".turdus-merula-2.png.clean.png"] is False, "pose-2 must not tuck"
+    # the caller can SEE what each cleanup did (drop frac included in the note)
+    assert "notes" in r.json() and "turdus-merula#1" in r.json()["notes"]
+
+
+def test_clean_drop_frac_parses_both_note_formats():
+    """_warn_big_clean_drop's tripwire rides this parse — if the note format
+    drifts, this test (not a silent None) catches it."""
+    assert app._clean_drop_frac("cleaned edge (removed 0.034 detached, halo=8px)") == 0.034
+    assert app._clean_drop_frac("cleaned edge (removed 0.120 tucked (kept body only), halo=8px)") == 0.120
+    assert app._clean_drop_frac(None) is None
+    assert app._clean_drop_frac("no removal mentioned") is None
+
+
+# --------------------------------------------------------------------------- #
+# /jobs roster — the wall-mode feed for scripts/verify.sh (P0: "what is the
+# wall showing right now" in one command).
+# --------------------------------------------------------------------------- #
+def test_jobs_roster_requires_bearer(client):
+    assert client.get("/jobs").status_code == 401
+
+
+def test_jobs_roster_lists_state_and_bytes(client, auth):
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    r = client.get("/jobs", headers=auth)
+    assert r.status_code == 200
+    jobs = {j["slug"]: j for j in r.json()["jobs"]}
+    row = jobs["turdus-merula"]
+    assert row["state"] == "done"
+    assert row["pose1_bytes"] > 0, "a done job must show real pose-1 bytes"
+    assert row["verify_rejects"] == 0
+    assert "fail_reason" in row

@@ -38,13 +38,17 @@ jobs:
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings.
         flake8 . --count --exit-zero --max-complexity=10 --statistics
+    - name: Repo guards (species-notes JSON, real-art no-cache tripwire, suite enumeration)
+      run: bash scripts/repo-guards.sh
     - name: Test with pytest
       run: |
         # This repo hosts three independent components, each shipping its OWN
         # tests/ package meant to run from its own directory. A single root
         # `pytest` collects three like-named `tests` packages (which collide:
         # "No module named 'tests.test_analysis'") and mixes incompatible deps,
-        # so each suite is run scoped to its directory instead.
+        # so each suite is run scoped to its directory instead. Adding a new
+        # component's tests/? Add a scoped line here AND to the ENUMERATED list
+        # in scripts/repo-guards.sh (the guard above fails the build otherwise).
         python -m pytest tests/                       # stock BirdNET-Pi (root requirements)
         (cd avian/catalog && python -m pytest tests/) # christina catalog builder (stdlib)
         (cd services/birdgen && python -m pytest tests/)  # birdgen microservice (own deps)
