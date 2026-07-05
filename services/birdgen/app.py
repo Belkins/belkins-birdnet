@@ -1769,6 +1769,15 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
                 _warn_big_clean_drop(slug, pose, note)
                 recleaned.append(key)
                 notes[key] = note  # caller sees WHAT was cut (incl. the drop frac)
+                if tuck and pose == 1 and slug not in TUCK_SLUGS:
+                    # The moment the drift is born: a one-off tuck outside the
+                    # registry dies on the next repaint/regen. Say so in the
+                    # RESPONSE the operator is reading right now — a log line
+                    # nobody re-reads is how the last tuck fix was lost.
+                    notes[key] += (" | NOT PERSISTED: slug is not in TUCK_SLUGS"
+                                   " — the next repaint/regen undoes this tuck")
+                    log.warning("reclean tuck slug=%s NOT in TUCK_SLUGS — "
+                                "fix dies on the next regen", slug)
             except OSError as e:
                 skipped[key] = "error"
                 log.warning("reclean failed slug=%s pose=%d: %s", slug, pose, e)

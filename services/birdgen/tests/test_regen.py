@@ -553,6 +553,30 @@ def test_reclean_honors_tuck_slugs_without_the_flag(client, auth, monkeypatch):
     assert "notes" in r.json() and "turdus-merula#1" in r.json()["notes"]
 
 
+def test_reclean_oneoff_tuck_warns_when_not_in_registry(client, auth, monkeypatch):
+    """A one-off /reclean {tuck:true} of a slug NOT in TUCK_SLUGS must say so in
+    the response note — that unregistered tuck is exactly the fix that dies on
+    the next repaint (the d05d46f robin lesson), and the warning must land in
+    the operator's face, not only a log."""
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+
+    def spy(path, tuck=False):
+        return "cleaned edge (removed 0.120 tucked (kept body only), halo=8px)"
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", set())
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "tuck": True,
+                                      "poses": [1]}, headers=auth)
+    assert r.status_code == 200
+    assert "NOT PERSISTED" in r.json()["notes"]["turdus-merula#1"]
+
+    # …and a REGISTERED tuck stays clean of the warning.
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "tuck": True,
+                                      "poses": [1]}, headers=auth)
+    assert "NOT PERSISTED" not in r.json()["notes"]["turdus-merula#1"]
+
+
 def test_clean_drop_frac_parses_both_note_formats():
     """_warn_big_clean_drop's tripwire rides this parse — if the note format
     drifts, this test (not a silent None) catches it."""

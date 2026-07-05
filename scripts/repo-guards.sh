@@ -46,5 +46,20 @@ done < <(find . \
     if ls "$t"/test_*.py >/dev/null 2>&1; then printf '%s\n' "$t"; fi
   done)
 
+# 3b. Reverse direction of guard 3: every ENUMERATED suite must still have its
+#     scoped pytest line in the workflow. Guard 3 only checks disk-dirs are in
+#     ENUMERATED — if the workflow LINE is dropped/renamed while the dir stays,
+#     the guard's own copy of the list outlives the workflow it mirrors and the
+#     suite silently never runs again (green badge, green guard).
+WF=.github/workflows/python-app.yml
+for d in $ENUMERATED; do
+  ok=0
+  case "$d" in
+    tests) grep -qE '^[[:space:]]*python -m pytest tests/' "$WF" && ok=1 ;;
+    */tests) grep -qF "cd ${d%/tests} && python -m pytest tests/" "$WF" && ok=1 ;;
+  esac
+  [ "$ok" = "1" ] || fail "ENUMERATED suite '$d' has no matching scoped pytest line in $WF — restore the line or remove it from ENUMERATED in this script"
+done
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

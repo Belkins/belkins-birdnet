@@ -63,6 +63,9 @@ forwarder.
 | `AV_VERIFY_MAX_REJECTS` | no | `3` | per-species verify-reject budget before accept-with-flag (keep `< MAX_ATTEMPTS`) |
 | `COST_PER_VERIFY_USD` | no | `0.002` | estimated per-verify Gemini cost (feeds the spend ledger estimate) |
 | `MONTHLY_BUDGET_USD` | no | `20` | soft ceiling on ESTIMATED month spend; `0` = unlimited; when crossed, gen pauses + species stay queued (auto-resumes next UTC month or on a raise) |
+| `TUCK_SLUGS` | no | *(empty)* | comma-separated slugs whose PERCHED plate publishes tucked (keep-body-only) on every regen/reclean — the DURABLE registry behind a `/reclean {tuck:true}` fix. **Intentionally empty**: the only bird ever tuck-fixed (robin) was later re-fixed to standing legs (4268530), and allowlist membership is founder-gated (TOP-INSIGHTS Q-A). `/reclean` warns in its response when a one-off tuck is not registered here |
+| `NO_POSITIVE_REF_SLUGS` | no | `erithacus-rubecula` | skip the Wikipedia anatomy ref for these slugs (Gemini anatomically matches a plump hidden-leg photo over every text instruction — the footless-robin fix) |
+| `AV_GEN_MODEL` / `AV_VERIFY_MODEL` | no | pinned in `pregen.py` / `verify.py` | model-id overrides: a Gemini deprecation becomes a Railway variable flip instead of a silent retry-forever loop |
 | `PORT` | no | `8000` | injected by Railway |
 
 ## Storage / deploy
