@@ -587,6 +587,55 @@ def test_clean_drop_frac_parses_both_note_formats():
 
 
 # --------------------------------------------------------------------------- #
+# clean_alpha OVER-REMOVAL revert — the deterministic never-worse gate on the
+# cleanup OUTPUT (the Gemini judge runs BEFORE clean_alpha, so nothing else
+# re-inspects the post-cleanup plate; a mutilating drop must not publish).
+# --------------------------------------------------------------------------- #
+def test_clean_over_removed_only_trips_on_big_non_tuck_drop():
+    big = "cleaned edge (removed 0.400 detached, halo=8px)"
+    tucknote = "cleaned edge (removed 0.400 tucked (kept body only), halo=8px)"
+    small = "cleaned edge (removed 0.050 detached, halo=8px)"
+    assert app._clean_over_removed(big, tuck=False) is True
+    assert app._clean_over_removed(big, tuck=True) is False   # tuck is founder-directed, exempt
+    assert app._clean_over_removed(small, tuck=False) is False
+    assert app._clean_over_removed(None, tuck=False) is False
+
+
+def _mutilating_clean(path, tuck=False):
+    """A clean_alpha stand-in that EATS the bird (blanks the file) and reports a
+    mutilating drop — used to prove the revert guard protects the plate."""
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(path)
+    return "cleaned edge (removed 0.900 detached, halo=8px)"
+
+
+def test_reclean_reverts_a_mutilating_over_removal(client, auth, monkeypatch):
+    """A non-tuck /reclean whose cleanup would eat the bird is NOT applied — the
+    currently-published plate is kept byte-identical (never-worse; /reclean has
+    no other quality gate)."""
+    slug, sci, com = "turdus-merula", "Turdus merula", "Eurasian Blackbird"
+    _publish(slug, sci, com)                       # real clean_alpha here
+    before = _p1(slug).read_bytes()
+    monkeypatch.setattr(app, "clean_alpha", _mutilating_clean)
+    r = client.post("/reclean", json={"slugs": [slug], "poses": [1]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json().get("skipped", {}).get("%s#1" % slug) == "over-clean-reverted"
+    assert _p1(slug).read_bytes() == before, "mutilating reclean was not reverted"
+
+
+def test_publish_reverts_a_mutilating_clean_to_the_preclean_plate(monkeypatch):
+    """On the publish path, a mutilating clean_alpha is reverted so the QA-passed
+    PRE-clean cutout publishes — never the eaten 8x8 blank."""
+    slug, sci, com = "sitta-europaea", "Sitta europaea", "Eurasian Nuthatch"
+    _publish(slug, sci, com)
+    monkeypatch.setattr(app, "clean_alpha", _mutilating_clean)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    res = _worker_once()
+    assert res and res["ok"] is True
+    assert Image.open(_p1(slug)).size != (8, 8), \
+        "the mutilating clean was published instead of reverted to the pre-clean plate"
+
+
+# --------------------------------------------------------------------------- #
 # /jobs roster — the wall-mode feed for scripts/verify.sh (P0: "what is the
 # wall showing right now" in one command).
 # --------------------------------------------------------------------------- #

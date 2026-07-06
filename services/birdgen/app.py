@@ -931,6 +931,14 @@ CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.1
 # When a cleanup drops at least this fraction of the plate's opaque pixels
 # (a possible tail/bill amputation, not fringe dust), WARN loudly — never block.
 CLEAN_DROP_WARN_FRAC = float(os.environ.get("CLEAN_DROP_WARN_FRAC", "0.12"))
+# A NON-tuck cleanup that removes MORE opaque than this is treated as a
+# mutilation (a clipped/half-eaten bird) and REVERTED — never published. This is
+# the deterministic, zero-spend gate on clean_alpha's OUTPUT (the Gemini judge
+# runs BEFORE clean_alpha, so nothing else re-inspects the post-cleanup plate).
+# tuck legitimately drops a whole foot cluster and is founder-directed, so it is
+# exempt. Legit satellite-drop is ~3%, the warn tripwire 12%, so 30% is a wide
+# margin above any real cleanup and only trips on a gross over-removal.
+CLEAN_MAX_DROP_FRAC = float(os.environ.get("CLEAN_MAX_DROP_FRAC", "0.30"))
 
 _CLEAN_DROP_RE = re.compile(r"removed ([0-9.]+)")
 
@@ -954,6 +962,17 @@ def _warn_big_clean_drop(slug: str, pose: int, note: Optional[str]) -> None:
             "qa-clean-drop slug=%s pose=%d removed %.1f%% of opaque pixels "
             "(>= %.0f%% tripwire) — eyeball the published plate (log-only, never blocks)",
             slug, pose, frac * 100.0, CLEAN_DROP_WARN_FRAC * 100.0)
+
+
+def _clean_over_removed(note: Optional[str], tuck: bool) -> bool:
+    """True when a NON-tuck cleanup removed >= CLEAN_MAX_DROP_FRAC of the opaque
+    pixels — a gross over-removal (a clipped/mutilated bird) the caller must
+    REVERT rather than publish. tuck drops a foot cluster on purpose and is
+    founder-directed, so it is never treated as over-removal."""
+    if tuck:
+        return False
+    frac = _clean_drop_frac(note)
+    return frac is not None and frac >= CLEAN_MAX_DROP_FRAC
 
 
 def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
@@ -1205,11 +1224,23 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             # published plate is clean and whole (no frayed/ripped tails or toes).
             # TUCK_SLUGS species keep the tuck fix across regens (perched only —
             # a one-off /reclean {tuck:true} otherwise dies on the next repaint).
-            clean_note = clean_alpha(str(tmp_cut),
-                                     tuck=(pose == 1 and slug in TUCK_SLUGS))
+            _clean_tuck = (pose == 1 and slug in TUCK_SLUGS)
+            _preclean = tmp_cut.read_bytes()  # for never-worse revert below
+            clean_note = clean_alpha(str(tmp_cut), tuck=_clean_tuck)
             if clean_note:
-                log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
-                _warn_big_clean_drop(slug, pose, clean_note)
+                if _clean_over_removed(clean_note, _clean_tuck):
+                    # never-worse: this cleanup ate a mutilating fraction of the
+                    # bird. Nothing re-inspects post-clean bytes, so revert here
+                    # and publish the QA-passed PRE-clean plate — never a clipped
+                    # bird (deterministic, zero-spend gate on clean_alpha output).
+                    tmp_cut.write_bytes(_preclean)
+                    log.warning("qa-clean-revert slug=%s pose=%s %s (>= %.0f%% "
+                                "removed — reverted, publishing pre-clean plate)",
+                                slug, pose, clean_note, CLEAN_MAX_DROP_FRAC * 100.0)
+                    clean_note = None
+                else:
+                    log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
+                    _warn_big_clean_drop(slug, pose, clean_note)
             # Never-worse insurance: archive the outgoing plate to the _prev/
             # SUBDIRECTORY (ring-of-1 — each publish overwrites the previous
             # archive) before replacing it. A sibling "<slug>.prev.png" would
@@ -1752,10 +1783,20 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
             tmp = ASSETS_DIR / (".%s.clean.png" % name)
             try:
                 shutil.copy2(str(out_path), str(tmp))
-                note = clean_alpha(str(tmp), tuck=(
-                    tuck or (pose == 1 and slug in TUCK_SLUGS)))
+                _reclean_tuck = tuck or (pose == 1 and slug in TUCK_SLUGS)
+                note = clean_alpha(str(tmp), tuck=_reclean_tuck)
                 if note is None:
                     skipped[key] = "nothing-to-clean"
+                    os.unlink(str(tmp))
+                    continue
+                if _clean_over_removed(note, _reclean_tuck):
+                    # never-worse: a non-tuck reclean that would remove a
+                    # mutilating fraction is NOT applied — keep the current plate
+                    # untouched. (/reclean has no other quality gate.)
+                    skipped[key] = "over-clean-reverted"
+                    log.warning("reclean-revert slug=%s pose=%d %s (>= %.0f%% "
+                                "removed — kept current plate)",
+                                slug, pose, note, CLEAN_MAX_DROP_FRAC * 100.0)
                     os.unlink(str(tmp))
                     continue
                 # never-worse: archive the current plate, then atomic swap.
