@@ -207,6 +207,43 @@
   color: var(--ink);
 }
 
+/* ── explore: companion-surface links ──────────────────────── */
+.set-links {
+  display: flex;
+  flex-direction: column;
+}
+.set-link {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 2px;
+  text-decoration: none;
+  border-top: 1px solid var(--line);
+}
+.set-link:first-child {
+  border-top: 0;
+}
+.set-link-n {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--ink);
+  transition: color 0.18s ease;
+}
+.set-link-n i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--mut);
+}
+.set-link-d {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+.set-link:hover .set-link-n {
+  color: var(--amber);
+}
+
 /* ── one-line caption under a setting row ──────────────────── */
 .set-note {
   margin: 6px 2px 0;

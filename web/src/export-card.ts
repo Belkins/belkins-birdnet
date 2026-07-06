@@ -47,9 +47,22 @@ interface Palette {
 }
 
 const PALETTES: Record<'day' | 'night', Palette> = {
-  day: { ground: '#f5efe1', ink: '#2a2016', faint: 'rgba(42,32,22,0.55)', rule: 'rgba(42,32,22,0.28)' },
-  night: { ground: '#0f0e12', ink: '#eee4cd', faint: 'rgba(238,228,205,0.55)', rule: 'rgba(238,228,205,0.24)' },
+  day: { ground: '#f3ecdb', ink: '#2a2016', faint: 'rgba(42,32,22,0.55)', rule: 'rgba(42,32,22,0.22)' },
+  night: { ground: '#0b0a0e', ink: '#efe6cf', faint: 'rgba(239,230,207,0.52)', rule: 'rgba(239,230,207,0.14)' },
 };
+
+/** Draw an uppercase, letter-spaced mono label (the museum's caption register).
+ *  Resets letterSpacing after so it never bleeds into subsequent draws. */
+function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, px: number, color: string, align: CanvasTextAlign = 'left'): void {
+  ctx.font = `500 ${px}px "Space Mono", ui-monospace, monospace`;
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  const anyCtx = ctx as CanvasRenderingContext2D & { letterSpacing?: string };
+  const prev = anyCtx.letterSpacing;
+  anyCtx.letterSpacing = `${Math.round(px * 0.18)}px`;
+  ctx.fillText(text.toUpperCase(), x, y);
+  anyCtx.letterSpacing = prev ?? '0px';
+}
 
 /** Decode one image; resolves null on error so a missing cutout degrades to the
  *  wordmark-only card (never throws, never a broken card). cutout.php is
@@ -309,6 +322,103 @@ export async function composeWeeklySheet(
   ctx.fillText('BELKINS BIRDNET', SHEET_PAD, height - 54);
   ctx.textAlign = 'right';
   ctx.fillText('LIVING GALLERY', SHEET_W - SHEET_PAD, height - 54);
+
+  return canvas;
+}
+
+// ── the YEAR-IN-REVIEW sheet (/wrapped) ───────────────────────────────────────
+
+export interface YearStat {
+  label: string;
+  value: string;
+}
+
+/** Compose a "year in review" poster: a big stat column over a row of highlight
+ *  plates, on the same paint engine. Every stat is a real caller-supplied value.
+ *  Returns the canvas (the /wrapped route shows it + a Save button). */
+export async function composeYearSheet(
+  year: number,
+  stats: YearStat[],
+  highlights: SheetSpec[],
+  theme: 'day' | 'night' = 'night',
+): Promise<HTMLCanvasElement> {
+  await fontsReady();
+  const pal = PALETTES[theme];
+  const night = theme === 'night';
+  const cx0 = SHEET_W / 2;
+
+  const hasPlates = highlights.length > 0;
+  const headerH = 260;
+  const plateRowH = hasPlates ? 320 : 40;
+  const ledgerH = 220;
+  const footerH = 90;
+  const height = headerH + plateRowH + ledgerH + footerH;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SHEET_W;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas2D not supported');
+
+  ctx.fillStyle = pal.ground;
+  ctx.fillRect(0, 0, SHEET_W, height);
+  // A subtle warm pool lifts the composition off the obsidian (the frame's seat).
+  paintVignette(ctx, SHEET_W, height, cx0, height * 0.34, SHEET_W * 0.5, night, 0, night);
+  const inset = 30;
+  ctx.strokeStyle = pal.rule;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(inset, inset, SHEET_W - inset * 2, height - inset * 2);
+
+  // Masthead — centred, mono eyebrow over a Cormorant title.
+  ctx.textBaseline = 'alphabetic';
+  label(ctx, `The Yard · ${year}`, cx0, 128, 22, pal.faint, 'center');
+  ctx.fillStyle = pal.ink;
+  ctx.font = '500 82px "Cormorant Garamond", Georgia, serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Year in Review', cx0, 208);
+
+  // Specimen row — luminous acquisitions (or the most-heard) on the dark.
+  const rowMidY = headerH + (hasPlates ? 150 : 20);
+  if (hasPlates) {
+    const n = Math.min(highlights.length, 5);
+    const cellW = (SHEET_W - SHEET_PAD * 2) / n;
+    const urls = highlights.slice(0, n).map((s) => birdImageUrl(s.slug, s.sci, s.pose ?? 1));
+    const imgs = await Promise.all(urls.map((u) => (u ? loadImage(u) : Promise.resolve(null))));
+    highlights.slice(0, n).forEach((s, i) => {
+      const cx = SHEET_PAD + i * cellW + cellW / 2;
+      const img = imgs[i];
+      if (img && img.naturalWidth > 0) {
+        const ar = img.naturalWidth / img.naturalHeight;
+        let bw = cellW - 46;
+        let bh = bw / ar;
+        if (bh > 200) {
+          bh = 200;
+          bw = bh * ar;
+        }
+        paintSpecimen(ctx, img, img.naturalWidth, img.naturalHeight, cx - bw / 2, rowMidY - bh / 2, bw, bh, night, 0, false);
+      }
+      ctx.fillStyle = pal.faint;
+      ctx.font = 'italic 500 22px "Cormorant Garamond", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(fit(ctx, s.com, cellW - 20), cx, rowMidY + 138);
+    });
+  }
+
+  // Editorial ledger — three big Cormorant figures with mono labels.
+  const ledgerY = headerH + plateRowH + 96;
+  const cols = Math.max(1, stats.length);
+  stats.forEach((s, i) => {
+    const cx = SHEET_PAD + ((i + 0.5) * (SHEET_W - SHEET_PAD * 2)) / cols;
+    ctx.fillStyle = pal.ink;
+    ctx.font = '500 84px "Cormorant Garamond", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(s.value, cx, ledgerY);
+    label(ctx, s.label, cx, ledgerY + 42, 15, pal.faint, 'center');
+  });
+
+  // Colophon.
+  label(ctx, 'Belkins BirdNET', SHEET_PAD, height - 52, 18, pal.faint, 'left');
+  label(ctx, 'Living Gallery', SHEET_W - SHEET_PAD, height - 52, 18, pal.faint, 'right');
 
   return canvas;
 }

@@ -11,7 +11,9 @@ serves them from a Railway volume at /asset/<slug>.png and /asset/<slug>-2.png.
 Contract obligations honored here:
   - Bearer auth on /detected (Authorization: Bearer <WATCHER_WEBHOOK_SECRET>).
   - In-memory token-bucket rate-limit on /detected (429 over).
-  - CONFIDENCE_THRESHOLD = 0.80 gate.
+  - CONF_THRESHOLD confidence gate (env; see its definition below for the
+    default and the reason — restating the number here is how the 0.80-vs-0.70
+    drift regression of 987d9da happened).
   - BOTH poses per species: pose-1 (perched) is required; pose-2 (flight) is
     best-effort — a pose-2 gen/QA failure never blocks or deads the species, and
     the species is "done" once pose-1 is published. This reverses the original
@@ -61,7 +63,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
@@ -150,6 +152,21 @@ MANIFEST_PATH = HERE / "manifest.json"
 # style lock). Anti-refs are still NOT bundled; if an anti dir is mounted they
 # are used, otherwise gen_one degrades gracefully (these args are optional).
 FETCH_REFS = os.environ.get("FETCH_REFS", "1") not in ("0", "false", "False", "")
+# Species whose cached Wikipedia anatomy ref anchors a legless plump crouch that
+# Gemini copies over EVERY text instruction (the European Robin — 6+ escalating
+# prompt/note attempts all footless): skip the positive ref for these so the leggy
+# house-style plate + the species-note DIAGNOSTICS drive a standing, legged pose
+# instead of an anatomically-matched plump crouch. Per-species opt-in only.
+NO_POSITIVE_REF_SLUGS = set(
+    s.strip() for s in os.environ.get("NO_POSITIVE_REF_SLUGS", "erithacus-rubecula").split(",") if s.strip())
+# Species whose PERCHED plate needs the tuck cleanup (keep-body-only: drops an
+# awkward dangling leg for a clean rounded belly) on EVERY publish — not just a
+# one-off /reclean {tuck:true}. Without this registry a tuck fix has the
+# lifetime of the current PNG: the next repaint/regen runs clean_alpha without
+# tuck and the dangling leg comes straight back. Perched (pose-1) only — flight
+# plates get the satellite-drop instead. Per-species opt-in, default empty.
+TUCK_SLUGS = set(
+    s.strip() for s in os.environ.get("TUCK_SLUGS", "").split(",") if s.strip())
 REFS_DIR = Path(os.environ.get("REFS_DIR", str(ASSETS_DIR / "_refs")))
 ANTI_DIR = Path(os.environ.get("ANTI_DIR", str(REFS_DIR)))
 _styles = os.environ.get("AV_STYLES_DIR", str(HERE / "styles"))
@@ -668,12 +685,14 @@ def _resolve_species_refs(slug: str, sci: str, com: str):
     fetched + cached on the volume; the anti-ref (lookalike) only if a dir is
     mounted. All optional — gen_one degrades gracefully when any is None."""
     pos = None
-    if FETCH_REFS:
+    if FETCH_REFS and slug not in NO_POSITIVE_REF_SLUGS:
         try:
             pos = pregen.ensure_reference(REFS_DIR, slug, sci, com)
         except Exception as e:
             log.warning("ref fetch failed slug=%s err=%s", slug, e)
             pos = None
+    elif slug in NO_POSITIVE_REF_SLUGS:
+        log.info("skip positive ref slug=%s (legless-crouch anchor)", slug)
     anti = None
     anti_key = pregen.select_anti_ref_key(sci)
     if anti_key:
@@ -896,6 +915,143 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
     return "scrubbed islands=%.3f of frame" % (sum(erase) / float(w * h))
 
 
+# Edge cleanup: the chromakey feather leaves a thin semi-transparent fringe
+# around the whole silhouette. On a broad body it's invisible, but on THIN
+# extremities (tail tips, toes, legs) that same-width fuzzy band is a large
+# fraction of the feature, so it reads as frayed / torn / "ripped". Faint
+# semi-transparent ghost fragments (a keyed-away second leg, a reflection
+# remnant) also survive under the island scrub's connectivity. This pass
+# hardens the edge and drops detached faint bits — WITHOUT re-rolling the art.
+CLEAN_SOLID_T = int(os.environ.get("CLEAN_SOLID_T", "140"))       # alpha >= this = confident body/leg/tail ink
+CLEAN_HALO_FRAC = float(os.environ.get("CLEAN_HALO_FRAC", "0.010"))  # keep-halo radius as a fraction of the long edge
+CLEAN_MIN_CORE_FRAC = float(os.environ.get("CLEAN_MIN_CORE_FRAC", "0.002"))  # min solid component to keep (drops specks)
+CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.10"))  # a DETACHED solid component smaller than this fraction of the body is a defect (dangling feet / ghost leg) -> dropped
+# Log-only tripwire (instrument first, gate never until log-only proves it):
+# clean_alpha runs AFTER the vision gate, so nothing inspects what it removed.
+# When a cleanup drops at least this fraction of the plate's opaque pixels
+# (a possible tail/bill amputation, not fringe dust), WARN loudly — never block.
+CLEAN_DROP_WARN_FRAC = float(os.environ.get("CLEAN_DROP_WARN_FRAC", "0.12"))
+
+_CLEAN_DROP_RE = re.compile(r"removed ([0-9.]+)")
+
+
+def _clean_drop_frac(note: Optional[str]) -> Optional[float]:
+    """Parse the dropped-opaque fraction out of a clean_alpha note (its
+    'removed %.3f' field — the two format strings below are the only source)."""
+    if not note:
+        return None
+    m = _CLEAN_DROP_RE.search(note)
+    try:
+        return float(m.group(1)) if m else None
+    except ValueError:
+        return None
+
+
+def _warn_big_clean_drop(slug: str, pose: int, note: Optional[str]) -> None:
+    frac = _clean_drop_frac(note)
+    if frac is not None and frac >= CLEAN_DROP_WARN_FRAC:
+        log.warning(
+            "qa-clean-drop slug=%s pose=%d removed %.1f%% of opaque pixels "
+            "(>= %.0f%% tripwire) — eyeball the published plate (log-only, never blocks)",
+            slug, pose, frac * 100.0, CLEAN_DROP_WARN_FRAC * 100.0)
+
+
+def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
+    """Harden thin-feature edges + drop detached faint ghosts on a published
+    RGBA cutout, preserving the art. Deterministic, Pillow-only. Returns a note
+    or None. Safe to re-run (idempotent-ish: a clean plate barely changes).
+
+    tuck=True keeps ONLY the largest solid component (drops EVERY other one,
+    even a near-attached extremity): the "tucked feet" cleanup for a bird whose
+    only defect is an awkward thin dangling leg/foot Gemini won't stop drawing —
+    it leaves a clean rounded belly (the classic compact resting pose). Opt-in
+    per call (never the default), so a real connected foot is only removed when
+    a caller explicitly asks for a slug."""
+    im = Image.open(cut_path).convert("RGBA")
+    w, h = im.size
+    n = w * h
+    A = im.getchannel("A")
+    apx = list(A.getdata())
+    on = CLEAN_SOLID_T
+    core = [1 if v >= on else 0 for v in apx]
+    # Connected components of the SOLID core (legs/toes at full ink ARE solid).
+    seen = bytearray(n)
+    min_sz = max(1, int(CLEAN_MIN_CORE_FRAC * n))
+    comps = []  # (size, indices) for every solid component >= min_sz
+    for start in range(n):
+        if core[start] and not seen[start]:
+            comp = []
+            dq = deque((start,))
+            seen[start] = 1
+            while dq:
+                i = dq.popleft()
+                comp.append(i)
+                x = i % w
+                if x > 0 and core[i - 1] and not seen[i - 1]:
+                    seen[i - 1] = 1; dq.append(i - 1)
+                if x < w - 1 and core[i + 1] and not seen[i + 1]:
+                    seen[i + 1] = 1; dq.append(i + 1)
+                if i >= w and core[i - w] and not seen[i - w]:
+                    seen[i - w] = 1; dq.append(i - w)
+                if i < n - w and core[i + w] and not seen[i + w]:
+                    seen[i + w] = 1; dq.append(i + w)
+            if len(comp) >= min_sz:
+                comps.append((len(comp), comp))
+    if not comps:
+        return None  # nothing confident to keep — leave the plate untouched
+    # The bird is ONE connected silhouette = the largest solid component. Keep it,
+    # plus its attached extremities. A SECOND solid component that both (a) sits
+    # beyond a hairline reach of the body AND (b) is small relative to it is a
+    # render defect — dangling detached feet, a doubled ghost leg, a floating
+    # fragment — NOT an extremity. Drop it. (A large second region, or one hugging
+    # the body through a chromakey nick the halo would rejoin, is kept.) This is
+    # what removes the talons Gemini paints floating below a flight bird's belly.
+    comps.sort(key=lambda c: c[0], reverse=True)
+    body_sz, body_idx = comps[0]
+    keepcore = bytearray(n)
+    for i in body_idx:
+        keepcore[i] = 1
+    r = max(2, int(CLEAN_HALO_FRAC * max(w, h)))
+    if len(comps) > 1 and not tuck:
+        bodymask = Image.frombytes("L", (w, h),
+                                   bytes(255 if b else 0 for b in keepcore))
+        reachpx = bodymask.filter(ImageFilter.MaxFilter(4 * r + 1)).load()  # ~2r each side
+        for sz, idx in comps[1:]:
+            if sz >= CLEAN_SATELLITE_MAX_FRAC * body_sz or \
+                    any(reachpx[i % w, i // w] for i in idx):
+                for i in idx:
+                    keepcore[i] = 1
+            # else: detached satellite -> left out of keepcore (dropped)
+    coreim = Image.frombytes("L", (w, h), bytes(255 if b else 0 for b in keepcore))
+    # A tight halo around the kept core: preserves the bird's OWN anti-aliased
+    # edge and its connected legs/tail, but excludes DETACHED faint ghosts
+    # sitting beyond the halo.
+    halo = coreim.filter(ImageFilter.MaxFilter(2 * r + 1))
+    # Final alpha: original inside the halo, zero outside (C op, no pixel loop).
+    black = Image.new("L", (w, h), 0)
+    masked = Image.composite(A, black, halo)
+    # The meaningful cleanup number: opaque pixels the halo removed (detached
+    # ghosts / fuzz beyond the core) — measured BEFORE the feather re-adds soft
+    # edge pixels, so it honestly reflects what was cut, not the net count.
+    before = sum(1 for v in apx if v > QA_ALPHA_ON)
+    after_mask = sum(1 for v in masked.getdata() if v > QA_ALPHA_ON)
+    dropped = (before - after_mask) / float(before) if before else 0.0
+    # Smooth ragged notches (a morphological close) then a clean 0.6px feather.
+    out = masked.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+    out = out.filter(ImageFilter.GaussianBlur(0.6))
+    im.putalpha(out)
+    im.save(cut_path)
+    kind = "tucked (kept body only)" if tuck else "detached"
+    return "cleaned edge (removed %.3f %s, halo=%dpx)" % (dropped, kind, r)
+
+
+# Times the verify gate went BLIND this process (API error or unparseable
+# response -> fail open, by design). Exposed on /health so a Gemini-Vision
+# drift that silently disarms the never-worse gate is visible from one curl
+# instead of only as scattered log lines. In-memory: resets on redeploy.
+_VERIFY_FAIL_OPEN = 0
+
+
 def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
                manual: bool = False, protect_existing: bool = False) -> None:
     """Adversarial ID/anatomy gate (AV_VERIFY on). One Gemini-Vision call via
@@ -908,13 +1064,16 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
     stranding the species in an endless regen loop (a real bird in slightly-off
     plumage beats a permanent silhouette). Pose-2 (flight) rejects need no budget
     — they're already bounded by the POSE2_TRIES loop and fall back to perched."""
+    global _VERIFY_FAIL_OPEN
     try:
         v = verify_one(GEMINI_API_KEY, cut_path, sci, com)
     except Exception as e:  # network/API error -> not a QA verdict; keep the clean render
+        _VERIFY_FAIL_OPEN += 1
         log.warning("verify_one error slug=%s err=%s (skipping verify gate)", slug, e)
         return  # NOT billed as a verdict — don't count
     record_verify(manual=manual)  # the call returned -> count the paid verify
     if not v:
+        _VERIFY_FAIL_OPEN += 1  # unparseable = the gate is blind, not a pass verdict
         return  # unparseable -> fail open
     # A perched bird's folded wings routinely read as a single visible wing, so
     # only an EXTRA wing (>2) is an unambiguous hallucination — 1–2 is fine. (Was
@@ -1042,6 +1201,15 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             if AV_VERIFY:
                 _qa_verify(slug, sci, com, pose, tmp_cut, manual=manual,
                            protect_existing=protect_existing)
+            # Edge cleanup: harden thin-feature edges + drop faint ghosts so the
+            # published plate is clean and whole (no frayed/ripped tails or toes).
+            # TUCK_SLUGS species keep the tuck fix across regens (perched only —
+            # a one-off /reclean {tuck:true} otherwise dies on the next repaint).
+            clean_note = clean_alpha(str(tmp_cut),
+                                     tuck=(pose == 1 and slug in TUCK_SLUGS))
+            if clean_note:
+                log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
+                _warn_big_clean_drop(slug, pose, clean_note)
             # Never-worse insurance: archive the outgoing plate to the _prev/
             # SUBDIRECTORY (ring-of-1 — each publish overwrites the previous
             # archive) before replacing it. A sibling "<slug>.prev.png" would
@@ -1335,6 +1503,10 @@ async def health():
         "manual_verifies_this_month": snap["manual_verifies"],
         "manual_spend_usd": round(manual_spend, 4),
         "manual_frac": (manual_spend / spend if spend > 0 else 0.0),
+        # verify-gate blindness since boot (fail-open on API error/unparseable).
+        # A climbing number while gens keep landing = the never-worse gate is
+        # disarmed and repaints are unguarded — check verify.py's model/schema.
+        "verify_fail_open_since_boot": _VERIFY_FAIL_OPEN,
     }
 
 
@@ -1364,7 +1536,11 @@ async def asset(name: str):
         base = key[: m.start()]
         p1 = ASSETS_DIR / ("%s.png" % base)
         if base and "/" not in base and p1.exists():
-            return FileResponse(str(p1), media_type="image/png")
+            # Marker header: these are SUBSTITUTE pose-1 bytes, not real pose-2
+            # art. Without it a freshness probe (scripts/verify.sh) comparing
+            # Pi-vs-Railway pose-2 bytes reads the fallback as a STALE mismatch.
+            return FileResponse(str(p1), media_type="image/png",
+                                headers={"X-Av-Pose-Fallback": "1"})
     return JSONResponse({"error": "not found"}, status_code=404)
 
 
@@ -1522,6 +1698,135 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
     if refused:
         resp["refused"] = refused
     return resp
+
+
+@app.post("/reclean")
+async def reclean(request: Request, authorization: Optional[str] = Header(None)):
+    """Re-run the edge cleanup over ALREADY-PUBLISHED plates — no Gemini call,
+    no ledger cost, the SAME art. Fixes frayed/ripped thin features and faint
+    ghosts that predate the cleanup step, without a stochastic re-roll. Body:
+    {"slugs": [...], "poses": [1]|[2]|[1,2] (default [1,2])}. Bearer auth.
+    Atomic + never-worse: each plate is archived to _prev/ and only overwritten
+    when the cleaned version writes successfully."""
+    if not WATCHER_WEBHOOK_SECRET:
+        return JSONResponse({"error": "auth not configured"}, status_code=503)
+    expected = "Bearer " + WATCHER_WEBHOOK_SECRET
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    raw = body.get("slugs", [])
+    targets = ([s.strip() for s in raw if isinstance(s, str) and _valid_slug(s.strip())]
+               if isinstance(raw, list) else [])
+    if not targets:
+        return JSONResponse({"error": "empty slugs"}, status_code=422)
+    raw_poses = body.get("poses")
+    if raw_poses is None:
+        poses = [1, 2]
+    elif (isinstance(raw_poses, list) and raw_poses
+          and all(type(p) is int and p in (1, 2) for p in raw_poses)):
+        poses = sorted(set(raw_poses))
+    else:
+        return JSONResponse({"error": "invalid poses"}, status_code=422)
+    # tuck=True keeps ONLY the body (drops even a near-attached foot) — the
+    # "tucked feet / clean rounded belly" cleanup for the passed slugs only.
+    # TUCK_SLUGS species get tuck on their PERCHED plate even without the flag,
+    # so the registry-persisted fix survives casual recleans too.
+    tuck = body.get("tuck") is True
+
+    recleaned: list = []
+    skipped: dict = {}
+    notes: dict = {}
+    for slug in targets:
+        for pose in poses:
+            name = "%s.png" % slug if pose == 1 else "%s-%d.png" % (slug, pose)
+            out_path = ASSETS_DIR / name
+            key = "%s#%d" % (slug, pose)
+            if not out_path.exists():
+                skipped[key] = "absent"
+                continue
+            tmp = ASSETS_DIR / (".%s.clean.png" % name)
+            try:
+                shutil.copy2(str(out_path), str(tmp))
+                note = clean_alpha(str(tmp), tuck=(
+                    tuck or (pose == 1 and slug in TUCK_SLUGS)))
+                if note is None:
+                    skipped[key] = "nothing-to-clean"
+                    os.unlink(str(tmp))
+                    continue
+                # never-worse: archive the current plate, then atomic swap.
+                prev_dir = ASSETS_DIR / "_prev"
+                prev_dir.mkdir(parents=True, exist_ok=True)
+                tprev = prev_dir / (".%s.tmp" % name)
+                shutil.copy2(str(out_path), str(tprev))
+                os.replace(str(tprev), str(prev_dir / name))
+                os.replace(str(tmp), str(out_path))
+                log.info("reclean slug=%s pose=%d %s", slug, pose, note)
+                _warn_big_clean_drop(slug, pose, note)
+                recleaned.append(key)
+                notes[key] = note  # caller sees WHAT was cut (incl. the drop frac)
+                if tuck and pose == 1 and slug not in TUCK_SLUGS:
+                    # The moment the drift is born: a one-off tuck outside the
+                    # registry dies on the next repaint/regen. Say so in the
+                    # RESPONSE the operator is reading right now — a log line
+                    # nobody re-reads is how the last tuck fix was lost.
+                    notes[key] += (" | NOT PERSISTED: slug is not in TUCK_SLUGS"
+                                   " — the next repaint/regen undoes this tuck")
+                    log.warning("reclean tuck slug=%s NOT in TUCK_SLUGS — "
+                                "fix dies on the next regen", slug)
+            except OSError as e:
+                skipped[key] = "error"
+                log.warning("reclean failed slug=%s pose=%d: %s", slug, pose, e)
+                try:
+                    if tmp.exists():
+                        os.unlink(str(tmp))
+                except OSError:
+                    pass
+    resp: dict = {"recleaned": recleaned}
+    if notes:
+        resp["notes"] = notes
+    if skipped:
+        resp["skipped"] = skipped
+    return resp
+
+
+@app.get("/jobs")
+async def jobs_roster(authorization: Optional[str] = Header(None)):
+    """Roster of EVERY tracked job — the wall-mode feed for scripts/verify.sh
+    (P0 of the pipeline-hardening plan: answer "what is the wall showing right
+    now" in one command). Bearer-gated like /job; read-only, no gen, no spend."""
+    if not WATCHER_WEBHOOK_SECRET:
+        return JSONResponse({"error": "auth not configured"}, status_code=503)
+    expected = "Bearer " + WATCHER_WEBHOOK_SECRET
+    if not authorization or not hmac.compare_digest(authorization, expected):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    with _db_lock:
+        rows = db().execute(
+            "SELECT slug, state, attempts, verify_rejects, fail_reason "
+            "FROM species_jobs ORDER BY slug"
+        ).fetchall()
+    def _size(p: Path) -> int:
+        try:  # single stat, no exists()-then-stat() TOCTOU vs a delete-first requeue
+            return p.stat().st_size
+        except OSError:
+            return 0
+
+    out = []
+    for slug, state, attempts, verify_rejects, fail_reason in rows:
+        out.append({
+            "slug": slug,
+            "state": state,
+            "attempts": attempts,
+            "verify_rejects": verify_rejects or 0,
+            "fail_reason": fail_reason,
+            "pose1_bytes": _size(ASSETS_DIR / ("%s.png" % slug)),
+            "pose2_bytes": _size(ASSETS_DIR / ("%s-2.png" % slug)),
+        })
+    return {"jobs": out}
 
 
 @app.get("/job/{slug}")

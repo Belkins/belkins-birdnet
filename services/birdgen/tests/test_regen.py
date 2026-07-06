@@ -16,6 +16,7 @@ Run from ``services/birdgen/``:
 import json
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -418,3 +419,188 @@ def test_health_advertises_regen_api_and_manual_split(client):
     for k in ("manual_gens_this_month", "manual_verifies_this_month",
               "manual_spend_usd", "manual_frac"):
         assert k in body, "missing manual telemetry key: %s" % k
+
+
+# --------------------------------------------------------------------------- #
+# clean_alpha detached-satellite drop — the "floating feet" fix
+#
+# A bird cutout is ONE connected silhouette. A second solid component that is
+# both small relative to the body AND separated from it by a real gap is a
+# render defect (talons Gemini paints floating below a flight bird's belly, a
+# doubled ghost leg) and must be removed WITHOUT touching the bird. A genuinely
+# attached extremity (a leg a hairline gap from the body) must survive.
+# --------------------------------------------------------------------------- #
+from PIL import Image, ImageDraw  # noqa: E402
+
+
+def _plate(w, h, boxes):
+    """An RGBA plate with solid dark ink filling each (x0,y0,x1,y1) box."""
+    im = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    for b in boxes:
+        d.rectangle(list(b), fill=(20, 20, 20, 255))
+    return im
+
+
+def test_clean_alpha_drops_detached_satellite_keeps_body(tmp_path):
+    """The regression: a small solid blob far below the body (the floating
+    talons) is removed; the body stays fully opaque."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)        # ~83k px — the bird
+    feet = (470, 330, 505, 365)      # ~1.5% of body, ~110px away — floating talons
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, feet]).save(p)
+
+    note = app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "the body must survive untouched"
+    assert A[487, 347] == 0, "the detached satellite (floating feet) must be removed"
+    assert note and "detached" in note, "note should report a detached-pixel removal"
+
+
+def test_clean_alpha_keeps_a_hairline_detached_extremity(tmp_path):
+    """A leg-like blob a few px from the body (a chromakey nick, not a defect)
+    is within reach and must be preserved — the drop is for FAR satellites."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)
+    leg = (150, 308, 190, 348)       # 8px below the body — within the keep-reach
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, leg]).save(p)
+
+    app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[170, 328] >= 200, "a near (attached) extremity must NOT be dropped"
+
+
+def test_clean_alpha_tuck_drops_even_a_near_attached_foot(tmp_path):
+    """tuck=True keeps ONLY the body — a near (within-reach) foot component that
+    the default keeps is dropped, leaving a clean rounded belly. This is the
+    'tucked feet' fix for a bird Gemini won't stop drawing an awkward leg on."""
+    w, h = 600, 400
+    body = (40, 40, 360, 300)
+    foot = (150, 306, 190, 340)      # a small foot 6px below the body (within reach)
+    p = tmp_path / "cut.png"
+    _plate(w, h, [body, foot]).save(p)
+
+    # default: the near foot survives (it's an attached extremity)
+    _plate(w, h, [body, foot]).save(p)
+    app.clean_alpha(str(p), tuck=False)
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[170, 322] >= 200, "default clean_alpha must keep a near extremity"
+
+    # tuck: the foot is dropped, the body stays
+    _plate(w, h, [body, foot]).save(p)
+    note = app.clean_alpha(str(p), tuck=True)
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "tuck must keep the body"
+    assert A[170, 322] == 0, "tuck must drop the near foot (tucked belly)"
+    assert note and "tucked" in note
+
+
+def test_clean_alpha_preserves_a_clean_single_component_plate(tmp_path):
+    """No second component -> the satellite logic is a no-op: the body is kept
+    and nothing is invented outside it."""
+    w, h = 600, 400
+    p = tmp_path / "cut.png"
+    _plate(w, h, [(40, 40, 360, 300)]).save(p)
+
+    app.clean_alpha(str(p))
+    A = Image.open(p).convert("RGBA").getchannel("A").load()
+    assert A[200, 170] >= 200, "clean body must remain opaque"
+    assert A[500, 350] == 0, "empty space stays empty"
+
+
+# --------------------------------------------------------------------------- #
+# TUCK_SLUGS registry — a tuck fix must survive regens/recleans, not live only
+# in the operator's memory of a one-off /reclean {tuck:true} call.
+# --------------------------------------------------------------------------- #
+def test_tuck_slugs_applies_tuck_on_regen_publish_perched_only(monkeypatch):
+    """A TUCK_SLUGS species gets clean_alpha(tuck=True) on its PERCHED plate on
+    EVERY publish — and tuck=False on flight (pose-2 keeps the satellite-drop
+    path). Without the registry the next repaint resurrects the dangling leg."""
+    calls = []
+    real_clean = app.clean_alpha
+
+    def spy(path, tuck=False):
+        calls.append(tuck)
+        return real_clean(path, tuck=tuck)
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    assert calls, "publish must run the edge cleanup"
+    assert calls[0] is True, "pose-1 of a TUCK_SLUGS species must publish tucked"
+    assert all(t is False for t in calls[1:]), "flight poses must NOT tuck"
+
+
+def test_reclean_honors_tuck_slugs_without_the_flag(client, auth, monkeypatch):
+    """A casual /reclean (no tuck flag) of a TUCK_SLUGS species must keep the
+    tuck on pose-1 — otherwise routine maintenance silently undoes the fix."""
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    seen = {}
+
+    def spy(path, tuck=False):
+        seen[Path(path).name] = tuck
+        return "cleaned edge (removed 0.001 detached, halo=2px)"
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"]}, headers=auth)
+    assert r.status_code == 200
+    assert seen[".turdus-merula.png.clean.png"] is True, "pose-1 must tuck via the registry"
+    assert seen[".turdus-merula-2.png.clean.png"] is False, "pose-2 must not tuck"
+    # the caller can SEE what each cleanup did (drop frac included in the note)
+    assert "notes" in r.json() and "turdus-merula#1" in r.json()["notes"]
+
+
+def test_reclean_oneoff_tuck_warns_when_not_in_registry(client, auth, monkeypatch):
+    """A one-off /reclean {tuck:true} of a slug NOT in TUCK_SLUGS must say so in
+    the response note — that unregistered tuck is exactly the fix that dies on
+    the next repaint (the d05d46f robin lesson), and the warning must land in
+    the operator's face, not only a log."""
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+
+    def spy(path, tuck=False):
+        return "cleaned edge (removed 0.120 tucked (kept body only), halo=8px)"
+
+    monkeypatch.setattr(app, "clean_alpha", spy)
+    monkeypatch.setattr(app, "TUCK_SLUGS", set())
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "tuck": True,
+                                      "poses": [1]}, headers=auth)
+    assert r.status_code == 200
+    assert "NOT PERSISTED" in r.json()["notes"]["turdus-merula#1"]
+
+    # …and a REGISTERED tuck stays clean of the warning.
+    monkeypatch.setattr(app, "TUCK_SLUGS", {"turdus-merula"})
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "tuck": True,
+                                      "poses": [1]}, headers=auth)
+    assert "NOT PERSISTED" not in r.json()["notes"]["turdus-merula#1"]
+
+
+def test_clean_drop_frac_parses_both_note_formats():
+    """_warn_big_clean_drop's tripwire rides this parse — if the note format
+    drifts, this test (not a silent None) catches it."""
+    assert app._clean_drop_frac("cleaned edge (removed 0.034 detached, halo=8px)") == 0.034
+    assert app._clean_drop_frac("cleaned edge (removed 0.120 tucked (kept body only), halo=8px)") == 0.120
+    assert app._clean_drop_frac(None) is None
+    assert app._clean_drop_frac("no removal mentioned") is None
+
+
+# --------------------------------------------------------------------------- #
+# /jobs roster — the wall-mode feed for scripts/verify.sh (P0: "what is the
+# wall showing right now" in one command).
+# --------------------------------------------------------------------------- #
+def test_jobs_roster_requires_bearer(client):
+    assert client.get("/jobs").status_code == 401
+
+
+def test_jobs_roster_lists_state_and_bytes(client, auth):
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    r = client.get("/jobs", headers=auth)
+    assert r.status_code == 200
+    jobs = {j["slug"]: j for j in r.json()["jobs"]}
+    row = jobs["turdus-merula"]
+    assert row["state"] == "done"
+    assert row["pose1_bytes"] > 0, "a done job must show real pose-1 bytes"
+    assert row["verify_rejects"] == 0
+    assert "fail_reason" in row

@@ -55,7 +55,9 @@ import urllib.request
 
 # ---- locked constants (mirror rebuild_catalog.py) --------------------------
 
-# Matches the forwarder's / catalog's confident-detection threshold.
+# The catalog's own confident-DETECTION bar for derived stats (mirrors
+# rebuild_catalog.py). Independent of the paint gate: the forwarder/birdgen
+# pair moved to 0.70 in 987d9da, so this deliberately no longer matches it.
 CONFIDENT_THRESHOLD = 0.80
 
 SCHEMA_VERSION = "1"

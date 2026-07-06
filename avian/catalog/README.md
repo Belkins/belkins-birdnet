@@ -42,7 +42,9 @@ and the next build reconstructs it exactly.
 - **`birdnet_label = "<Sci_Name>_<Com_Name>"`** — the canonical BirdNET label.
   When `Com_Name` is NULL it falls back to `"<Sci_Name>_<Sci_Name>"`; the stored
   `is_bird` column is authoritative, never re-derive `is_bird` from the label.
-- **`CONFIDENT_THRESHOLD = 0.80`** (matches the forwarder):
+- **`CONFIDENT_THRESHOLD = 0.80`** (the catalog's own confident-*detection* bar
+  for derived stats; independent of the paint gate — the forwarder/birdgen pair
+  moved to 0.70 in 987d9da, so these deliberately no longer match):
   - `first_detected` = MIN(`Date Time`) over **all** rows,
   - `first_confident` = MIN(`Date Time`) over rows with `Confidence ≥ 0.80`,
   - `last_detected` = MAX(`Date Time`).

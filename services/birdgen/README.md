@@ -24,7 +24,7 @@ forwarder.
 - In-memory token-bucket rate-limit (else `429`).
 - Body: `{"sci":"Apus apus","com":"Common Swift","slug":"apus-apus","conf":0.93}`
   (extra fields like `v`/`type`/`cursor` are accepted and ignored).
-- `conf < 0.80` → `{"status":"low_confidence"}`.
+- `conf < CONF_THRESHOLD` (default `0.70`) → `{"status":"low_confidence"}`.
 - Dedup against the authoritative SQLite terminal state on the volume:
   - already generated/`done` → `{"status":"cached"}`
   - `queued`/`generating` → `{"status":"in_progress"}`
@@ -52,7 +52,7 @@ forwarder.
 |---|---|---|---|
 | `GEMINI_API_KEY` | **yes** | — | paid Gemini key; sent via `x-goog-api-key` header, **never logged** |
 | `WATCHER_WEBHOOK_SECRET` | **yes** | — | Bearer secret the Pi holds; low-value, rotatable |
-| `CONF_THRESHOLD` | no | `0.80` | confidence gate |
+| `CONF_THRESHOLD` | no | `0.70` | confidence gate (`app.py` is the source of truth — a stricter pair here strands 0.70-0.79 birds, the 987d9da regression) |
 | `MIN_SPACING` | no | `6` | seconds between Gemini calls |
 | `MAX_ATTEMPTS` | no | `4` | consecutive fails → dead |
 | `QA_MIN_FRAC` / `QA_MAX_FRAC` | no | `0.015` / `0.75` | creamkey opaque-fraction QA band |
@@ -63,6 +63,9 @@ forwarder.
 | `AV_VERIFY_MAX_REJECTS` | no | `3` | per-species verify-reject budget before accept-with-flag (keep `< MAX_ATTEMPTS`) |
 | `COST_PER_VERIFY_USD` | no | `0.002` | estimated per-verify Gemini cost (feeds the spend ledger estimate) |
 | `MONTHLY_BUDGET_USD` | no | `20` | soft ceiling on ESTIMATED month spend; `0` = unlimited; when crossed, gen pauses + species stay queued (auto-resumes next UTC month or on a raise) |
+| `TUCK_SLUGS` | no | *(empty)* | comma-separated slugs whose PERCHED plate publishes tucked (keep-body-only) on every regen/reclean — the DURABLE registry behind a `/reclean {tuck:true}` fix. **Intentionally empty**: the only bird ever tuck-fixed (robin) was later re-fixed to standing legs (4268530), and allowlist membership is founder-gated (TOP-INSIGHTS Q-A). `/reclean` warns in its response when a one-off tuck is not registered here |
+| `NO_POSITIVE_REF_SLUGS` | no | `erithacus-rubecula` | skip the Wikipedia anatomy ref for these slugs (Gemini anatomically matches a plump hidden-leg photo over every text instruction — the footless-robin fix) |
+| `AV_GEN_MODEL` / `AV_VERIFY_MODEL` | no | pinned in `pregen.py` / `verify.py` | model-id overrides: a Gemini deprecation becomes a Railway variable flip instead of a silent retry-forever loop |
 | `PORT` | no | `8000` | injected by Railway |
 
 ## Storage / deploy

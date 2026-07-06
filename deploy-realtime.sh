@@ -151,7 +151,10 @@ else
 AV_RAILWAY_BASE=https://birdgen-production.up.railway.app
 # >>> REPLACE THIS PLACEHOLDER <<< must equal WATCHER_WEBHOOK_SECRET on the Railway birdgen service.
 WATCHER_WEBHOOK_SECRET=REPLACE_ME_with_the_Railway_WATCHER_WEBHOOK_SECRET
-AV_CONF=0.80
+# 0.70 matches the forwarder default + birdgen's CONF_THRESHOLD (a 0.80 pair
+# here strands 0.70-0.79 birds as forever-silhouettes — the 987d9da regression;
+# deploy-christina.sh already writes 0.70).
+AV_CONF=0.70
 ENVEOF
   chmod 600 "$ENV_FILE"
   SECRET_PLACEHOLDER=1

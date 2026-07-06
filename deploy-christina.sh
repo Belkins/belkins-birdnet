@@ -2,7 +2,7 @@
 # Project Christina — full-stack deploy ON a BirdNET-Pi (run on the Pi, from the repo root).
 #
 # Idempotent + additive: brings up the realtime spine (birdcast), the React collage at
-# /collage, and the auto-gen watcher forwarder + cutout 302 on top of a STOCK BirdNET-Pi
+# /collage, and the auto-gen watcher forwarder + cutout Railway proxy on top of a STOCK BirdNET-Pi
 # install. Does NOT touch the detection pipeline beyond the (already-committed) emit hook.
 # Safe to re-run. Supersedes deploy-realtime.sh (which does the spine only).
 #
@@ -95,11 +95,16 @@ fi
 # reads ${BASE}species.json. Overrides the bundled dev fixture that shipped in
 # web/dist; a no-op if the collage dir wasn't built above.
 [ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/species.json" "$EXTRACTED/collage/species.json" && ok "species.json -> scripts/species.json (served at /collage/species.json)"
+# Same for the honest derived-intelligence bundle the /lab console reads
+# (${BASE}derived.json). derive.py writes scripts/derived.json after the nightly
+# rebuild; the symlink serves the real file over the bundled dev fixture. /lab
+# degrades to "not built yet" until the first catalog run produces it.
+[ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/derived.json" "$EXTRACTED/collage/derived.json" && ok "derived.json -> scripts/derived.json (served at /collage/derived.json)"
 
 say "5. regenerate collage silhouette masks (so any new illustration is placeable)"
 if ( cd "$HERE/avian/scripts" && "$PY" build_masks.py ) >/dev/null 2>&1; then ok "masks rebuilt"; else warn "build_masks failed (Pillow missing?)"; fi
 
-say "6. auto-gen watcher (forwarder + cutout.php 302)"
+say "6. auto-gen watcher (forwarder + cutout.php Railway proxy)"
 if [ -n "$RAILWAY_BASE" ] && [ -n "$WEBHOOK_SECRET" ]; then
   POOL="$(ls /etc/php/*/fpm/pool.d/www.conf 2>/dev/null | head -1)"
   FPM="$(systemctl list-units --type=service --no-legend 2>/dev/null | grep -oE 'php[0-9.]+-fpm' | head -1)"
@@ -109,14 +114,14 @@ if [ -n "$RAILWAY_BASE" ] && [ -n "$WEBHOOK_SECRET" ]; then
     else
       echo "env[AV_RAILWAY_ASSET_BASE] = \"$RAILWAY_BASE\"" | sudo tee -a "$POOL" >/dev/null
     fi
-    sudo systemctl restart "$FPM"; ok "cutout.php 302 -> $RAILWAY_BASE (via $FPM)"
+    sudo systemctl restart "$FPM"; ok "cutout.php proxy -> $RAILWAY_BASE (via $FPM)"
   fi
   umask 077; mkdir -p "$HOME/.christina"
   cat > "$HOME/.christina/forwarder.env" <<ENV
 AV_RAILWAY_BASE=$RAILWAY_BASE
 WATCHER_WEBHOOK_SECRET=$WEBHOOK_SECRET
 AV_ILLUSTRATIONS=$HERE/avian/assets/illustrations
-AV_CONF=0.80
+AV_CONF=0.70
 BIRDCAST_EVENTS=http://127.0.0.1:8090/events
 ENV
   chmod 600 "$HOME/.christina/forwarder.env"
@@ -169,6 +174,14 @@ echo "   collage:   $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/co
 echo "   /events:   $(curl -s -N --max-time 3 http://127.0.0.1/events | head -1)"
 echo "   catalog:   $(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null || echo 0) species in christina.db"
 [ -n "$RAILWAY_BASE" ] && echo "   forwarder: $(systemctl is-active forwarder)"
+# Serving-chain smoke (pipeline-hardening P0): prove headers + cache contract
+# on one plate through the REAL cutout path. Warn-only — a transient probe
+# flake must not fail an otherwise-good deploy (open question in the plan).
+if [ -x "$HERE/scripts/verify.sh" ]; then
+  echo "   serving:"
+  AV_PI_BASE=http://127.0.0.1 bash "$HERE/scripts/verify.sh" erithacus-rubecula 1 2>&1 | sed 's/^/     /' \
+    || warn "verify.sh smoke flagged a serving problem (see above) — deploy completed, but eyeball the wall"
+fi
 echo
 echo "============================================================"
 echo " Christina deployed. Open  http://$(hostname).local/collage"
