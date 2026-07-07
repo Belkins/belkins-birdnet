@@ -155,14 +155,14 @@ if "jobs" not in d:
     print("FAIL  /jobs returned 200 but no 'jobs' key: %r" % (d,))
     sys.exit(1)
 jobs = d["jobs"]
-print("%-34s %-11s %8s %7s %9s %9s  %s" % ("slug", "state", "attempts", "vrej", "p1-bytes", "p2-bytes", "fail_reason"))
+print("%-34s %-11s %-10s %8s %7s %9s %9s  %s" % ("slug", "state", "attest", "attempts", "vrej", "p1-bytes", "p2-bytes", "fail_reason"))
 bad = 0
 for j in jobs:
     flag = ""
     if j["state"] == "done" and j["pose1_bytes"] == 0:
         flag = "  <-- done but NO pose-1 bytes"; bad += 1
-    print("%-34s %-11s %8s %7s %9s %9s  %s%s" % (
-        j["slug"], j["state"], j["attempts"], j["verify_rejects"],
+    print("%-34s %-11s %-10s %8s %7s %9s %9s  %s%s" % (
+        j["slug"], j["state"], j.get("attest", "-"), j["attempts"], j["verify_rejects"],
         j["pose1_bytes"], j["pose2_bytes"], j.get("fail_reason") or "", flag))
 print("%d jobs, %d anomalies" % (len(jobs), bad))
 if not jobs:

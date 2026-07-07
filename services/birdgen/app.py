@@ -265,6 +265,10 @@ def db() -> sqlite3.Connection:
             "ALTER TABLE species_jobs ADD COLUMN verify_rejects INTEGER DEFAULT 0",
             "ALTER TABLE species_jobs ADD COLUMN regen_poses TEXT",
             "ALTER TABLE species_jobs ADD COLUMN source TEXT DEFAULT 'auto'",
+            # Conservator's Mark: the judge's verdict on the HANGING pose-1
+            # plate ('attested' | 'caveat' | NULL = not-yet-examined).
+            "ALTER TABLE species_jobs ADD COLUMN attest TEXT",
+            "ALTER TABLE species_jobs ADD COLUMN attest_ts INTEGER",
         ):
             try:
                 _conn.execute(ddl)
@@ -376,6 +380,43 @@ def bump_verify_rejects(slug: str) -> int:
             "SELECT verify_rejects FROM species_jobs WHERE slug=?", (slug,)
         ).fetchone()
     return int(row[0]) if row and row[0] is not None else 0
+
+
+def set_attest(slug: str, state: Optional[str]) -> None:
+    """Persist the Conservator's Mark for the pose-1 plate that just PUBLISHED.
+    state: 'attested' (judge passed) | 'caveat' (accept-with-flag) | None
+    (unexamined: verify off or the gate failed open). Called only after the
+    atomic os.replace, so the mark can never describe a plate that never hung."""
+    with _db_lock:
+        db().execute(
+            "UPDATE species_jobs SET attest=?, attest_ts=? WHERE slug=?",
+            (state, int(time.time()), slug),
+        )
+        db().commit()
+
+
+def attest_state(attest: Optional[str], verify_rejects) -> str:
+    """Wire-state for a stored attest value. The locked honesty rule: fail-open
+    and accept-with-flag must NEVER render as a clean checkmark. Legacy rows
+    (verdicts computed then discarded, pre-Mark) derive 'caveat' from the one
+    thing that WAS persisted: an exhausted reject budget means the hanging
+    plate is an accept-with-flag survivor."""
+    if attest in ("attested", "caveat"):
+        return attest
+    if (verify_rejects or 0) >= AV_VERIFY_MAX_REJECTS:
+        return "caveat"
+    return "unexamined"
+
+
+def get_attest(slug: str) -> Optional[dict]:
+    with _db_lock:
+        row = db().execute(
+            "SELECT attest, attest_ts, verify_rejects FROM species_jobs WHERE slug=?",
+            (slug,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"state": attest_state(row[0], row[2]), "ts": row[1]}
 
 
 def mark_fail(slug: str, fail_class: str, reason: str, attempts: int) -> str:
@@ -931,6 +972,14 @@ CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.1
 # When a cleanup drops at least this fraction of the plate's opaque pixels
 # (a possible tail/bill amputation, not fringe dust), WARN loudly — never block.
 CLEAN_DROP_WARN_FRAC = float(os.environ.get("CLEAN_DROP_WARN_FRAC", "0.12"))
+# A NON-tuck cleanup that removes MORE opaque than this is treated as a
+# mutilation (a clipped/half-eaten bird) and REVERTED — never published. This is
+# the deterministic, zero-spend gate on clean_alpha's OUTPUT (the Gemini judge
+# runs BEFORE clean_alpha, so nothing else re-inspects the post-cleanup plate).
+# tuck legitimately drops a whole foot cluster and is founder-directed, so it is
+# exempt. Legit satellite-drop is ~3%, the warn tripwire 12%, so 30% is a wide
+# margin above any real cleanup and only trips on a gross over-removal.
+CLEAN_MAX_DROP_FRAC = float(os.environ.get("CLEAN_MAX_DROP_FRAC", "0.30"))
 
 _CLEAN_DROP_RE = re.compile(r"removed ([0-9.]+)")
 
@@ -954,6 +1003,17 @@ def _warn_big_clean_drop(slug: str, pose: int, note: Optional[str]) -> None:
             "qa-clean-drop slug=%s pose=%d removed %.1f%% of opaque pixels "
             "(>= %.0f%% tripwire) — eyeball the published plate (log-only, never blocks)",
             slug, pose, frac * 100.0, CLEAN_DROP_WARN_FRAC * 100.0)
+
+
+def _clean_over_removed(note: Optional[str], tuck: bool) -> bool:
+    """True when a NON-tuck cleanup removed >= CLEAN_MAX_DROP_FRAC of the opaque
+    pixels — a gross over-removal (a clipped/mutilated bird) the caller must
+    REVERT rather than publish. tuck drops a foot cluster on purpose and is
+    founder-directed, so it is never treated as over-removal."""
+    if tuck:
+        return False
+    frac = _clean_drop_frac(note)
+    return frac is not None and frac >= CLEAN_MAX_DROP_FRAC
 
 
 def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
@@ -1053,7 +1113,7 @@ _VERIFY_FAIL_OPEN = 0
 
 
 def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
-               manual: bool = False, protect_existing: bool = False) -> None:
+               manual: bool = False, protect_existing: bool = False) -> Optional[str]:
     """Adversarial ID/anatomy gate (AV_VERIFY on). One Gemini-Vision call via
     verify.verify_one; rejects an off-species or malformed render so it
     regenerates. Fails OPEN (never rejects) when the model errors or the response
@@ -1063,18 +1123,24 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
     that many rejects the least-bad render is accepted-with-flag rather than
     stranding the species in an endless regen loop (a real bird in slightly-off
     plumage beats a permanent silhouette). Pose-2 (flight) rejects need no budget
-    — they're already bounded by the POSE2_TRIES loop and fall back to perched."""
+    — they're already bounded by the POSE2_TRIES loop and fall back to perched.
+
+    Returns the Conservator's Mark outcome for the render under inspection:
+    'attested' (verdict pass), 'caveat' (accept-with-flag publish), or None
+    (fail-open — the gate was blind, the plate publishes unexamined). Raising
+    QAReject means no publish, so no mark. The caller persists it only AFTER
+    the atomic publish (set_attest)."""
     global _VERIFY_FAIL_OPEN
     try:
         v = verify_one(GEMINI_API_KEY, cut_path, sci, com)
     except Exception as e:  # network/API error -> not a QA verdict; keep the clean render
         _VERIFY_FAIL_OPEN += 1
         log.warning("verify_one error slug=%s err=%s (skipping verify gate)", slug, e)
-        return  # NOT billed as a verdict — don't count
+        return None  # NOT billed as a verdict — don't count; publishes unexamined
     record_verify(manual=manual)  # the call returned -> count the paid verify
     if not v:
         _VERIFY_FAIL_OPEN += 1  # unparseable = the gate is blind, not a pass verdict
-        return  # unparseable -> fail open
+        return None  # unparseable -> fail open; publishes unexamined
     # A perched bird's folded wings routinely read as a single visible wing, so
     # only an EXTRA wing (>2) is an unambiguous hallucination — 1–2 is fine. (Was
     # !=2, which false-rejected valid perched renders and stranded species like
@@ -1101,7 +1167,7 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
     elif v["has_stick_or_perch"]:
         reason = "has stick/perch"
     if reason is None:
-        return  # passed
+        return "attested"  # passed
     if pose != 1:
         raise QAReject("verify: " + reason)  # pose-2: bounded by POSE2_TRIES, no budget needed
     if get_verify_rejects(slug) >= AV_VERIFY_MAX_REJECTS:
@@ -1113,7 +1179,7 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
             raise QAReject("verify: %s (protected — keeping the existing plate)" % reason)
         log.warning("verify: publishing best-effort after %d verify rejects slug=%s (last: %s)",
                     AV_VERIFY_MAX_REJECTS, slug, reason)
-        return  # accept-with-flag: a real bird in slightly-off plumage beats a permanent silhouette
+        return "caveat"  # accept-with-flag: a real bird in slightly-off plumage beats a permanent silhouette
     n = bump_verify_rejects(slug)
     raise QAReject("verify: %s (reject %d/%d)" % (reason, n, AV_VERIFY_MAX_REJECTS))
 
@@ -1198,18 +1264,33 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
             if scrub_note:
                 log.info("qa-scrub slug=%s pose=%s %s", slug, pose, scrub_note)
             # adversarial species/anatomy gate (one Gemini-Vision call).
+            # attest_out: 'attested' | 'caveat' | None (unexamined — verify off
+            # or fail-open). A QAReject raise skips publish, so no mark change.
+            attest_out = None
             if AV_VERIFY:
-                _qa_verify(slug, sci, com, pose, tmp_cut, manual=manual,
-                           protect_existing=protect_existing)
+                attest_out = _qa_verify(slug, sci, com, pose, tmp_cut, manual=manual,
+                                        protect_existing=protect_existing)
             # Edge cleanup: harden thin-feature edges + drop faint ghosts so the
             # published plate is clean and whole (no frayed/ripped tails or toes).
             # TUCK_SLUGS species keep the tuck fix across regens (perched only —
             # a one-off /reclean {tuck:true} otherwise dies on the next repaint).
-            clean_note = clean_alpha(str(tmp_cut),
-                                     tuck=(pose == 1 and slug in TUCK_SLUGS))
+            _clean_tuck = (pose == 1 and slug in TUCK_SLUGS)
+            _preclean = tmp_cut.read_bytes()  # for never-worse revert below
+            clean_note = clean_alpha(str(tmp_cut), tuck=_clean_tuck)
             if clean_note:
-                log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
-                _warn_big_clean_drop(slug, pose, clean_note)
+                if _clean_over_removed(clean_note, _clean_tuck):
+                    # never-worse: this cleanup ate a mutilating fraction of the
+                    # bird. Nothing re-inspects post-clean bytes, so revert here
+                    # and publish the QA-passed PRE-clean plate — never a clipped
+                    # bird (deterministic, zero-spend gate on clean_alpha output).
+                    tmp_cut.write_bytes(_preclean)
+                    log.warning("qa-clean-revert slug=%s pose=%s %s (>= %.0f%% "
+                                "removed — reverted, publishing pre-clean plate)",
+                                slug, pose, clean_note, CLEAN_MAX_DROP_FRAC * 100.0)
+                    clean_note = None
+                else:
+                    log.info("qa-clean slug=%s pose=%s %s", slug, pose, clean_note)
+                    _warn_big_clean_drop(slug, pose, clean_note)
             # Never-worse insurance: archive the outgoing plate to the _prev/
             # SUBDIRECTORY (ring-of-1 — each publish overwrites the previous
             # archive) before replacing it. A sibling "<slug>.prev.png" would
@@ -1229,6 +1310,12 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,
                                 slug, pose, e)
             # atomic publish (same filesystem -> os.replace is atomic)
             os.replace(str(tmp_cut), str(out_path))
+            if pose == 1:
+                # Conservator's Mark: persist the verdict for the plate that
+                # actually HUNG (after the swap, never before). Fail-open and
+                # verify-off overwrite any older mark with NULL — a stale
+                # attestation on a new unexamined plate would be a false seal.
+                set_attest(slug, attest_out)
             return frac
         finally:
             for p in (tmp_raw, tmp_cut):
@@ -1752,10 +1839,20 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
             tmp = ASSETS_DIR / (".%s.clean.png" % name)
             try:
                 shutil.copy2(str(out_path), str(tmp))
-                note = clean_alpha(str(tmp), tuck=(
-                    tuck or (pose == 1 and slug in TUCK_SLUGS)))
+                _reclean_tuck = tuck or (pose == 1 and slug in TUCK_SLUGS)
+                note = clean_alpha(str(tmp), tuck=_reclean_tuck)
                 if note is None:
                     skipped[key] = "nothing-to-clean"
+                    os.unlink(str(tmp))
+                    continue
+                if _clean_over_removed(note, _reclean_tuck):
+                    # never-worse: a non-tuck reclean that would remove a
+                    # mutilating fraction is NOT applied — keep the current plate
+                    # untouched. (/reclean has no other quality gate.)
+                    skipped[key] = "over-clean-reverted"
+                    log.warning("reclean-revert slug=%s pose=%d %s (>= %.0f%% "
+                                "removed — kept current plate)",
+                                slug, pose, note, CLEAN_MAX_DROP_FRAC * 100.0)
                     os.unlink(str(tmp))
                     continue
                 # never-worse: archive the current plate, then atomic swap.
@@ -1806,7 +1903,7 @@ async def jobs_roster(authorization: Optional[str] = Header(None)):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     with _db_lock:
         rows = db().execute(
-            "SELECT slug, state, attempts, verify_rejects, fail_reason "
+            "SELECT slug, state, attempts, verify_rejects, fail_reason, attest "
             "FROM species_jobs ORDER BY slug"
         ).fetchall()
     def _size(p: Path) -> int:
@@ -1816,7 +1913,7 @@ async def jobs_roster(authorization: Optional[str] = Header(None)):
             return 0
 
     out = []
-    for slug, state, attempts, verify_rejects, fail_reason in rows:
+    for slug, state, attempts, verify_rejects, fail_reason, attest in rows:
         out.append({
             "slug": slug,
             "state": state,
@@ -1825,8 +1922,26 @@ async def jobs_roster(authorization: Optional[str] = Header(None)):
             "fail_reason": fail_reason,
             "pose1_bytes": _size(ASSETS_DIR / ("%s.png" % slug)),
             "pose2_bytes": _size(ASSETS_DIR / ("%s-2.png" % slug)),
+            "attest": attest_state(attest, verify_rejects),
         })
     return {"jobs": out}
+
+
+# Conservator's Mark, public read. Quality METADATA only (no art, no queue
+# control, no spend surface) — deliberately unauthenticated + CORS-open so the
+# museum popup on the Pi's wall can fetch it straight from the browser without
+# proxying a secret through PHP for data this harmless.
+_ATTEST_CORS = {"Access-Control-Allow-Origin": "*"}
+
+
+@app.get("/attest/{slug}")
+async def attest_read(slug: str):
+    if not _valid_slug(slug):
+        return JSONResponse({"error": "bad slug"}, status_code=422, headers=_ATTEST_CORS)
+    a = get_attest(slug)
+    if a is None:
+        return JSONResponse({"error": "unknown"}, status_code=404, headers=_ATTEST_CORS)
+    return JSONResponse({"slug": slug, **a}, headers=_ATTEST_CORS)
 
 
 @app.get("/job/{slug}")

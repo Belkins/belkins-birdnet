@@ -587,6 +587,55 @@ def test_clean_drop_frac_parses_both_note_formats():
 
 
 # --------------------------------------------------------------------------- #
+# clean_alpha OVER-REMOVAL revert — the deterministic never-worse gate on the
+# cleanup OUTPUT (the Gemini judge runs BEFORE clean_alpha, so nothing else
+# re-inspects the post-cleanup plate; a mutilating drop must not publish).
+# --------------------------------------------------------------------------- #
+def test_clean_over_removed_only_trips_on_big_non_tuck_drop():
+    big = "cleaned edge (removed 0.400 detached, halo=8px)"
+    tucknote = "cleaned edge (removed 0.400 tucked (kept body only), halo=8px)"
+    small = "cleaned edge (removed 0.050 detached, halo=8px)"
+    assert app._clean_over_removed(big, tuck=False) is True
+    assert app._clean_over_removed(big, tuck=True) is False   # tuck is founder-directed, exempt
+    assert app._clean_over_removed(small, tuck=False) is False
+    assert app._clean_over_removed(None, tuck=False) is False
+
+
+def _mutilating_clean(path, tuck=False):
+    """A clean_alpha stand-in that EATS the bird (blanks the file) and reports a
+    mutilating drop — used to prove the revert guard protects the plate."""
+    Image.new("RGBA", (8, 8), (0, 0, 0, 0)).save(path)
+    return "cleaned edge (removed 0.900 detached, halo=8px)"
+
+
+def test_reclean_reverts_a_mutilating_over_removal(client, auth, monkeypatch):
+    """A non-tuck /reclean whose cleanup would eat the bird is NOT applied — the
+    currently-published plate is kept byte-identical (never-worse; /reclean has
+    no other quality gate)."""
+    slug, sci, com = "turdus-merula", "Turdus merula", "Eurasian Blackbird"
+    _publish(slug, sci, com)                       # real clean_alpha here
+    before = _p1(slug).read_bytes()
+    monkeypatch.setattr(app, "clean_alpha", _mutilating_clean)
+    r = client.post("/reclean", json={"slugs": [slug], "poses": [1]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json().get("skipped", {}).get("%s#1" % slug) == "over-clean-reverted"
+    assert _p1(slug).read_bytes() == before, "mutilating reclean was not reverted"
+
+
+def test_publish_reverts_a_mutilating_clean_to_the_preclean_plate(monkeypatch):
+    """On the publish path, a mutilating clean_alpha is reverted so the QA-passed
+    PRE-clean cutout publishes — never the eaten 8x8 blank."""
+    slug, sci, com = "sitta-europaea", "Sitta europaea", "Eurasian Nuthatch"
+    _publish(slug, sci, com)
+    monkeypatch.setattr(app, "clean_alpha", _mutilating_clean)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    res = _worker_once()
+    assert res and res["ok"] is True
+    assert Image.open(_p1(slug)).size != (8, 8), \
+        "the mutilating clean was published instead of reverted to the pre-clean plate"
+
+
+# --------------------------------------------------------------------------- #
 # /jobs roster — the wall-mode feed for scripts/verify.sh (P0: "what is the
 # wall showing right now" in one command).
 # --------------------------------------------------------------------------- #
@@ -604,3 +653,93 @@ def test_jobs_roster_lists_state_and_bytes(client, auth):
     assert row["pose1_bytes"] > 0, "a done job must show real pose-1 bytes"
     assert row["verify_rejects"] == 0
     assert "fail_reason" in row
+
+
+# --------------------------------------------------------------------------- #
+# Conservator's Mark — the judge's verdict on the HANGING pose-1 plate,
+# persisted at publish and readable at /attest. The locked honesty rule:
+# fail-open and accept-with-flag must NEVER render as a clean checkmark.
+# --------------------------------------------------------------------------- #
+def _verdict_healthy():
+    return dict(_verdict_off_species(), matches_target=True,
+                guessed_species_sci="", guessed_species_com="")
+
+
+def test_attest_pass_marks_attested(client, monkeypatch):
+    slug = "turdus-merula"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Turdus merula", "Common Blackbird")
+    r = client.get("/attest/%s" % slug)
+    assert r.status_code == 200
+    assert r.json()["state"] == "attested"
+    assert r.headers.get("access-control-allow-origin") == "*", \
+        "the wall popup fetches this cross-origin — CORS must be open"
+
+
+def test_attest_accept_with_flag_is_caveat_never_checkmark(client, auth, monkeypatch):
+    """An accept-with-flag survivor (budget exhausted, published anyway) must
+    carry 'caveat' — both at /attest and in the /jobs roster."""
+    slug = "chloris-chloris"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_off_species())
+    app.insert_queued(slug, "Chloris chloris", "European Greenfinch", 0.9)
+    for _ in range(app.AV_VERIFY_MAX_REJECTS):
+        app.bump_verify_rejects(slug)
+    res = _worker_once()
+    assert res and res["ok"], "accept-with-flag must still publish a NEW species"
+    assert client.get("/attest/%s" % slug).json()["state"] == "caveat"
+    jobs = {j["slug"]: j for j in client.get("/jobs", headers=auth).json()["jobs"]}
+    assert jobs[slug]["attest"] == "caveat"
+
+
+def test_attest_fail_open_repaint_resets_to_unexamined(client, monkeypatch):
+    """A repaint published while the gate is BLIND must clear an older
+    'attested' — a stale seal on an unexamined plate is a false attestation."""
+    slug = "sitta-europaea"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Sitta europaea", "Eurasian Nuthatch")
+    assert client.get("/attest/%s" % slug).json()["state"] == "attested"
+
+    def _boom(*a, **k):
+        raise RuntimeError("gemini down")
+    monkeypatch.setattr(app, "verify_one", _boom)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    _make_due(slug)
+    res = _worker_once()
+    assert res and res["ok"], "fail-open must still publish"
+    assert client.get("/attest/%s" % slug).json()["state"] == "unexamined"
+
+
+def test_attest_failed_regen_keeps_the_old_mark(client, monkeypatch):
+    """No publish -> no mark change: a QA-rejected repaint leaves the hanging
+    plate AND its attestation exactly as they were."""
+    slug = "cyanistes-caeruleus"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Cyanistes caeruleus", "Eurasian Blue Tit")
+    monkeypatch.setattr(app, "_qa_inspect", _reject)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    _make_due(slug)
+    res = _worker_once()
+    assert res and res["ok"] is False
+    assert client.get("/attest/%s" % slug).json()["state"] == "attested"
+
+
+def test_attest_legacy_rows_derive_caveat_from_exhausted_rejects(client):
+    """Pre-Mark rows (attest NULL) with an exhausted reject budget ARE
+    accept-with-flag survivors (falco, regulus on the live wall) — they must
+    read 'caveat', not silence-as-clean; everyone else reads 'unexamined'."""
+    slug = "parus-major"
+    _publish(slug, "Parus major", "Great Tit")  # AV_VERIFY off -> attest NULL
+    assert client.get("/attest/%s" % slug).json()["state"] == "unexamined"
+    for _ in range(app.AV_VERIFY_MAX_REJECTS):
+        app.bump_verify_rejects(slug)
+    assert client.get("/attest/%s" % slug).json()["state"] == "caveat"
+
+
+def test_attest_unknown_slug_404s_with_cors(client):
+    r = client.get("/attest/never-heard-species")
+    assert r.status_code == 404
+    assert r.headers.get("access-control-allow-origin") == "*"

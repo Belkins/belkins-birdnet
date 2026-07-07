@@ -30,6 +30,13 @@ export const CATALOG_URL: string = env.VITE_CATALOG_URL ?? `${BASE}species.json`
  *  every reader degrades to silence. Overridable via VITE_DERIVED_URL. */
 export const DERIVED_URL: string = env.VITE_DERIVED_URL ?? `${BASE}derived.json`;
 
+/** Conservator's Mark reader (birdgen's public, CORS-open /attest/<slug>).
+ *  Quality metadata only — no art, no queue control — so the popup fetches it
+ *  straight from the browser. Every reader degrades to silence: a 404 means a
+ *  bundled (never machine-painted, never judged) plate, and shows NO mark. */
+export const ATTEST_URL: string =
+  env.VITE_ATTEST_URL ?? 'https://birdgen-production.up.railway.app/attest';
+
 /** Window (hours) for the initial snapshot. Matches the legacy default. */
 export const SNAPSHOT_HOURS = 24;
 
