@@ -333,6 +333,24 @@
   font-style: normal;
   letter-spacing: 0.02em;
 }
+/* Conservator's Mark — a small vermilion hanko seat beside the verdict.
+   Filled = attested; ring = attested-with-caveat; the unexamined state is
+   plain dimmed text (no seal — silence is the honest default). */
+.bp-seal {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  transform: rotate(45deg) translateY(-1px);
+  background: #c73e2e;
+}
+.bp-seal-ring {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #c73e2e;
+}
+.bp-meta-v.bp-attest-dim {
+  color: var(--mut);
+}
 
 /* ── PHENOLOGY — 52-week presence ribbon ───────────────────── */
 /* One slim cell per ISO week; unheard weeks stay faint grooves, heard weeks

@@ -21,7 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { JSX } from 'react';
 import { phenologyWeeks, type Phenology } from '../almanac';
 import { fetchCatalog } from '../catalog';
-import { API_BASE } from '../config';
+import { API_BASE, ATTEST_URL } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
 import { useBirdImage } from '../useBirdImage';
@@ -180,6 +180,8 @@ function Dialog({
   // Keyed per species, so this init is per-open (deep-link pose restore stays
   // one-shot and a new bird still resets to perched).
   const [pose, setPose] = useState<Pose>(bird.pose ?? 1);
+  // Conservator's Mark state (see the /attest fetch below); null = no mark.
+  const [attest, setAttest] = useState<'attested' | 'caveat' | 'unexamined' | null>(null);
   // Readiness of the current pose's plate (reads cutout.php's X-Av-Real): a
   // still-generating species shows the "painting" loader and auto-swaps to art;
   // re-runs on every pose flip because imgUrl changes. `imgSrc` is the display
@@ -270,6 +272,30 @@ function Dialog({
     })();
     return () => ctrl.abort();
   }, [bird.sci]);
+
+  // Conservator's Mark: the judge's verdict on the HANGING perched plate,
+  // fetched from birdgen's public /attest. 'attested' | 'caveat' |
+  // 'unexamined'; null = no mark row at all (bundled art 404s — the founder's
+  // canon was never machine-judged, so it carries no seal). Re-fetched after a
+  // repaint lands (bust) because the new plate carries its own verdict.
+  useEffect(() => {
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(`${ATTEST_URL}/${encodeURIComponent(bird.slug)}`, {
+          signal: ctrl.signal,
+        });
+        if (!res.ok) return; // 404 = bundled plate → no mark, by design
+        const data = (await res.json()) as { state?: string };
+        if (data.state === 'attested' || data.state === 'caveat' || data.state === 'unexamined') {
+          setAttest(data.state);
+        }
+      } catch {
+        // Railway unreachable from the frame — the mark just stays absent.
+      }
+    })();
+    return () => ctrl.abort();
+  }, [bird.slug, bust]);
 
   // Phenology: self-fetch the nightly catalog and match this species' row for
   // its ISO-week presence data. fetchCatalog never throws (a miss → []), so an
@@ -437,6 +463,7 @@ function Dialog({
         detectionCount: detail?.total ?? null,
         firstConfident: detail?.firstSeen ? detail.firstSeen.split(' ')[0] : null,
         rarityLabel: rarity,
+        attest: attest === 'attested' || attest === 'caveat' ? attest : null,
         theme: 'day',
       });
     } catch {
@@ -559,6 +586,27 @@ function Dialog({
                 <span className="bp-meta-i">
                   <span className="bp-meta-k">rarity</span>
                   <span className={rarity === 'rare' ? 'bp-meta-v bp-rare' : 'bp-meta-v'}>{rarity}</span>
+                </span>
+              )}
+              {/* Conservator's Mark — the honesty rule is LOCKED: fail-open and
+                  accept-with-flag never render as a clean seal. Bundled plates
+                  (attest === null) carry no mark at all. */}
+              {attest && (
+                <span className="bp-meta-i">
+                  <span className="bp-meta-k">conservator</span>
+                  {attest === 'attested' ? (
+                    <span className="bp-meta-v">
+                      <i className="bp-seal bp-seal-full" aria-hidden="true" />
+                      attested
+                    </span>
+                  ) : attest === 'caveat' ? (
+                    <span className="bp-meta-v">
+                      <i className="bp-seal bp-seal-ring" aria-hidden="true" />
+                      attested · with caveat
+                    </span>
+                  ) : (
+                    <span className="bp-meta-v bp-attest-dim">not yet examined</span>
+                  )}
                 </span>
               )}
             </div>

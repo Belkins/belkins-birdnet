@@ -31,6 +31,10 @@ export interface PlateCardSpec {
   firstConfident?: string | null;
   /** an honest rarity LABEL computed upstream from real local frequency. */
   rarityLabel?: string | null;
+  /** Conservator's Mark for the plate ('attested' | 'caveat') or null/absent.
+   *  The unexamined state and bundled plates stamp NOTHING — the card never
+   *  invents a seal (same honesty rule as the popup). */
+  attest?: 'attested' | 'caveat' | null;
   /** 'day' = a cream print (default, for sharing); 'night' = obsidian. */
   theme?: 'day' | 'night';
 }
@@ -179,6 +183,31 @@ export async function renderPlateCard(spec: PlateCardSpec): Promise<HTMLCanvasEl
     ctx.fillStyle = pal.faint;
     ctx.font = '500 27px "Space Grotesk", system-ui, sans-serif';
     ctx.fillText(stats.join('   ·   '), capX, capY);
+  }
+
+  // Conservator's Mark: a small vermilion hanko + verdict on its own line.
+  // Only the two POSITIVE verdicts stamp; unexamined/bundled stamp nothing.
+  if (spec.attest === 'attested' || spec.attest === 'caveat') {
+    capY += 44;
+    const seal = 13;
+    ctx.save();
+    ctx.translate(capX + seal / 2, capY - seal / 2 - 4);
+    ctx.rotate(Math.PI / 4);
+    if (spec.attest === 'attested') {
+      ctx.fillStyle = '#c73e2e';
+      ctx.fillRect(-seal / 2, -seal / 2, seal, seal);
+    } else {
+      ctx.strokeStyle = '#c73e2e';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-seal / 2, -seal / 2, seal, seal);
+    }
+    ctx.restore();
+    ctx.fillStyle = pal.faint;
+    ctx.font = '500 24px "Space Mono", ui-monospace, monospace';
+    ctx.fillText(
+      spec.attest === 'attested' ? 'CONSERVATOR-ATTESTED' : 'ATTESTED · WITH CAVEAT',
+      capX + seal + 14, capY,
+    );
   }
 
   // Colophon, bottom rail.

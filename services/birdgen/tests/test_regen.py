@@ -653,3 +653,93 @@ def test_jobs_roster_lists_state_and_bytes(client, auth):
     assert row["pose1_bytes"] > 0, "a done job must show real pose-1 bytes"
     assert row["verify_rejects"] == 0
     assert "fail_reason" in row
+
+
+# --------------------------------------------------------------------------- #
+# Conservator's Mark — the judge's verdict on the HANGING pose-1 plate,
+# persisted at publish and readable at /attest. The locked honesty rule:
+# fail-open and accept-with-flag must NEVER render as a clean checkmark.
+# --------------------------------------------------------------------------- #
+def _verdict_healthy():
+    return dict(_verdict_off_species(), matches_target=True,
+                guessed_species_sci="", guessed_species_com="")
+
+
+def test_attest_pass_marks_attested(client, monkeypatch):
+    slug = "turdus-merula"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Turdus merula", "Common Blackbird")
+    r = client.get("/attest/%s" % slug)
+    assert r.status_code == 200
+    assert r.json()["state"] == "attested"
+    assert r.headers.get("access-control-allow-origin") == "*", \
+        "the wall popup fetches this cross-origin — CORS must be open"
+
+
+def test_attest_accept_with_flag_is_caveat_never_checkmark(client, auth, monkeypatch):
+    """An accept-with-flag survivor (budget exhausted, published anyway) must
+    carry 'caveat' — both at /attest and in the /jobs roster."""
+    slug = "chloris-chloris"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_off_species())
+    app.insert_queued(slug, "Chloris chloris", "European Greenfinch", 0.9)
+    for _ in range(app.AV_VERIFY_MAX_REJECTS):
+        app.bump_verify_rejects(slug)
+    res = _worker_once()
+    assert res and res["ok"], "accept-with-flag must still publish a NEW species"
+    assert client.get("/attest/%s" % slug).json()["state"] == "caveat"
+    jobs = {j["slug"]: j for j in client.get("/jobs", headers=auth).json()["jobs"]}
+    assert jobs[slug]["attest"] == "caveat"
+
+
+def test_attest_fail_open_repaint_resets_to_unexamined(client, monkeypatch):
+    """A repaint published while the gate is BLIND must clear an older
+    'attested' — a stale seal on an unexamined plate is a false attestation."""
+    slug = "sitta-europaea"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Sitta europaea", "Eurasian Nuthatch")
+    assert client.get("/attest/%s" % slug).json()["state"] == "attested"
+
+    def _boom(*a, **k):
+        raise RuntimeError("gemini down")
+    monkeypatch.setattr(app, "verify_one", _boom)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    _make_due(slug)
+    res = _worker_once()
+    assert res and res["ok"], "fail-open must still publish"
+    assert client.get("/attest/%s" % slug).json()["state"] == "unexamined"
+
+
+def test_attest_failed_regen_keeps_the_old_mark(client, monkeypatch):
+    """No publish -> no mark change: a QA-rejected repaint leaves the hanging
+    plate AND its attestation exactly as they were."""
+    slug = "cyanistes-caeruleus"
+    monkeypatch.setattr(app, "AV_VERIFY", True)
+    monkeypatch.setattr(app, "verify_one", lambda *a, **k: _verdict_healthy())
+    _publish(slug, "Cyanistes caeruleus", "Eurasian Blue Tit")
+    monkeypatch.setattr(app, "_qa_inspect", _reject)
+    app.requeue_row(slug, regen_poses="1", source="manual")
+    _make_due(slug)
+    res = _worker_once()
+    assert res and res["ok"] is False
+    assert client.get("/attest/%s" % slug).json()["state"] == "attested"
+
+
+def test_attest_legacy_rows_derive_caveat_from_exhausted_rejects(client):
+    """Pre-Mark rows (attest NULL) with an exhausted reject budget ARE
+    accept-with-flag survivors (falco, regulus on the live wall) — they must
+    read 'caveat', not silence-as-clean; everyone else reads 'unexamined'."""
+    slug = "parus-major"
+    _publish(slug, "Parus major", "Great Tit")  # AV_VERIFY off -> attest NULL
+    assert client.get("/attest/%s" % slug).json()["state"] == "unexamined"
+    for _ in range(app.AV_VERIFY_MAX_REJECTS):
+        app.bump_verify_rejects(slug)
+    assert client.get("/attest/%s" % slug).json()["state"] == "caveat"
+
+
+def test_attest_unknown_slug_404s_with_cors(client):
+    r = client.get("/attest/never-heard-species")
+    assert r.status_code == 404
+    assert r.headers.get("access-control-allow-origin") == "*"
