@@ -61,5 +61,19 @@ for d in $ENUMERATED; do
   [ "$ok" = "1" ] || fail "ENUMERATED suite '$d' has no matching scoped pytest line in $WF — restore the line or remove it from ENUMERATED in this script"
 done
 
+# 4. Committed-dist integrity: every hashed asset a committed web/dist HTML
+#    references must itself be IN THE GIT INDEX. The 6274ec2 blank-wall
+#    incident: `git add -A` silently skips NEW files under gitignored
+#    web/dist/, so index.html shipped referencing bundles that existed only
+#    in the worktree — and caddy's php try_files fallback 200-masked every
+#    missing module into text/html. Check the INDEX (git show :path), never
+#    the worktree — worktree-vs-tree divergence IS the failure.
+for h in $(git ls-files 'web/dist/*.html'); do
+  for a in $(git show ":$h" 2>/dev/null | grep -oE 'assets/[A-Za-z0-9_.-]+\.(js|css)' | sort -u); do
+    git ls-files --error-unmatch "web/dist/$a" >/dev/null 2>&1 \
+      || fail "committed $h references $a which is NOT in the git tree — 'git add -f web/dist' was skipped (the 6274ec2 blank-wall class)"
+  done
+done
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
