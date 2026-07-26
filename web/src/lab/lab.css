@@ -188,3 +188,26 @@ body {
   font-style: normal;
   color: var(--lab-accent);
 }
+
+/* Stale-data banner. The console is a COMPANION surface: it is allowed to be
+   wrong-but-loud, never wrong-but-quiet. Uses --lab-warn (the same amber as the
+   live dot's degraded state) rather than an alarm red — stale derived data is a
+   correctness caveat, not an outage. The museum frame never renders this. */
+.lab-stale {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--lab-warn);
+  border-left-width: 3px;
+  border-radius: 3px;
+  background: rgba(230, 169, 91, 0.08);
+  color: var(--lab-warn);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.lab-stale strong {
+  font-family: 'Space Mono', monospace;
+  letter-spacing: 0.04em;
+}
+.lab-stale-chip {
+  color: var(--lab-warn);
+}

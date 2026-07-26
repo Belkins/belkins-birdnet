@@ -133,6 +133,24 @@ export function Lab(): JSX.Element {
     [cat],
   );
 
+  // Age of the derived bundle, in whole hours; null when it is fresh, absent,
+  // or unparseable-but-recent. `null` means "say nothing".
+  //
+  // The honesty contract used to be "every reader degrades to silence" — but
+  // that only ever covered an ABSENT derived.json. A STALE one is present and
+  // schema-valid, so nothing degraded, and this console rendered a 3-day
+  // window from 2026-07-02 as current fact for 24 days. built_at was already
+  // printed at the top of this file; it was simply never compared to now.
+  // Reading a timestamp without comparing it is not provenance, it is decoration.
+  const staleHours = useMemo(() => {
+    if (!derived?.built_at) return null;
+    const built = Date.parse(derived.built_at);
+    if (Number.isNaN(built)) return null;
+    const hours = Math.floor((Date.now() - built) / 3_600_000);
+    // 72h: the bundle rebuilds nightly, so three missed runs is unambiguous.
+    return hours > 72 ? hours : null;
+  }, [derived]);
+
   return (
     <div className="lab">
       <header className="lab-head">
@@ -147,11 +165,29 @@ export function Lab(): JSX.Element {
         </div>
       </header>
 
+      {staleHours != null && (
+        <div className="lab-stale" role="status">
+          <strong>STALE — {staleHours >= 48
+            ? `${Math.floor(staleHours / 24)} days`
+            : `${staleHours}h`} old.</strong>{' '}
+          Every derived figure below (rarity, co-occurrence, first-of-year, the
+          waking line) was computed from a snapshot taken{' '}
+          {derived?.built_at?.slice(0, 10)} and has not been recomputed since.
+          Treat them as history, not as current. The live feed and the species
+          count above are unaffected.
+        </div>
+      )}
+
       <div className="lab-meta">
         <span>{cat.length} species catalogued</span>
         {derived?.station_days != null && <span>{derived.station_days} station days</span>}
         {derived?.source_rows != null && <span>{derived.source_rows.toLocaleString()} detections</span>}
-        {derived?.built_at && <span>derived · {derived.built_at.slice(0, 16).replace('T', ' ')}</span>}
+        {derived?.built_at && (
+          <span className={staleHours != null ? 'lab-stale-chip' : undefined}>
+            derived · {derived.built_at.slice(0, 16).replace('T', ' ')}
+            {staleHours != null && ` · ${staleHours}h STALE`}
+          </span>
+        )}
         <a className="lab-nav" href={`${BASE}recap.html`}>weekly recap →</a>
         <a className="lab-nav" href={BASE}>museum →</a>
       </div>

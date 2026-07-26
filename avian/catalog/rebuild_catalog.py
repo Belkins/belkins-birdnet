@@ -190,22 +190,38 @@ def fetch_manifest_slugs(manifest_url, timeout):
     """Best-effort GET of the birdgen manifest (``{"slugs": [...]}``). A slug in
     the manifest but not on local disk means the art is autogen-pending.
 
-    Network-guarded: ANY failure (no URL, unreachable, bad JSON, timeout)
-    returns an empty set. The build never fails because of the manifest.
+    Returns ``(slugs, answered)``.
+
+    ``answered`` is False whenever a URL WAS supplied but could not be turned
+    into a slug list (unreachable, timeout, bad JSON, wrong shape). The caller
+    MUST NOT report those species as "no art" -- we do not know, and saying
+    "none" is a confident lie. With NO url supplied, ``answered`` is True: the
+    operator has declared a bundled-only install, so "none" IS the honest
+    answer there.
+
+    This still never CRASHES the build on a bad manifest (that guarantee was
+    load-bearing and is kept). What changed: an unanswerable manifest is now
+    RECORDED as unanswered instead of silently collapsing into "none". The
+    2026-07-02..26 incident -- 40 of 47 species reported 'none' while their art
+    served fine -- was this function's empty set being read as fact.
     """
     if not manifest_url:
-        return set()
+        return set(), True
     try:
         with urllib.request.urlopen(manifest_url, timeout=timeout) as resp:
             payload = resp.read()
         data = json.loads(payload.decode("utf-8"))
     except Exception as exc:  # noqa: BLE001 -- intentional network guard
-        sys.stderr.write("catalog: manifest skipped (%s): %s\n" % (manifest_url, exc))
-        return set()
+        sys.stderr.write("catalog: manifest UNANSWERED (%s): %s\n" % (manifest_url, exc))
+        return set(), False
     slugs = data.get("slugs") if isinstance(data, dict) else None
     if not isinstance(slugs, list):
-        return set()
-    return set(s for s in slugs if isinstance(s, str) and s)
+        sys.stderr.write(
+            "catalog: manifest UNANSWERED (%s): expected {\"slugs\": [...]}, got %s\n"
+            % (manifest_url, type(data).__name__)
+        )
+        return set(), False
+    return set(s for s in slugs if isinstance(s, str) and s), True
 
 
 # ---- aggregation -----------------------------------------------------------
@@ -304,12 +320,26 @@ def aggregate(con):
 
 # ---- build -----------------------------------------------------------------
 
-def _classify_art(slug, asset_index, manifest_slugs):
-    """Return ``(art_status, art_source, poses_list)`` for a slug."""
+def _classify_art(slug, asset_index, manifest_slugs, manifest_answered=True):
+    """Return ``(art_status, art_source, poses_list)`` for a slug.
+
+    Three states, deliberately. 'none' means CONFIRMED no art; 'unknown' means
+    WE COULD NOT TELL because the manifest went unanswered. Collapsing the two
+    is the bug that shipped 40 wrong labels for 24 days: the bundled art set is
+    Nearctic, so on a non-US station the manifest is not a supplement, it is the
+    ONLY path that can ever answer 'ready' -- and when it fails, every species
+    it would have covered must say 'unknown', never 'none'.
+
+    Readers treat 'unknown' exactly like 'none' for rendering (both fall to the
+    live X-Av-Real probe, which resolves real art anyway), so this is safe to
+    ship: it changes what we CLAIM, not what we draw.
+    """
     if slug in asset_index:
         return "ready", "bundled", asset_index[slug]
     if slug in manifest_slugs:
         return "ready", "autogen", []
+    if not manifest_answered:
+        return "unknown", None, []
     return "none", None, []
 
 
@@ -425,7 +455,7 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
         )
 
     asset_index = scan_assets(assets_dir)
-    manifest_slugs = fetch_manifest_slugs(manifest_url, manifest_timeout)
+    manifest_slugs, manifest_answered = fetch_manifest_slugs(manifest_url, manifest_timeout)
 
     uri = "file:%s?mode=ro" % urllib.request.pathname2url(birds_abs)
     con = sqlite3.connect(uri, uri=True, timeout=5.0)
@@ -466,7 +496,8 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
             slug = slugify(sci)
             genus = sci.split()[0] if (bird and sci.split()) else None
             label = "%s_%s" % (sci, com if com is not None else sci)
-            art_status, art_source, poses = _classify_art(slug, asset_index, manifest_slugs)
+            art_status, art_source, poses = _classify_art(
+                slug, asset_index, manifest_slugs, manifest_answered)
             poses_json = json.dumps(poses, separators=(",", ":"))
 
             species_rows.append((
@@ -544,6 +575,12 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
         "out": out_path,
         "json": json_path,
         "accessions": ledger_path,
+        # False => a manifest URL was supplied but went unanswered, so some rows
+        # say 'unknown'. main() turns this into a NON-ZERO exit so a nightly
+        # timer cannot keep publishing a degraded catalog behind a green unit.
+        "manifest_answered": manifest_answered,
+        "manifest_slugs": len(manifest_slugs),
+        "manifest_url": manifest_url,
     }
 
 
@@ -574,8 +611,21 @@ def main(argv=None):
     ap.add_argument("--birds", default=birds_d, help="path to birds.db (read-only)")
     ap.add_argument("--out", default=out_d, help="output christina.db path")
     ap.add_argument("--assets", default=assets_d, help="bundled-art directory to scan")
-    ap.add_argument("--manifest-url", default=None,
-                    help="optional birdgen manifest URL (best-effort, network-guarded)")
+    # Default from the environment, NOT only from a flag baked at deploy time.
+    # The 24-day incident happened because the flag was rendered ONCE into a
+    # systemd unit from a shell env that happened to be unset -- after which no
+    # amount of correct configuration could reach it without a redeploy. Reading
+    # it at RUN time means an operator can fix it in one env file.
+    _manifest_env = (
+        os.environ.get("CHRISTINA_MANIFEST_URL")
+        or (os.environ.get("CHRISTINA_RAILWAY_BASE", "").rstrip("/") + "/manifest"
+            if os.environ.get("CHRISTINA_RAILWAY_BASE") else None)
+    )
+    ap.add_argument("--manifest-url", default=_manifest_env,
+                    help="birdgen manifest URL. Defaults to $CHRISTINA_MANIFEST_URL, "
+                         "else $CHRISTINA_RAILWAY_BASE/manifest. On a non-US station "
+                         "the bundled art set (Nearctic) covers almost nothing, so "
+                         "this is the ONLY path that can report art as ready.")
     ap.add_argument("--manifest-timeout", type=float, default=3.0,
                     help="manifest GET timeout in seconds (default 3.0)")
     ap.add_argument("--built-at", default=None,
@@ -612,6 +662,28 @@ def main(argv=None):
         "catalog: %d species (%d birds) from %d rows -> %s\n"
         % (result["species"], result["birds"], result["source_rows"], result["out"])
     )
+
+    # FAIL LOUD on a degraded catalog. The catalog still PUBLISHED above (a
+    # partial catalog beats no catalog, and art_status now says 'unknown'
+    # rather than lying) -- but the process exits non-zero so systemd marks the
+    # unit failed, `systemctl --failed` shows it, and repo-guards/verify can
+    # see it. The 24-day incident was invisible precisely because this path
+    # returned 0.
+    if not result["manifest_answered"]:
+        sys.stderr.write(
+            "catalog: DEGRADED -- manifest %s went unanswered; species with no "
+            "bundled art are labelled 'unknown', not 'none'. Art coverage is "
+            "UNVERIFIED until this resolves.\n" % (result["manifest_url"],)
+        )
+        return 3
+    if args.manifest_url and result["manifest_slugs"] == 0:
+        sys.stderr.write(
+            "catalog: DEGRADED -- manifest %s answered with ZERO slugs. That is "
+            "almost never real (birdgen ships ~290); treating as a fault rather "
+            "than silently reporting every autogen species as 'none'.\n"
+            % (args.manifest_url,)
+        )
+        return 3
     return 0
 
 

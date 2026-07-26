@@ -51,6 +51,11 @@ def notify(msg, title, tag):
 
 # --- data loading -----------------------------------------------------------
 
+# Max age of derived.json before this digest refuses to push. It rebuilds
+# nightly, so 72h means three consecutive misses -- unambiguous, not a blip.
+STALE_HOURS = 72
+
+
 def load_json(path):
     """Best-effort read: a missing file or ANY corruption returns None so the
     digest degrades gracefully (never crashes on a half-written source)."""
@@ -59,6 +64,26 @@ def load_json(path):
             return json.load(fh)
     except (OSError, ValueError):
         return None
+
+
+def _derived_age_hours(derived):
+    """Whole hours since derived.json's built_at, or None if unusable.
+
+    None is treated as a REFUSAL upstream, not as freshness: an unparseable
+    provenance stamp is exactly as untrustworthy as an old one."""
+    if not isinstance(derived, dict):
+        return None
+    raw = derived.get("built_at")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        built = datetime.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if built.tzinfo is None:
+        built = built.replace(tzinfo=datetime.timezone.utc)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return int((now - built).total_seconds() // 3600)
 
 
 def _as_date(s):
@@ -222,6 +247,25 @@ def run(args):
     if derived is None:
         sys.stderr.write("weekly-digest: derived.json missing at %s -- "
                          "degrading (rarity/first-of-year omitted)\n" % args.derived)
+    elif not args.ignore_stale:
+        # A STALE bundle is the dangerous case, not a missing one. Missing was
+        # already handled above (we degrade and omit). Stale is present, valid,
+        # and silently wrong -- and this is the one surface that PUSHES, so it
+        # would deliver 24-day-old "rarest bird this week" straight to a phone
+        # with no way to tell. Refuse to send rather than lie in a notification.
+        age_h = _derived_age_hours(derived)
+        if age_h is None:
+            sys.stderr.write("weekly-digest: derived.json has no usable built_at -- "
+                             "refusing to push unverifiable figures "
+                             "(--ignore-stale to override)\n")
+            return 5
+        if age_h > STALE_HOURS:
+            sys.stderr.write(
+                "weekly-digest: derived.json is %dh old (limit %dh) -- REFUSING to "
+                "push stale figures. Fix the nightly catalog first: "
+                "systemctl status catalog.service  (--ignore-stale to override)\n"
+                % (age_h, STALE_HOURS))
+            return 5
 
     window = compute_week(species, args.window_days)
     if window is None:
@@ -261,6 +305,9 @@ def main(argv=None):
                     help="send even when nothing is new (calm one-liner)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the message and send NOTHING")
+    ap.add_argument("--ignore-stale", action="store_true",
+                    help="push even when derived.json is older than %dh "
+                         "(default: refuse, exit 5)" % STALE_HOURS)
     args = ap.parse_args(argv)
 
     if args.species is None:

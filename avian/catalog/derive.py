@@ -494,8 +494,8 @@ def main(argv=None):
     birds_d, out_d = default_paths()
     ap = argparse.ArgumentParser(
         description="Compute honest derived companion metrics (derived.json) "
-                    "from birds.db. Read-only over birds.db; atomic output; "
-                    "never fails the nightly catalog build.",
+                    "from birds.db. Read-only over birds.db; atomic output. "
+                    "Exits non-zero on failure so a stale bundle is visible.",
     )
     ap.add_argument("--birds", default=birds_d, help="path to birds.db (read-only)")
     ap.add_argument("--out", default=out_d, help="output derived.json path")
@@ -512,12 +512,21 @@ def main(argv=None):
         built_at = datetime.datetime.now(datetime.timezone.utc).replace(
             microsecond=0).isoformat()
 
-    # Must NEVER fail the nightly catalog build: the catalog has already
-    # published by the time this runs, so any error is logged and swallowed.
+    # Must never DESTROY the nightly catalog build -- the catalog has already
+    # published by the time this runs, so we still return control cleanly and
+    # write nothing partial. But we no longer return 0 on failure.
+    #
+    # REGRESSION GUARD (2026-07-02..26): this returned 0 unconditionally AND the
+    # unit invoked it with systemd's `ExecStart=-` (ignore exit status). Two
+    # fail-opens stacked meant derived.json could go stale for 24 days behind a
+    # perfectly green `systemctl is-active`. Either guard alone would still have
+    # hidden it, so BOTH were removed: the `-` prefix is gone from
+    # catalog.service, and a failure here exits 4.
     try:
         run(args, built_at)
-    except Exception as exc:  # noqa: BLE001 -- intentional log-and-continue guard
-        sys.stderr.write("derive: skipped (%s: %s)\n" % (type(exc).__name__, exc))
+    except Exception as exc:  # noqa: BLE001 -- log the cause, then fail loudly
+        sys.stderr.write("derive: FAILED (%s: %s)\n" % (type(exc).__name__, exc))
+        return 4
     return 0
 
 
