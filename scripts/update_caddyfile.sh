@@ -19,6 +19,12 @@ HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
 cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
+  # The wall's front door. Without this, `/` resolves via try_files to
+  # ${EXTRACTED}/index.html -- the symlink install_services.sh points at the
+  # LEGACY avian/frontend collage (779 KB apt.js, superseded) -- so the natural
+  # URL served the old gallery while the real museum sat at /collage/. Exact
+  # root only: /index.html still reaches the legacy page for anyone who wants it.
+  redir / /collage/ 302
   file_server browse
   handle /By_Date/* {
     file_server browse
@@ -61,6 +67,12 @@ else
   cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
+  # The wall's front door. Without this, `/` resolves via try_files to
+  # ${EXTRACTED}/index.html -- the symlink install_services.sh points at the
+  # LEGACY avian/frontend collage (779 KB apt.js, superseded) -- so the natural
+  # URL served the old gallery while the real museum sat at /collage/. Exact
+  # root only: /index.html still reaches the legacy page for anyone who wants it.
+  redir / /collage/ 302
   file_server browse
   handle /By_Date/* {
     file_server browse

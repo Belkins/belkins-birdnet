@@ -9,6 +9,7 @@
 # Modes:
 #   verify.sh <slug-or-"Sci name"> [pose]   point probe (default: both poses)
 #   verify.sh wall                          roster table over every tracked job
+#   verify.sh fresh                         data-plane freshness only (no secret)
 #
 # Env (all optional):
 #   AV_PI_BASE               default http://birdnet.local
@@ -140,6 +141,70 @@ PY
   fi
 }
 
+# freshness_check — the DATA-PLANE probe this tool was missing.
+#
+# Every other probe here answers "is the wall serving?". None answered "is what
+# it serves TRUE?". That gap is why derived.json sat frozen from 2026-07-02 to
+# 2026-07-26 while every check stayed green: a stale bundle is present, 200s
+# fine, and is schema-valid, so "degrade to silence" never triggers -- readers
+# render 24-day-old numbers with total confidence.
+#
+# Red-team tripwire 5 asked for exactly this and phrased it as something the
+# founder would NOTICE ("stale >72h without the founder noticing"). Attention is
+# the scarce resource; this is the machine version.
+#
+# Thresholds: species.json rebuilds nightly at 03:30, so >36h means a timer
+# missed. derived.json rides the same unit; >72h is generous.
+freshness_check() {
+  local url age_h built stale_at
+  for spec in "species.json:36" "derived.json:72"; do
+    local f="${spec%%:*}" max="${spec##*:}"
+    url="$PI_BASE/collage/$f"
+    local body="$TMPDIR_V/$f" code
+    code=$($CURL -o "$body" -w '%{http_code}' "$url" 2>/dev/null) || code=000
+    if [ "$code" != "200" ]; then
+      bad "fresh   $f HTTP $code — the companion data plane is not being served"
+      continue
+    fi
+    # species.json is a bare array (no built_at) -> fall back to Last-Modified.
+    built=$(python3 - "$body" <<'PY' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+print(d.get("built_at", "") if isinstance(d, dict) else "")
+PY
+)
+    if [ -n "$built" ]; then
+      age_h=$(python3 -c "
+import datetime,sys
+b=datetime.datetime.fromisoformat(sys.argv[1])
+if b.tzinfo is None: b=b.replace(tzinfo=datetime.timezone.utc)
+print(int((datetime.datetime.now(datetime.timezone.utc)-b).total_seconds()//3600))
+" "$built" 2>/dev/null) || age_h=""
+      stale_at="built_at=$built"
+    else
+      local lm
+      lm=$($CURL -sI "$url" 2>/dev/null | awk 'tolower($0) ~ /^last-modified:/ {sub(/^[^:]*:[ \t]*/,""); sub(/\r$/,""); print; exit}')
+      [ -n "$lm" ] && age_h=$(python3 -c "
+import email.utils,datetime,sys
+t=email.utils.parsedate_to_datetime(sys.argv[1])
+if t.tzinfo is None: t=t.replace(tzinfo=datetime.timezone.utc)
+print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()//3600))
+" "$lm" 2>/dev/null) || age_h=""
+      stale_at="last-modified=${lm:-unknown}"
+    fi
+    if [ -z "$age_h" ]; then
+      bad "fresh   $f age UNDETERMINABLE ($stale_at) — treat as stale, not as fine"
+    elif [ "$age_h" -gt "$max" ]; then
+      bad "fresh   $f is ${age_h}h old (limit ${max}h) — $stale_at. Companion surfaces are serving STALE data. Check: systemctl status catalog.service"
+    else
+      say "fresh   $f ${age_h}h old (limit ${max}h) OK"
+    fi
+  done
+}
+
 wall_mode() {
   [ -n "$SECRET" ] || { bad "wall mode needs WATCHER_WEBHOOK_SECRET (source ~/.christina/forwarder.env at call time)"; exit 1; }
   local jj="$TMPDIR_V/jobs.json" wcode
@@ -185,8 +250,14 @@ PY
 case "${1:-}" in
   ""|-h|--help)
     sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  fresh)
+    # Data-plane only: no secret needed, safe to run from cron/CI.
+    say "== data freshness via $PI_BASE =="
+    freshness_check ;;
   wall)
-    wall_mode ;;
+    wall_mode
+    say ""
+    freshness_check ;;
   *)
     ARG="$1"; POSE="${2:-}"
     SCI="$(sci_from_arg "$ARG")"; SLUG="$(slug_from_arg "$ARG")"
@@ -198,7 +269,8 @@ case "${1:-}" in
       probe_pose "$SCI" "$SLUG" 2
     fi
     job_state "$SLUG"
-    health_snapshot ;;
+    health_snapshot
+    freshness_check ;;
 esac
 
 exit $FAIL

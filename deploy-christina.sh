@@ -4,7 +4,13 @@
 # Idempotent + additive: brings up the realtime spine (birdcast), the React collage at
 # /collage, and the auto-gen watcher forwarder + cutout Railway proxy on top of a STOCK BirdNET-Pi
 # install. Does NOT touch the detection pipeline beyond the (already-committed) emit hook.
-# Safe to re-run. Supersedes deploy-realtime.sh (which does the spine only).
+# Safe to re-run.
+#
+# It does NOT supersede deploy-realtime.sh (an earlier header claimed it did --
+# it never has). deploy-realtime.sh installs the mic-watch and railway-liveness
+# WATCHDOGS, and this script installs none of them. Running only this one on a
+# fresh box leaves you with no watchdog at all -- i.e. it removes the very
+# things that exist to catch silent failure. Run deploy-realtime.sh too.
 #
 #   cd ~/BirdNET-Pi            # the belkins-birdnet clone the installer makes
 #   CHRISTINA_RAILWAY_BASE=https://<your-svc>.up.railway.app \
@@ -135,21 +141,29 @@ fi
 
 say "7. species catalog (christina.db, derived nightly from birds.db, read-only)"
 if [ -f "$HERE/avian/catalog/rebuild_catalog.py" ]; then
-  # Railway manifest -> accurate art_status (bundled UNION auto-generated), so the
-  # Life List wall shows auto-gen'd paintings, not just locally-bundled art.
-  CAT_MANIFEST=""
-  [ -n "$RAILWAY_BASE" ] && CAT_MANIFEST=" --manifest-url ${RAILWAY_BASE%/}/manifest"
-  sudo tee /etc/systemd/system/catalog.service >/dev/null <<UNIT
-[Unit]
-Description=Christina species catalog rebuild (christina.db from birds.db, read-only)
-After=network-online.target
-[Service]
-Type=oneshot
-User=$USER_NAME
-Nice=10
-IOSchedulingClass=idle
-ExecStart=$PY $HERE/avian/catalog/rebuild_catalog.py$CAT_MANIFEST
-UNIT
+  # Install THE authored unit (avian/catalog/catalog.service) via render_unit --
+  # never a heredoc copy. A second, hand-rolled definition is what dropped
+  # derive.py's ExecStart and froze derived.json for 24 days (2026-07-02..26).
+  # One file, one source of truth, and `repo-guards.sh` asserts there is no
+  # rival catalog.service heredoc in this script.
+  #
+  # The manifest URL is written to an EnvironmentFile read at RUN time rather
+  # than baked into the unit as a flag: baking it meant an unset shell env at
+  # deploy time permanently disabled the ONLY path that can mark art ready on a
+  # non-US station (the bundled set is Nearctic).
+  mkdir -p "$HOME/.christina"
+  if [ -n "$RAILWAY_BASE" ]; then
+    printf 'CHRISTINA_MANIFEST_URL=%s/manifest\n' "${RAILWAY_BASE%/}" \
+      > "$HOME/.christina/catalog.env"
+    chmod 600 "$HOME/.christina/catalog.env"
+    ok "catalog.env -> ${RAILWAY_BASE%/}/manifest (art_status = bundled UNION auto-generated)"
+  else
+    warn "CHRISTINA_RAILWAY_BASE unset -- catalog cannot see auto-generated art."
+    warn "On a non-US station the bundled illustrations (Nearctic) cover almost"
+    warn "nothing, so nearly every species will report art_status='unknown'."
+    warn "Fix without redeploying:  echo CHRISTINA_MANIFEST_URL=<base>/manifest > ~/.christina/catalog.env"
+  fi
+  render_unit "$HERE/avian/catalog/catalog.service" /etc/systemd/system/catalog.service
   sudo tee /etc/systemd/system/catalog.timer >/dev/null <<'UNIT'
 [Unit]
 Description=Nightly + boot rebuild of the Christina species catalog
@@ -161,9 +175,22 @@ Unit=catalog.service
 [Install]
 WantedBy=timers.target
 UNIT
-  if "$PY" "$HERE/avian/catalog/rebuild_catalog.py"$CAT_MANIFEST >/dev/null 2>&1; then
-    ok "initial catalog built ($(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null) species; birds.db untouched, read-only)"
-  else warn "initial catalog build failed (see: $PY $HERE/avian/catalog/rebuild_catalog.py)"; fi
+  # Initial build + derive, through the SAME env the unit will use, so a green
+  # deploy proves the nightly path rather than a different one. Exit 3 =
+  # published but degraded (manifest unanswered); that must WARN, not pass.
+  set -a; [ -f "$HOME/.christina/catalog.env" ] && . "$HOME/.christina/catalog.env"; set +a
+  cat_rc=0; "$PY" "$HERE/avian/catalog/rebuild_catalog.py" >/dev/null 2>&1 || cat_rc=$?
+  case "$cat_rc" in
+    0) ok "initial catalog built ($(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null) species; birds.db untouched, read-only)" ;;
+    3) warn "catalog published but DEGRADED — the birdgen manifest went unanswered."
+       warn "art_status will read 'unknown' (not 'none') until it resolves."
+       warn "check: $PY $HERE/avian/catalog/rebuild_catalog.py" ;;
+    *) warn "initial catalog build FAILED rc=$cat_rc (see: $PY $HERE/avian/catalog/rebuild_catalog.py)" ;;
+  esac
+  der_rc=0; "$PY" "$HERE/avian/catalog/derive.py" >/dev/null 2>&1 || der_rc=$?
+  if [ "$der_rc" -eq 0 ]; then
+    ok "derived.json built ($(python3 -c "import json;print(json.load(open('$HERE/scripts/derived.json'))['built_at'])" 2>/dev/null || echo '?'))"
+  else warn "derive FAILED rc=$der_rc — companion surfaces (/lab, rarity, first-of-year) will be STALE"; fi
   sudo systemctl daemon-reload
   sudo systemctl enable --now catalog.timer
   ok "catalog.timer: $(systemctl is-active catalog.timer)"

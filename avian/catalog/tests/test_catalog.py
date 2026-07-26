@@ -242,12 +242,93 @@ class CatalogTestCase(unittest.TestCase):
         self.assertEqual(jay["art_source"], "autogen")
 
     def test_manifest_unreachable_does_not_crash(self):
+        """A dead manifest must still PUBLISH a catalog (that guarantee is
+        load-bearing: a partial catalog beats a blank wall) -- but it must NOT
+        claim the art is absent. It does not know."""
         bad = _file_url(os.path.join(self.tmp, "does-not-exist.json"))
-        # Must build cleanly despite the dead manifest URL.
         result = self._build(manifest_url=bad)
         self.assertGreater(result["species"], 0)
+        self.assertFalse(result["manifest_answered"])
+
+    def test_manifest_unreachable_says_unknown_not_none(self):
+        """REGRESSION (2026-07-02..26): an unanswered manifest labelled 40 of 47
+        species 'none' while their art was serving fine. 'none' is a claim we
+        had no basis for. The honest value is 'unknown'.
+
+        This test previously asserted 'none' and therefore CERTIFIED the bug --
+        any correct fix would have failed it. Asserting the specific string is
+        the point: it is the difference between "we checked, there is no art"
+        and "we could not check"."""
+        bad = _file_url(os.path.join(self.tmp, "does-not-exist.json"))
+        self._build(manifest_url=bad)
+        jay = _fetch_species(self.out, "Cyanocitta cristata")
+        self.assertEqual(jay["art_status"], "unknown")
+        # The bundled-art species is unaffected: local disk answered for it.
+        robin = _fetch_species(self.out, "Turdus migratorius")
+        self.assertEqual(robin["art_status"], "ready")
+        self.assertEqual(robin["art_source"], "bundled")
+
+    def test_no_manifest_url_still_means_none(self):
+        """Bundled-only install: the operator supplied no manifest, so nothing
+        was left unanswered and 'none' IS the honest answer. Guards against
+        over-correcting every miss into 'unknown'."""
+        result = self._build()
+        self.assertTrue(result["manifest_answered"])
         jay = _fetch_species(self.out, "Cyanocitta cristata")
         self.assertEqual(jay["art_status"], "none")
+
+    def test_manifest_wrong_shape_is_unanswered(self):
+        """A 200 carrying the wrong JSON shape is a failure, not an empty
+        answer -- the old code read `{"birds": [...]}` as "zero slugs"."""
+        wrong = os.path.join(self.tmp, "wrong-shape.json")
+        with open(wrong, "w", encoding="utf-8") as fh:
+            json.dump({"birds": ["cyanocitta-cristata"]}, fh)
+        result = self._build(manifest_url=_file_url(wrong))
+        self.assertFalse(result["manifest_answered"])
+        jay = _fetch_species(self.out, "Cyanocitta cristata")
+        self.assertEqual(jay["art_status"], "unknown")
+
+    def test_main_exits_nonzero_on_unanswered_manifest(self):
+        """The incident was invisible because this path exited 0 behind a green
+        systemd unit. A degraded catalog must now FAIL LOUD while still having
+        published."""
+        bad = _file_url(os.path.join(self.tmp, "does-not-exist.json"))
+        rc = rebuild_catalog.main([
+            "--birds", self.birds, "--out", self.out, "--assets", self.assets,
+            "--manifest-url", bad, "--built-at", self.BUILT_AT,
+        ])
+        self.assertEqual(rc, 3)
+        # ...and the catalog still exists, degraded but published.
+        self.assertTrue(os.path.isfile(self.out))
+        jay = _fetch_species(self.out, "Cyanocitta cristata")
+        self.assertEqual(jay["art_status"], "unknown")
+
+    def test_main_exits_nonzero_on_empty_manifest(self):
+        """An empty slug list from a reachable manifest is almost never real
+        (birdgen ships ~290). Treat it as a fault, not as 'no art anywhere'."""
+        empty = os.path.join(self.tmp, "empty.json")
+        with open(empty, "w", encoding="utf-8") as fh:
+            json.dump({"slugs": []}, fh)
+        rc = rebuild_catalog.main([
+            "--birds", self.birds, "--out", self.out, "--assets", self.assets,
+            "--manifest-url", _file_url(empty), "--built-at", self.BUILT_AT,
+        ])
+        self.assertEqual(rc, 3)
+
+    def test_main_exits_zero_on_healthy_manifest(self):
+        """The happy path must stay quiet -- otherwise the loud failure above
+        becomes noise the operator learns to ignore."""
+        good = os.path.join(self.tmp, "good.json")
+        with open(good, "w", encoding="utf-8") as fh:
+            json.dump({"slugs": ["cyanocitta-cristata"]}, fh)
+        rc = rebuild_catalog.main([
+            "--birds", self.birds, "--out", self.out, "--assets", self.assets,
+            "--manifest-url", _file_url(good), "--built-at", self.BUILT_AT,
+        ])
+        self.assertEqual(rc, 0)
+        jay = _fetch_species(self.out, "Cyanocitta cristata")
+        self.assertEqual(jay["art_status"], "ready")
+        self.assertEqual(jay["art_source"], "autogen")
 
     # -- 4b. species.json sort order ---------------------------------------
     def test_species_json_sort_order(self):

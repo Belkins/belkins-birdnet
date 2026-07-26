@@ -63,7 +63,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image, ImageChops, ImageFilter
+from PIL import Image, ImageFilter
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
