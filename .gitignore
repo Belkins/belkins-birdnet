@@ -62,6 +62,25 @@ avian/assets/_legacy/
 /_plan/
 /_design-plan/
 
+# Pi-local runtime state. These are UNTRACKED by design (station-specific, not
+# source) — but they were also UNIGNORED, which meant `git clean -fd` on the Pi
+# would delete them outright. Ignoring them makes clean skip them.
+#
+# scripts/accessions.json is the one genuinely IRREPLACEABLE file here: the
+# append-only accession ledger ("first writer wins, a pin is NEVER overwritten")
+# that assigns each bird its permanent plate number. Lose it and the entire
+# collection renumbers — for a museum whose whole conceit is permanent
+# accession, that is the only unrecoverable loss on the box. Everything else
+# regenerates: species.json + christina.db nightly, derived.json from birds.db.
+#
+# NOTE: `git clean -fdx` still removes ignored files. Keep the systemd-timer
+# backup (avian/catalog/accessions-backup.*) as the real safety net.
+scripts/accessions.json
+scripts/accessions-backups/
+scripts/derived.json
+scripts/species.json
+scripts/christina.db
+
 # secrets — NEVER commit (this is a PUBLIC repo)
 .env
 .env.local

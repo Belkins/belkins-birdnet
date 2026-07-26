@@ -61,5 +61,57 @@ for d in $ENUMERATED; do
   [ "$ok" = "1" ] || fail "ENUMERATED suite '$d' has no matching scoped pytest line in $WF — restore the line or remove it from ENUMERATED in this script"
 done
 
+# 4. Committed-dist integrity: every hashed asset a committed web/dist HTML
+#    references must itself be IN THE GIT INDEX. The 6274ec2 blank-wall
+#    incident: `git add -A` silently skips NEW files under gitignored
+#    web/dist/, so index.html shipped referencing bundles that existed only
+#    in the worktree — and caddy's php try_files fallback 200-masked every
+#    missing module into text/html. Check the INDEX (git show :path), never
+#    the worktree — worktree-vs-tree divergence IS the failure.
+for h in $(git ls-files 'web/dist/*.html'); do
+  for a in $(git show ":$h" 2>/dev/null | grep -oE 'assets/[A-Za-z0-9_.-]+\.(js|css)' | sort -u); do
+    git ls-files --error-unmatch "web/dist/$a" >/dev/null 2>&1 \
+      || fail "committed $h references $a which is NOT in the git tree — 'git add -f web/dist' was skipped (the 6274ec2 blank-wall class)"
+  done
+done
+
+# 5. Forked-file divergence guard. services/birdgen/ is a fork of avian/scripts/,
+#    and a fix applied to only ONE copy has already shipped: the robin-legs root
+#    fix (28 commits to find) landed in services/birdgen/prompt.template.md while
+#    avian/scripts/ kept the buggy "toes curled gently forward as if grasping a
+#    thin perch" text — and pregen.py's own docstring pointed maintainers at the
+#    STALE copy. The template is now a symlink so it CANNOT diverge; this guard
+#    keeps it that way and covers the other known-identical pair.
+if [ -e avian/scripts/prompt.template.md ]; then
+  [ -L avian/scripts/prompt.template.md ] \
+    || fail "avian/scripts/prompt.template.md is a real file again, not a symlink to services/birdgen/prompt.template.md — the two prompt copies can now silently diverge (the robin-legs class)"
+  cmp -s avian/scripts/prompt.template.md services/birdgen/prompt.template.md \
+    || fail "avian/scripts/prompt.template.md does not resolve to services/birdgen/prompt.template.md — the generator reads the birdgen copy (app.py:144); a fix in the other one is invisible"
+fi
+cmp -s avian/scripts/creamkey.py services/birdgen/creamkey.py \
+  || fail "avian/scripts/creamkey.py and services/birdgen/creamkey.py have diverged — they are a known byte-identical pair; a one-sided fix will not reach the generator"
+
+# 6. Catalog-unit single-definition guard. deploy-christina.sh used to heredoc
+#    its OWN /etc/systemd/system/catalog.service with only ONE ExecStart, which
+#    dropped derive.py entirely — derived.json then froze for 24 days behind a
+#    green unit (2026-07-02..26). The deploy must INSTALL the authored unit via
+#    render_unit, never re-declare it, and the authored unit must keep both steps.
+grep -q 'render_unit "$HERE/avian/catalog/catalog.service"' deploy-christina.sh \
+  || fail "deploy-christina.sh no longer installs avian/catalog/catalog.service via render_unit — a hand-rolled unit is how derive.py got dropped for 24 days"
+grep -q 'catalog.service' deploy-christina.sh && grep -qE '^\[Unit\]' <(sed -n '/tee \/etc\/systemd\/system\/catalog.service/,/^UNIT$/p' deploy-christina.sh) \
+  && fail "deploy-christina.sh contains a heredoc catalog.service again — delete it and use render_unit (the 2026-07 derive.py drop)"
+[ "$(grep -c '^ExecStart=' avian/catalog/catalog.service)" = "2" ] \
+  || fail "avian/catalog/catalog.service must have exactly 2 ExecStart lines (rebuild_catalog.py then derive.py) — dropping the derive step is the 24-day-stale-derived.json incident"
+grep -q '^ExecStart=.*derive\.py' avian/catalog/catalog.service \
+  || fail "avian/catalog/catalog.service lost the derive.py ExecStart — derived.json will silently freeze"
+grep -qE '^ExecStart=-' avian/catalog/catalog.service \
+  && fail "avian/catalog/catalog.service uses ExecStart=- (ignore-exit). That fail-open stacked with derive.py's own 'return 0' to hide a 24-day outage — keep failures visible"
+
+# 7. Freshness-probe guard. The data plane silently served a 24-day-old
+#    derived.json while every serving probe stayed green, because nothing
+#    compared built_at to now. verify.sh must keep that check.
+grep -q 'freshness_check' scripts/verify.sh \
+  || fail "scripts/verify.sh lost freshness_check() — a stale derived.json/species.json becomes invisible again (the 2026-07 incident)"
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

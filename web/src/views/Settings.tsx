@@ -250,7 +250,10 @@ export function SettingsPanel(props: {
               Belkins BirdNET — a living gallery of the birds heard from your window. The number is the truth; the
               painting is the mood.
             </p>
-            <a className="set-legacy" href="/#">
+            {/* Explicit /index.html, NOT "/" — the root now 302s to /collage/
+                so the wall's front door is the museum, and a "/" link here
+                would just bounce back to this app. */}
+            <a className="set-legacy" href="/index.html">
               the original gallery ↗
             </a>
           </Section>

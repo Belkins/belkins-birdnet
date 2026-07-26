@@ -14,9 +14,13 @@ avian/assets/illustrations/.
 The prompt renders each bird on a CREAM ground, not a transparent one:
 the model can't cut transparency cleanly, but a flat known ground removes
 cleanly in step 2. Each species gets two poses: <slug>.png (perched) and
-<slug>-2.png (flight). Edit avian/scripts/prompt.template.md to change the
-visual style - the prompt body is re-sent verbatim per request with
-{sci_name}, {com_name}, and {pose} substituted.
+<slug>-2.png (flight). Edit services/birdgen/prompt.template.md to change
+the visual style - that is the file app.py:144 actually loads, and
+avian/scripts/prompt.template.md is a SYMLINK to it, so either path edits the
+same bytes. (They used to be two real files that silently diverged: the
+robin-legs root fix landed in one copy only, while this docstring pointed at
+the stale one. Keep the symlink.) The prompt body is re-sent verbatim per
+request with {sci_name}, {com_name}, and {pose} substituted.
 
 Reference photos:
     Cached in avian/assets/references/. The auto-fetch hits the

@@ -14,7 +14,6 @@ Run from ``services/birdgen/``:
     python3 -m pytest tests/ -v
 """
 import json
-import os
 import time
 from pathlib import Path
 
@@ -599,6 +598,12 @@ def test_clean_over_removed_only_trips_on_big_non_tuck_drop():
     assert app._clean_over_removed(big, tuck=True) is False   # tuck is founder-directed, exempt
     assert app._clean_over_removed(small, tuck=False) is False
     assert app._clean_over_removed(None, tuck=False) is False
+    # The exemption must ride on the FLAG, never on the note's wording: a note
+    # that merely SAYS "tucked" while tuck=False is still a mutilating drop and
+    # must trip. (tucknote was constructed here but never asserted on, so this
+    # case — the one that would catch a string-sniffing regression — was silently
+    # uncovered; flake8 F841 surfaced it.)
+    assert app._clean_over_removed(tucknote, tuck=False) is True
 
 
 def _mutilating_clean(path, tuck=False):
