@@ -75,6 +75,20 @@ for h in $(git ls-files 'web/dist/*.html'); do
   done
 done
 
+# 4b. Dist BASE-PATH guard. The collage is served from /collage/, so the bundle
+#     must be built with `--base=/collage/`. A plain `npm run build` emits
+#     src="/assets/..." instead of src="/collage/assets/...", and because the
+#     deploy copies web/dist wholesale into Extracted/collage/, EVERY asset then
+#     404s — which caddy's php try_files turns into a 200 text/html, i.e. the
+#     6274ec2 blank wall again, from the opposite direction. Guard 4 cannot see
+#     it: the files ARE all committed, they are just referenced at the wrong URL.
+#     (Caught exactly once, 2026-07-26, by probing before copying.)
+for h in $(git ls-files 'web/dist/*.html'); do
+  if git show ":$h" 2>/dev/null | grep -qE '(src|href)="/assets/'; then
+    fail "$h references /assets/... — built without --base=/collage/. Rebuild: (cd web && npm run build -- --base=/collage/). Every asset would 404 behind a 200."
+  fi
+done
+
 # 5. Forked-file divergence guard. services/birdgen/ is a fork of avian/scripts/,
 #    and a fix applied to only ONE copy has already shipped: the robin-legs root
 #    fix (28 commits to find) landed in services/birdgen/prompt.template.md while
