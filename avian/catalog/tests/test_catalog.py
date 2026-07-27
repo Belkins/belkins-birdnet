@@ -305,7 +305,12 @@ class CatalogTestCase(unittest.TestCase):
 
     def test_main_exits_nonzero_on_empty_manifest(self):
         """An empty slug list from a reachable manifest is almost never real
-        (birdgen ships ~290). Treat it as a fault, not as 'no art anywhere'."""
+        (birdgen ships ~290). Treat it as a fault, not as 'no art anywhere'.
+
+        REGRESSION (QA 2026-07-27): this used to assert ONLY the exit code, so it
+        passed while the published species.json still said art_status='none' --
+        the exit-3 guard's message contradicting the data it had just written.
+        Asserting the DATA is the point; the return code alone proved nothing."""
         empty = os.path.join(self.tmp, "empty.json")
         with open(empty, "w", encoding="utf-8") as fh:
             json.dump({"slugs": []}, fh)
@@ -314,6 +319,28 @@ class CatalogTestCase(unittest.TestCase):
             "--manifest-url", _file_url(empty), "--built-at", self.BUILT_AT,
         ])
         self.assertEqual(rc, 3)
+        jay = _fetch_species(self.out, "Cyanocitta cristata")
+        self.assertEqual(jay["art_status"], "unknown",
+                         "a zero-slug manifest must not publish a confident 'none'")
+
+    def test_zero_slug_manifest_is_unanswered_at_the_source(self):
+        """The tuple, not just the exit code: fetch_manifest_slugs itself must
+        report answered=False so every downstream reader sees 'unknown'."""
+        empty = os.path.join(self.tmp, "empty2.json")
+        with open(empty, "w", encoding="utf-8") as fh:
+            json.dump({"slugs": []}, fh)
+        slugs, answered = rebuild_catalog.fetch_manifest_slugs(_file_url(empty), 3.0)
+        self.assertEqual(slugs, set())
+        self.assertFalse(answered)
+
+    def test_manifest_body_is_size_capped(self):
+        """An unbounded read of a hostile/wrong endpoint is an OOM on a Pi."""
+        big = os.path.join(self.tmp, "big.json")
+        with open(big, "w", encoding="utf-8") as fh:
+            fh.write('{"slugs": ["' + ("x" * (rebuild_catalog.MANIFEST_MAX_BYTES + 1024)) + '"]}')
+        slugs, answered = rebuild_catalog.fetch_manifest_slugs(_file_url(big), 3.0)
+        self.assertFalse(answered, "an oversized manifest must be refused, not read")
+        self.assertEqual(slugs, set())
 
     def test_main_exits_zero_on_healthy_manifest(self):
         """The happy path must stay quiet -- otherwise the loud failure above

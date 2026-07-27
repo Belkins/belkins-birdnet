@@ -218,7 +218,10 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
 
 def main():
     ap = argparse.ArgumentParser(description="Screenshot the Belkins BirdNET collage for the e-ink frame.")
-    ap.add_argument("--url", default="http://birdnet.local")
+    # NOT the bare root: it now 302s to /collage/ (the React museum), and this
+    # shooter drives the LEGACY apt.js page (it waits for .gtile and rewrites
+    # that page's own tunables). Point at the legacy page explicitly.
+    ap.add_argument("--url", default="http://birdnet.local/index.html")
     ap.add_argument("--out", default="frame.png")
     ap.add_argument("--title")
     ap.add_argument("--subtitle")
