@@ -1642,3 +1642,58 @@ test('I5 the Play reveal uses the ONE selector, and degrades to the old game', (
   assert.equal(counterpointFor(undefined as unknown as null), null, 'an absent row must be silent, not a throw');
   assert.equal(speciesBySci(EMPTY).size, 0, 'the empty corpus must yield an empty map');
 });
+
+test('I6 every CSS variable the Library uses is actually defined somewhere', () => {
+  // WHY: a var() with a fallback NEVER fails loudly. I shipped --pl-ink,
+  // --pl-mut, --pl-rule and --rule — four tokens that exist in no stylesheet in
+  // this repo — and because each carried a fallback, the pages rendered with
+  // hardcoded guesses instead of the theme's own palette. Nothing was red: not
+  // tsc, not oxlint, not the browser console, not a single one of the other 59
+  // tests. It is the fail-open class in CSS clothing, and the only way to catch
+  // it is to check that every token resolves.
+  const files = [
+    '../src/views/LibraryView.css',
+    '../src/views/LibraryFrameView.css',
+    '../src/components/BirdPopup.css',
+    '../src/play/play.css',
+  ];
+  const defined = new Set<string>();
+  const bodies = new Map<string, string>();
+  for (const f of [...files, '../src/index.css', '../src/App.css']) {
+    let body = '';
+    try {
+      body = readFileSync(new URL(f, import.meta.url), 'utf8');
+    } catch {
+      continue; // an optional stylesheet may not exist
+    }
+    bodies.set(f, body);
+    for (const m of body.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)) defined.add(m[1]);
+  }
+  // A custom property may also be set INLINE from JS (`{'--pos': …}` as a
+  // CSSProperties style object), which is a real definition the stylesheets
+  // cannot see. Scan the components for those too, or the audit cries wolf on
+  // --pos and --scale and gets weakened by the next person to hit it.
+  for (const f of ['../src/views/LibraryView.tsx', '../src/components/BirdPopup.tsx']) {
+    try {
+      const body = readFileSync(new URL(f, import.meta.url), 'utf8');
+      for (const m of body.matchAll(/'(--[a-zA-Z0-9-]+)'\s*:/g)) defined.add(m[1]);
+    } catch {
+      /* optional */
+    }
+  }
+  assert.ok(defined.size > 5, 'no custom properties found at all — the audit is vacuous');
+  const bad: string[] = [];
+  for (const f of files) {
+    const body = bodies.get(f);
+    if (!body) continue;
+    for (const m of body.matchAll(/var\(\s*(--[a-zA-Z0-9-]+)/g)) {
+      if (!defined.has(m[1])) bad.push(`${f} uses ${m[1]}`);
+    }
+  }
+  assert.deepEqual(
+    bad,
+    [],
+    'these custom properties are used but defined nowhere, so they silently fall back:\n  ' +
+      bad.join('\n  '),
+  );
+});

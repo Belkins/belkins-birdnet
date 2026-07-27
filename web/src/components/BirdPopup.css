@@ -674,7 +674,11 @@
 /* State 8 — the parked caption: a calm sentence, Wall register (serif, not the
    mono link row). Never red, never a toast. */
 .bp-repaint-caption {
-  font-family: var(--serif, Georgia, serif);
+  /* --serif is defined nowhere in this repo; this line silently rendered in
+     Georgia while the eight other serif rules in this file use --display
+     (Cormorant). Its own comment above asks for the Wall register, which IS
+     --display. Caught by the I6 token audit. */
+  font-family: var(--display, Georgia, serif);
   font-size: 12px;
   font-style: italic;
   color: var(--mut);

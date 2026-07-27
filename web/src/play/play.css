@@ -269,34 +269,37 @@ body {
 
 /* THE 1838 REVEAL. Jardine's own sentence is Cormorant, per the two-hand law;
    the citation and the silence label are the museum speaking in 2026, so they
-   take the mono hand. The game may never put a curator's words in his mouth. */
+   take the mono hand. Uses THIS file's own tokens (--ink/--faint/--line) and
+   its literal font names — an earlier draft invented --pl-ink/--pl-mut/--pl-rule,
+   which exist nowhere, so every colour here silently fell back to a hardcoded
+   guess instead of the Play palette. */
 .pl-jard {
-  margin: 0.85rem 0 0;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--pl-rule, rgba(255, 255, 255, 0.1));
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 .pl-jard-t {
-  margin: 0 0 0.35rem;
-  font-family: var(--display, "Cormorant Garamond", Georgia, serif);
-  font-size: 1.02rem;
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 19px;
   line-height: 1.5;
-  color: var(--pl-ink, #e8e4dc);
+  color: var(--ink-2);
+  margin: 0 0 6px;
 }
 .pl-jard-s {
   display: block;
-  margin-bottom: 0.25rem;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  font-family: 'Space Mono', monospace;
+  font-size: 11.5px;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--pl-ink, #e8e4dc);
+  color: var(--ink-2);
+  margin-bottom: 4px;
 }
 .pl-jard-c {
   display: block;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-family: 'Space Mono', monospace;
+  font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   line-height: 1.6;
-  color: var(--pl-mut, #8f8f8f);
+  color: var(--faint);
 }
