@@ -203,6 +203,54 @@ print(int((datetime.datetime.now(datetime.timezone.utc)-t).total_seconds()//3600
       say "fresh   $f ${age_h}h old (limit ${max}h) OK"
     fi
   done
+
+  # CONTENT cross-check. species.json carries no built_at, so its age comes from
+  # Last-Modified — and mtime cannot see WRONG CONTENT. The deploy does
+  # `rm -rf $EXTRACTED/collage && cp -r web/dist $EXTRACTED/collage`, which drops
+  # the bundled DEV FIXTURE (8 Nearctic species: American Robin, Cardinal, Blue
+  # Jay) into place with a brand-new mtime; only the subsequent ln -sf restores
+  # the real catalog. If that symlink step ever fails, the wall serves the
+  # fixture, every timestamp looks perfect, and the age check passes happily.
+  #
+  # species.json and derived.json are produced by two different programs from the
+  # same birds.db, so their species counts must agree. That is a claim mtime
+  # cannot fake and the fixture cannot satisfy.
+  python3 - "$PI_BASE" <<'PY' || FAIL=1
+import json, sys, urllib.request
+base = sys.argv[1].rstrip("/")
+
+
+def get(p):
+    with urllib.request.urlopen(base + p, timeout=15) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+try:
+    sp = get("/collage/species.json")
+    dv = get("/collage/derived.json")
+except Exception as exc:
+    print("FAIL  fresh   content cross-check could not run (%s)" % exc)
+    sys.exit(1)
+
+if not isinstance(sp, list) or not sp:
+    print("FAIL  fresh   species.json is not a non-empty array — the data plane is serving something else")
+    sys.exit(1)
+
+heard = dv.get("species_heard") if isinstance(dv, dict) else None
+if not isinstance(heard, int):
+    print("FAIL  fresh   derived.json has no integer species_heard — cannot cross-check")
+    sys.exit(1)
+
+if len(sp) != heard:
+    print("FAIL  fresh   species.json has %d rows but derived.json says species_heard=%d. "
+          "Two writers over the same birds.db disagree: one of them is stale or a "
+          "FIXTURE (web/dist ships an 8-species Nearctic demo the deploy can leave in "
+          "place if the species.json symlink is not restored)." % (len(sp), heard))
+    sys.exit(1)
+
+print("fresh   content cross-check OK (species.json %d rows == derived species_heard %d)"
+      % (len(sp), heard))
+PY
 }
 
 wall_mode() {

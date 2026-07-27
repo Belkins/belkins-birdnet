@@ -130,22 +130,51 @@ done
 #    dropped derive.py entirely — derived.json then froze for 24 days behind a
 #    green unit (2026-07-02..26). The deploy must INSTALL the authored unit via
 #    render_unit, never re-declare it, and the authored unit must keep both steps.
-grep -q 'render_unit "$HERE/avian/catalog/catalog.service"' deploy-christina.sh \
-  || fail "deploy-christina.sh no longer installs avian/catalog/catalog.service via render_unit — a hand-rolled unit is how derive.py got dropped for 24 days"
+#    A substring grep passes on a COMMENTED-OUT or dead-branch call, which is
+#    exactly the "unit never actually installed" defect. Require the call to be
+#    live: strip comments first, then look for it.
+grep -vE '^[[:space:]]*#' deploy-christina.sh | grep -q 'render_unit "$HERE/avian/catalog/catalog.service"' \
+  || fail "deploy-christina.sh has no LIVE (uncommented) render_unit call for avian/catalog/catalog.service — a hand-rolled or absent unit is how derive.py got dropped for 24 days"
 grep -q 'catalog.service' deploy-christina.sh && grep -qE '^\[Unit\]' <(sed -n '/tee \/etc\/systemd\/system\/catalog.service/,/^UNIT$/p' deploy-christina.sh) \
   && fail "deploy-christina.sh contains a heredoc catalog.service again — delete it and use render_unit (the 2026-07 derive.py drop)"
-[ "$(grep -c '^ExecStart=' avian/catalog/catalog.service)" = "2" ] \
-  || fail "avian/catalog/catalog.service must have exactly 2 ExecStart lines (rebuild_catalog.py then derive.py) — dropping the derive step is the 24-day-stale-derived.json incident"
-grep -q '^ExecStart=.*derive\.py' avian/catalog/catalog.service \
-  || fail "avian/catalog/catalog.service lost the derive.py ExecStart — derived.json will silently freeze"
+#    The unit must have exactly ONE ExecStart, running nightly.sh. Two chained
+#    ExecStart lines are FORBIDDEN: systemd skips the rest after a non-zero one,
+#    so rebuild_catalog.py's exit-3 DEGRADED signal silently skipped derive.py
+#    and re-froze derived.json — the loud signal disabling what it protected
+#    (verified empirically on the Pi, QA 2026-07-27).
+[ "$(grep -c '^ExecStart=' avian/catalog/catalog.service)" = "1" ] \
+  || fail "avian/catalog/catalog.service must have exactly ONE ExecStart (nightly.sh). Chained ExecStart lines let a non-zero first step SKIP derive.py — the 24-day-stale-derived.json incident, reintroduced"
+grep -q '^ExecStart=.*nightly\.sh' avian/catalog/catalog.service \
+  || fail "avian/catalog/catalog.service no longer runs nightly.sh — the wrapper is what guarantees derive.py runs even when the catalog step is degraded"
 grep -qE '^ExecStart=-' avian/catalog/catalog.service \
   && fail "avian/catalog/catalog.service uses ExecStart=- (ignore-exit). That fail-open stacked with derive.py's own 'return 0' to hide a 24-day outage — keep failures visible"
+grep -qE '^TimeoutStartSec=' avian/catalog/catalog.service \
+  || fail "avian/catalog/catalog.service has no TimeoutStartSec — a Type=oneshot with the default infinite start timeout can hang in 'activating' forever on a slow manifest and NEVER be reported failed"
+#    nightly.sh must call derive.py UNCONDITIONALLY. Any guard on the catalog's
+#    return code recreates the skip.
+#    Match the INVOCATION on a non-comment line, not any mention: nightly.sh's
+#    own comments discuss derive.py at length, so a bare grep passed even after
+#    the call was replaced with /bin/true. (Caught by negative-testing this very
+#    guard — the same decorative-grep bug it was written to replace.)
+grep -vE '^[[:space:]]*#' avian/catalog/nightly.sh | grep -qE '"\$PY"[[:space:]]+"\$HERE/derive\.py"' \
+  || fail "avian/catalog/nightly.sh has no LIVE invocation of derive.py — derived.json will silently freeze (the 24-day incident)"
+grep -qE '(if|&&|\|\|)[^\n]*rc_cat[^\n]*\n?[^\n]*derive\.py' avian/catalog/nightly.sh \
+  && fail "avian/catalog/nightly.sh appears to gate derive.py on the catalog exit code — it must run unconditionally, that gating IS the bug"
 
 # 7. Freshness-probe guard. The data plane silently served a 24-day-old
 #    derived.json while every serving probe stayed green, because nothing
 #    compared built_at to now. verify.sh must keep that check.
-grep -q 'freshness_check' scripts/verify.sh \
-  || fail "scripts/verify.sh lost freshness_check() — a stale derived.json/species.json becomes invisible again (the 2026-07 incident)"
+#    A bare `grep -q freshness_check` could NOT fail: the word also appears in a
+#    comment on verify.sh:144, so deleting the whole function still passed. That
+#    is precisely the decorative-guard sin these guards exist to prevent. Assert
+#    the DEFINITION exists, that it is wired into every dispatch arm, and that it
+#    still contains the comparison that does the actual work.
+grep -qE '^freshness_check\(\)' scripts/verify.sh \
+  || fail "scripts/verify.sh lost the freshness_check() DEFINITION — a stale derived.json/species.json becomes invisible again (the 2026-07 incident)"
+[ "$(grep -cE '^[[:space:]]*freshness_check([[:space:]]|;|$)' scripts/verify.sh)" -ge 3 ] \
+  || fail "freshness_check is no longer called from all three verify.sh dispatch arms (fresh / wall / point-probe) — a mode that skips it reports all-green on stale data"
+grep -q 'age_h" -gt "\$max' scripts/verify.sh \
+  || fail "freshness_check no longer compares age against its limit — the function survives as a shell that can never fail"
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

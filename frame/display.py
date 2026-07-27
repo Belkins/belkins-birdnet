@@ -40,6 +40,12 @@ SPECTRA6 = [(236, 234, 223), (26, 26, 28), (165, 60, 56),
 
 DEFAULTS = {
     "base_url": "http://birdnet.local",
+    # Page the shooter screenshots, relative to base_url. NOT "/" — the site root
+    # now 302s to /collage/ (the React museum), and shoot.py drives the LEGACY
+    # apt.js page: it waits for .gtile and rewrites that page's own tunables, so
+    # against the SPA it would just time out. base_url itself must stay the bare
+    # host because fetch_recent() appends /avian/api/... to it.
+    "shoot_path": "/index.html",
     "hours": 24,
     "image": "",            # local PNG written by the shooter
     "image_url": "",        # or a published screenshot URL
@@ -304,7 +310,8 @@ def obtain_image(cfg):
         from shoot import shoot
         out = os.path.join(os.path.expanduser(cfg["cache"]), "shot.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
-        shoot(cfg["base_url"], out, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
+        shoot_url = cfg["base_url"].rstrip("/") + "/" + cfg.get("shoot_path", "/index.html").lstrip("/")
+        shoot(shoot_url, out, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
               headline_px=cfg["shoot_headline_px"], eyebrow_px=cfg["shoot_eyebrow_px"],
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,

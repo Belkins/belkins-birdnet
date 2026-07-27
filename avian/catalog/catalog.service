@@ -25,18 +25,19 @@ EnvironmentFile=-/home/belkins/.christina/catalog.env
 #    numbers); everything else regenerates from birds.db. Never fails the unit.
 ExecStartPre=/bin/bash /home/belkins/BirdNET-Pi/avian/catalog/backup-accessions.sh
 
-# 1. Rebuild christina.db + species.json. Exits 3 if the manifest went
-#    unanswered -- the catalog still publishes, but 'unknown' beats a false
-#    'none' and the non-zero exit surfaces in `systemctl --failed`.
-ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/catalog/rebuild_catalog.py
+# A oneshot with an infinite start timeout can NEVER be reported failed: a slow
+# (not dead) manifest fetch would leave the unit in 'activating' forever, every
+# later trigger a no-op, and the catalog frozen -- silently, which is the whole
+# failure class this unit is meant to make loud. Bound it.
+TimeoutStartSec=600
 
-# 2. Derive the honest companion metrics (derived.json) AFTER the catalog.
-#    NO `-` PREFIX, deliberately. It used to carry one ("a derive failure must
-#    never fail the unit"), which stacked with derive.py's own `return 0` into a
-#    double fail-open. Both are gone: derive.py now exits 4 on failure and
-#    systemd reports it. The catalog has already published by this point, so a
-#    failed unit here means "companion data is stale", not "the wall is down".
-ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/catalog/derive.py
+# ONE ExecStart, deliberately. systemd.service(5): a non-zero, un-prefixed
+# ExecStart means "the rest are not executed" -- verified empirically on this Pi.
+# Two chained steps therefore meant rebuild_catalog.py's exit-3 DEGRADED signal
+# silently SKIPPED derive.py and re-froze derived.json: the loud signal disabling
+# the thing it protected. nightly.sh runs both unconditionally and aggregates the
+# exit code, so the unit still goes red without either step being skippable.
+ExecStart=/bin/bash /home/belkins/BirdNET-Pi/avian/catalog/nightly.sh
 
 [Install]
 WantedBy=multi-user.target

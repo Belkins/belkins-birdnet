@@ -79,6 +79,48 @@ def test_each_deployment_loads_its_own_style_refs():
         "read via realpath (which follows the symlink) instead of abspath")
 
 
+def test_local_pipeline_cli_defaults_point_into_avian_not_services():
+    """REGRESSION (QA 2026-07-27): the symlink made Path(__file__).resolve() in
+    argparse defaults collapse to services/birdgen/, so --out/--refs/--styles
+    pointed at a NONEXISTENT services/assets/... The documented command in
+    README.md (python3 avian/scripts/pregen.py --labels ... --force) would then
+    read no reference photos and write plates outside the tree the collage
+    serves. The style-refs sidecar was guarded against exactly this trap; these
+    three defaults three lines below it were not."""
+    out = subprocess.check_output(
+        [sys.executable, "-c",
+         "import os,json;from pathlib import Path;"
+         "h=Path(os.path.abspath('pregen.py')).parent;"
+         "print(json.dumps({'out':str(h.parent/'assets'/'illustrations'),"
+         "'refs':str(h.parent/'assets'/'references')}))"],
+        cwd=str(AVIAN), text=True)
+    d = json.loads(out.strip().splitlines()[-1])
+    # The invariant is WHICH TREE the defaults land in — that is what the symlink
+    # broke (avian/ -> services/). Assert that, and existence only for the dir
+    # that is actually committed.
+    assert "/avian/assets/" in d["out"], "local --out escaped avian/: " + d["out"]
+    assert "/avian/assets/" in d["refs"], "local --refs escaped avian/: " + d["refs"]
+    assert "/services/" not in d["out"], "local --out resolved into the service tree: " + d["out"]
+    assert "/services/" not in d["refs"], "local --refs resolved into the service tree: " + d["refs"]
+    # illustrations IS committed, so it must exist in any checkout.
+    assert Path(d["out"]).is_dir(), "local --out points at a nonexistent dir: " + d["out"]
+    # references/ is deliberately gitignored (.gitignore:57) — a local photo cache
+    # pregen creates on first run. Asserting it exists made this test pass on a
+    # working Mac and FAIL on a fresh CI checkout: an environment-dependent
+    # assertion, exactly the fixture-shaped blind spot this suite exists to avoid.
+    assert Path(d["refs"]).parent.is_dir(), \
+        "local --refs is not even under a real assets tree: " + d["refs"]
+
+
+def test_no_resolve_based_path_defaults_remain_in_pregen():
+    """Belt and braces: resolve()/realpath() anywhere in pregen's path defaults
+    reintroduces the symlink collapse. Keep them out."""
+    src = (BIRDGEN / "pregen.py").read_text(encoding="utf-8")
+    offenders = [ln.strip() for ln in src.split("\n")
+                 if "Path(__file__).resolve()" in ln or "os.path.realpath(__file__)" in ln]
+    assert not offenders, "symlink-unsafe path defaults reintroduced: " + repr(offenders)
+
+
 def test_both_sidecars_cover_every_required_category():
     """select_style_ref indexes STYLE_REFS directly, so a category missing from
     a sidecar is a KeyError for one genus only — the hardest kind to notice."""
