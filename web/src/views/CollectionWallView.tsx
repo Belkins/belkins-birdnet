@@ -18,6 +18,13 @@ import { useEffect, useState } from 'react';
 import { currentSeasonFacts, anniversariesFor, departuresFor } from '../almanac';
 import type { CatalogSpecies } from '../catalog';
 import { fetchCatalog } from '../catalog';
+import {
+  counterpointFor,
+  fetchJardine,
+  firstSentence,
+  speciesBySci,
+  type JardineSpecies,
+} from '../jardine';
 import { BirdThumb } from '../components/BirdThumb';
 import './CollectionWallView.css';
 
@@ -86,6 +93,25 @@ export function CollectionWallView() {
   // null = still loading; [] = loaded but empty (day zero) or fetch failed.
   const [species, setSpecies] = useState<CatalogSpecies[] | null>(null);
   const [sort, setSort] = useState<SortMode>('first');
+
+  // THE 1838 COUNTERPOINT on the wall. Session-memoised and never-throwing, so
+  // an absent corpus leaves every card exactly as it was. Scanning the wall is
+  // how most people meet this collection; before this, the library's whole
+  // argument was reachable only by opening a separate tab.
+  const [jard, setJard] = useState<Map<string, JardineSpecies>>(new Map());
+  useEffect(() => {
+    let live = true;
+    fetchJardine()
+      .then((d) => {
+        if (live) setJard(speciesBySci(d));
+      })
+      .catch(() => {
+        /* the wall simply stays as it was */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -223,6 +249,20 @@ export function CollectionWallView() {
                 <BirdThumb slug={s.slug} sci={s.sci_name} com={s.com_name} art={s.art_status} />
                 <div className="acard-cn">{s.com_name || s.sci_name}</div>
                 <div className="acard-ln">{s.sci_name}</div>
+                {(() => {
+                  const cp = counterpointFor(jard.get(s.sci_name));
+                  if (!cp) return null;
+                  return cp.kind === 'voice' ? (
+                    <div className="wall-jard">
+                      <span className="wall-jard-t">{firstSentence(cp.passage.text)}</span>
+                      <span className="wall-jard-c">{cp.passage.speaker}, 1838</span>
+                    </div>
+                  ) : (
+                    <div className="wall-jard">
+                      <span className="wall-jard-c">the library never described its voice</span>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

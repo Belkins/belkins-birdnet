@@ -1,0 +1,20 @@
+/* The verify marker: a dotted underline saying the binomial was read off a weak
+   path (a synonymy line, or a small-caps opening) and wants a human check. The
+   [sic] is the scanner's error, kept and worn — never corrected. */
+.jn-weak {
+  text-decoration: underline dotted var(--mut);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.jn-sic {
+  color: inherit;
+}
+.jn-sic-m {
+  font-family: var(--mono);
+  font-size: 0.62em;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+  margin-left: 0.12em;
+  vertical-align: super;
+  line-height: 0;
+}

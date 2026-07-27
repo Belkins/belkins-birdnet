@@ -27,7 +27,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
@@ -100,6 +100,12 @@ const silences = jardineMod.silences as (
   c: CatalogSpecies[],
 ) => Array<{ species: JardineSpecies; count: number }>;
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
+const weakSource = jardineMod.weakSource as (s: JardineSpecies) => string | null;
+type SicRow = { find: string; note: string; offset: number | null };
+const sicSpans = jardineMod.sicSpans as (
+  t: string,
+  s: SicRow[],
+) => Array<{ text: string; sic: SicRow | null }>;
 const fetchAccounts = jardineMod.fetchAccounts as () => Promise<Record<string, JardinePassage[]>>;
 const ACCOUNTS_PATH = new URL('../public/jardine-accounts.json', import.meta.url);
 function accountsRaw(): unknown | null {
@@ -1164,7 +1170,9 @@ test('G1 a species-level artefact survives normalize with its note intact', () =
     ],
   });
   assert.equal(j.species.length, 1);
-  assert.deepEqual(j.species[0].sic, [{ find: 'cælebes', note: 'scanner error for “cælebs”.' }]);
+  assert.deepEqual(j.species[0].sic, [
+    { find: 'cælebes', note: 'scanner error for “cælebs”.', offset: null },
+  ]);
 });
 
 test('G2 EVERY committed artefact matches a field the Roll actually renders', () => {
@@ -1226,30 +1234,40 @@ test('G3 a malformed artefact list degrades to no marker, never to a throw', () 
   assert.deepEqual(j.species[0].sic, []);
 });
 
-test('G4 every surface that prints a binomial ROUTES it through sicNodes()', () => {
-  // WHY: G2 proves the data is markable; nothing else proves the page marks it.
-  // Tidy the JSX to `{j.jardine_binomial}` and G2 stays green while every [sic]
-  // silently disappears from the wall.
+test('G4 no surface prints an 1838 name except through <JardineName>', () => {
+  // WHY — the repair this guard used to compensate for.
   //
-  // THE GUARD ITSELF WAS THE BUG ONCE. It used to be a bare
-  // `src.includes("sicNodes(j.X, j.sic)")` over one whitespace-collapsed file,
-  // which is fail-open AND fragile at the same time: a commented-out call, a
-  // dead `{false && …}` branch or an unmounted component all satisfied a
-  // substring match, while a behaviour-preserving prettier reformat across two
-  // lines broke it. So: comments are STRIPPED before matching (a mention in a
-  // comment must not count as an invocation), whitespace is tolerant, and every
-  // file that reads `.jardine_binomial` is checked rather than one hard-coded
-  // path — a new surface printing the name unmarked fails here.
-  for (const file of ['../src/views/LibraryView.tsx']) {
-    const src = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'));
+  // Three surfaces printed the same binomial three different ways and drifted:
+  // the Roll marked weak provenance and kept [sic]; the Index of Silences marked
+  // NEITHER, so 11 of its 16 rows claimed a confidence the extraction never had;
+  // and the dossier hand-rolled `=== 'synonymy'` with the tooltip inlined, so it
+  // contradicted the Roll about the same name. Each was fixed separately and each
+  // fix was a guard bolted onto a duplication.
+  //
+  // <JardineName> collapses them. A name rendered through it cannot lose its
+  // verify marker or its [sic] because there is nowhere left to forget them. So
+  // this no longer asserts that a call is present — it asserts that the RAW
+  // strings are not rendered at all, which is what actually makes the bug
+  // unrepresentable. A new section printing a bare binomial fails on the day it
+  // is written.
+  for (const file of CONSUMERS) {
+    const body = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'))
+      .replace(/\s+/g, ' ');
     for (const field of ['jardine_binomial', 'jardine_authority']) {
-      assert.match(
-        src,
-        new RegExp(`sicNodes\\(\\s*j\\.${field}\\s*,\\s*j\\.sic\\s*,?\\s*\\)`),
-        `${file} prints j.${field} without routing it through sicNodes() — its [sic] markers would vanish`,
+      // a JSX interpolation of the raw string — `{x.jardine_binomial}` or
+      // `{x.jardine_binomial || '—'}` — is the regression this catches.
+      const raw = new RegExp(`\\{\\s*[A-Za-z_$][\\w$]*\\.${field}\\s*(\\||\\})`);
+      assert.ok(
+        !raw.test(body),
+        `${file} renders a raw ${field} instead of <JardineName> — that copy would ` +
+          `silently lose its [sic] and its provenance marker`,
       );
     }
   }
+  // and the component itself must still do both jobs
+  const jn = stripComments(readFileSync(new URL('../src/components/JardineName.tsx', import.meta.url), 'utf8'));
+  assert.match(jn, /sicSpans\(/, '<JardineName> no longer marks OCR artefacts');
+  assert.match(jn, /weakSource\(/, '<JardineName> no longer marks weak provenance');
 });
 
 test('G5 every binomial_source in the corpus survives normalize AND is classified', () => {
@@ -1320,31 +1338,12 @@ test('G5 every binomial_source in the corpus survives normalize AND is classifie
         `that is how the Roll, the Index of Silences and the dossier drifted apart`,
     );
 
-    // (b) a file that PRINTS a binomial must ASK about its provenance. Removing
-    //     the marker outright leaves no hand-rolled comparison for (a) to catch,
-    //     which is exactly how 11 of the 16 silence rows shipped unmarked.
-    if (/\.jardine_binomial/.test(body)) {
-      assert.match(
-        body,
-        /weakSource\s*\(/,
-        `${file} renders a Jardine binomial but never calls weakSource() — ` +
-          `a weakly-sourced name would print as though the extraction were certain`,
-      );
-    }
-
-    // (c) PER RENDER SITE, derived from the source rather than hard-coded: for
-    //     every `sicNodes(X.jardine_binomial, X.sic)` the same X must reach
-    //     weakSource(X). Rename-proof, and a NEW section that prints a binomial
-    //     bare fails here on the day it is written.
-    for (const m of body.matchAll(/sicNodes\(\s*([A-Za-z_$][\w$]*)\.jardine_binomial/g)) {
-      const v = m[1];
-      assert.ok(
-        new RegExp(`weakSource\\(\\s*${v}\\s*\\)`).test(body),
-        `${file} prints ${v}.jardine_binomial but never calls weakSource(${v}) — ` +
-          `that row would carry no verify marker while the Roll marks the same name`,
-      );
-    }
   }
+  // (b) the provenance rule now has exactly ONE caller — the component. That is
+  //     the point of collapsing it: a second caller is a second chance to get it
+  //     wrong, so this fails if one reappears outside <JardineName>.
+  const jn = readFileSync(new URL('../src/components/JardineName.tsx', import.meta.url), 'utf8');
+  assert.match(jn, /weakSource\(/, '<JardineName> stopped classifying provenance');
 });
 
 // ═══ H · THE SILENCE, AND THE SEAL ═════════════════════════════════════════
@@ -1814,5 +1813,193 @@ test('J4 the accounts file is loaded LAZILY, never on first paint', () => {
     src,
     /if \(openSci === null \|\| accounts !== null\) return;/,
     'the accounts fetch is not gated on a reader actually opening an account',
+  );
+});
+
+test('K1 the frame asks the shared authorities, not its own', () => {
+  // WHY: LibraryFrameView is the surface that hangs on a wall, and it was a
+  // FOURTH independent renderer of the corpus — its own roman(), its own
+  // dayOfYear() (off by one from jardine.ts, so the wall and the desk sat one
+  // step apart in their rotations), its own [sic] engine that marked only the
+  // first occurrence of each needle and dropped the curator's note entirely, and
+  // its own "has this garden heard it" test.
+  //
+  // That last one was a live fabricated ABSENCE: it asked only whether
+  // last_detected parsed, so a species with a real tally and a missing stamp
+  // printed "not yet heard in this garden" about a bird the Pi had recorded.
+  // I5 protects /play from exactly this class; the wall had no equivalent.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryFrameView.tsx', import.meta.url), 'utf8'),
+  );
+  for (const [fn, why] of [
+    ['heardHere', 'it would decide "heard" on last_detected alone and fabricate an absence'],
+    ['sicSpans', 'it would mark only the first artefact and drop the curator’s note'],
+    ['dayOfYear', 'its rotation would sit one day off the Reading Desk’s'],
+    ['volumeRoman', 'a fourth copy of the numerals is a fourth chance to diverge'],
+  ] as const) {
+    assert.match(src, new RegExp(`${fn}\\s*\\(`), `the frame no longer calls ${fn}() — ${why}`);
+  }
+  // and it must not have re-grown a private copy of any of them
+  for (const fn of ['sicSegments', 'function roman', 'function dayOfYear', 'function heardHere']) {
+    assert.ok(!src.includes(fn), `the frame has re-implemented ${fn} instead of importing it`);
+  }
+});
+
+test('K2 sicSpans honours the recorded offset, and falls back when it lies', () => {
+  // WHY: a needle can occur several times while only ONE is the scanner's error
+  // — "Ireland" is flagged in one sentence and correct in the next. Marking
+  // every occurrence scars correct words; marking the first scars the wrong one.
+  // The offset is what makes it precise, and an offset that no longer lands on
+  // the needle must be treated as absent rather than trusted, because the text
+  // is the authority and the number may have drifted from it.
+  const sic = (find: string, offset: number | null) => ({ find, note: 'n', offset });
+  const marked = (t: string, s: ReturnType<typeof sic>[]) =>
+    sicSpans(t, s).filter((x) => x.sic).map((x) => x.text);
+
+  const t = 'In Ireland it was seen. In Ireland it was not.';
+  // the SECOND occurrence is the flagged one
+  const second = t.indexOf('Ireland', 10);
+  const spans = sicSpans(t, [sic('Ireland', second)]);
+  const at = spans.findIndex((x) => x.sic);
+  assert.equal(spans.slice(0, at).map((x) => x.text).join('').length, second, 'the wrong occurrence was marked');
+  // a lying offset falls back to the first occurrence rather than marking nothing
+  assert.deepEqual(marked(t, [sic('Ireland', 999)]), ['Ireland']);
+  assert.deepEqual(marked(t, [sic('Ireland', null)]), ['Ireland']);
+  // an empty needle matches everywhere and must be dropped, not honoured
+  assert.deepEqual(marked(t, [sic('', 0)]), []);
+  // a needle that is not present at all is dropped
+  assert.deepEqual(marked(t, [sic('Scotland', null)]), []);
+  // the note survives to the renderer — the whole reason the frame's copy was wrong
+  const withNote = sicSpans('a cælebes b', [{ find: 'cælebes', note: 'scanner error', offset: null }]);
+  assert.equal(withNote.find((x) => x.sic)?.sic?.note, 'scanner error');
+  // and nothing is ever lost: the runs reassemble to the original text
+  for (const s of [[sic('Ireland', second)], [sic('Ireland', null)], []]) {
+    assert.equal(sicSpans(t, s).map((x) => x.text).join(''), t, 'sicSpans dropped or duplicated text');
+  }
+});
+
+// ═══ L · THE LIBRARY OUT OF ITS ROOM ═══════════════════════════════════════
+
+test('L1 every cross-surface reader asks the ONE selector', () => {
+  // WHY: Jardine reached five files, and each new surface is a fresh chance to
+  // write `s.voice ? … : …` locally. That is precisely how the Roll, the Index
+  // of Silences and the dossier drifted into three different answers about which
+  // birds are silent. I5 protects /play; this protects the rest.
+  for (const f of ['../src/views/CollectionWallView.tsx', '../src/views/StatsView.tsx']) {
+    const src = stripComments(readFileSync(new URL(f, import.meta.url), 'utf8')).replace(/\s+/g, ' ');
+    assert.ok(
+      /counterpointFor\(|silences\(/.test(src),
+      `${f} reads the corpus without going through counterpointFor()/silences()`,
+    );
+    assert.ok(
+      !/\.voice\s*\?/.test(src),
+      `${f} hand-rolls the voice/silence branch instead of asking the selector`,
+    );
+  }
+});
+
+test('L2 every stylesheet the app ships is actually imported by something', () => {
+  // WHY — the orphan-CSS trap, which I walked straight into while writing this
+  // phase. I added .acard-ln-1838 to a NEW src/views/AtlasView.css that no
+  // module imports. Vite silently omits it, the rule never loads, and the page
+  // renders un-styled with nothing red anywhere: not tsc, not oxlint, not the
+  // console, not a single test. It is the same fail-open shape as a var() with a
+  // fallback — a stylesheet that does nothing is indistinguishable from one that
+  // works until somebody looks.
+  const dir = new URL('../src/', import.meta.url);
+  const sheets: string[] = [];
+  const walk = (d: URL): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(new URL(`${e.name}/`, d));
+      else if (e.name.endsWith('.css')) sheets.push(new URL(e.name, d).pathname);
+    }
+  };
+  walk(dir);
+  assert.ok(sheets.length > 5, 'no stylesheets found — the audit is vacuous');
+  const code: string[] = [];
+  const walkCode = (d: URL): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.isDirectory()) walkCode(new URL(`${e.name}/`, d));
+      else if (/\.tsx?$/.test(e.name)) code.push(readFileSync(new URL(e.name, d), 'utf8'));
+    }
+  };
+  walkCode(dir);
+  const all = code.join('\n');
+  const orphans = sheets
+    .map((p) => p.split('/').pop() as string)
+    .filter((name) => !all.includes(name) && name !== 'index.css');
+  assert.deepEqual(
+    orphans,
+    [],
+    `these stylesheets are imported by nothing and silently do nothing: ${orphans.join(', ')}`,
+  );
+});
+
+test('M1 both spellings of the small-caps path wear the verify marker', () => {
+  // WHY: extract.py:974 writes `binomial_source = "scaps_paragraph"`; the
+  // committed jardine.json carries `"scaps"`. Accepting only one means the next
+  // extractor re-run emits a token the union rejects, asEnum() nulls it, and the
+  // corpus's single most weakly-sourced binomial goes back to printing as though
+  // the extraction were certain — silently re-opening the exact hole the union
+  // was widened to close.
+  for (const src of ['scaps', 'scaps_paragraph']) {
+    const j = normalize({
+      version: 1,
+      species: [{ sci_name: 'Anser anser', jardine_binomial: 'Anser ferus', binomial_source: src }],
+    });
+    assert.equal(j.species[0].binomial_source, src, `normalize() nulled '${src}'`);
+    assert.ok(weakSource(j.species[0]), `'${src}' is not classified as a weak path`);
+  }
+  // and the strong path must NOT be marked, or the marker means nothing
+  const strong = normalize({
+    version: 1,
+    species: [{ sci_name: 'X y', jardine_binomial: 'X y', binomial_source: 'em' }],
+  });
+  assert.equal(weakSource(strong.species[0]), null, "'em' must not wear a verify marker");
+});
+
+test('M2 an unreachable catalog is never reported as an absence', () => {
+  // WHY: fetchCatalog() collapses EVERY failure — 404, offline, malformed — to
+  // [], never null. So `catalog !== null` cannot distinguish "this garden has
+  // never heard it" from "species.json did not load", and the errata slips
+  // asserted the former while the truth was the latter. A museum that says
+  // "never heard in this garden" because its own ledger failed to load is
+  // fabricating an absence, which is the same class as fabricating a presence.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    src,
+    /byCatalog\.size === 0/,
+    'gardenFact() no longer distinguishes an empty catalog from a real absence',
+  );
+  assert.match(src, /unknown/, 'the unknown state was removed from the slip');
+  // silences() must agree: no catalog, no rows — never a wall of amber zeroes
+  const raw = corpusRaw();
+  if (raw !== null) assert.deepEqual(silences(normalize(raw), []), []);
+});
+
+test('M3 the Blind Ear claims its own number keys', () => {
+  // WHY: the quiz caption reads "press 1, 2 or 3" and App owns 1–6 as global tab
+  // shortcuts (App.tsx:442), so pressing 1 answered nothing and threw the reader
+  // off the Library tab entirely. The instruction had never once worked.
+  //
+  // The listener must be CAPTURE phase to run before App's bubble listener on
+  // the same target, and it must only swallow a key it actually consumes —
+  // 4, 5 and 6 have to keep switching tabs from this screen.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(src, /press 1, 2 or 3/, 'the caption changed — re-check this guard');
+  assert.match(
+    src,
+    /addEventListener\('keydown', onKey, true\)/,
+    'the quiz listens in BUBBLE phase, so App eats 1/2/3 before it sees them',
+  );
+  assert.match(src, /stopImmediatePropagation\(\)/, 'the quiz does not stop App from also acting');
+  assert.match(
+    src,
+    /n < 1 \|\| n > round\.options\.length/,
+    'the quiz swallows keys outside its own options — 4/5/6 must still switch tabs',
   );
 });

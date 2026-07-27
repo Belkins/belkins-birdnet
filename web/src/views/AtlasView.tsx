@@ -10,6 +10,8 @@ import { fetchArtStatus } from '../catalog';
 import { BirdThumb } from '../components/BirdThumb';
 import { Listen } from '../components/Listen';
 import { formatDay } from '../days';
+import { fetchJardine, speciesBySci, type JardineSpecies } from '../jardine';
+import { JardineName } from '../components/JardineName';
 
 // eBird / Macaulay media catalogue search, keyed on the binomial (no per-species
 // code needed) — always resolves, unlike the auth-gated /species/<code> pages.
@@ -80,6 +82,24 @@ export function AtlasView({
   // immediately without waiting for it — first paint never blocks on the
   // catalog; the brief pre-map probe race is capped by the hook's semaphore
   // and aborted when `trusted` flips.
+  // THE 1838 NAME under the modern one. Rendered through <JardineName>, so the
+  // dotted verify marker and any [sic] come with it and cannot be forgotten here
+  // the way they were forgotten in the Index of Silences.
+  const [jard, setJard] = useState<Map<string, JardineSpecies>>(new Map());
+  useEffect(() => {
+    let live = true;
+    fetchJardine()
+      .then((d) => {
+        if (live) setJard(speciesBySci(d));
+      })
+      .catch(() => {
+        /* the atlas simply stays as it was */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const [art, setArt] = useState<Map<string, string> | null>(null);
   useEffect(() => {
     let alive = true;
@@ -108,6 +128,17 @@ export function AtlasView({
             <div className="feat-kicker">first specimen</div>
             <div className="acard-cn">{r.com || r.sci}</div>
             <div className="acard-ln">{r.sci}</div>
+            {(() => {
+              const j = jard.get(r.sci);
+              // only when the name actually MOVED — repeating an unchanged
+              // binomial under itself says nothing.
+              if (!j || !j.jardine_binomial || j.jardine_binomial === r.sci) return null;
+              return (
+                <div className="acard-ln acard-ln-1838">
+                  <JardineName species={j} /> <span className="acard-yr">1838</span>
+                </div>
+              );
+            })()}
             <CardFooter sci={r.sci} />
           </div>
         </div>

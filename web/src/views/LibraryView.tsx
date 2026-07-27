@@ -20,8 +20,10 @@ import type { CSSProperties, ReactNode } from 'react';
 import { API_BASE } from '../config';
 import type { CatalogSpecies } from '../catalog';
 import { fetchArtStatus, fetchCatalog } from '../catalog';
-import { fmtRelative } from '../components/BirdPopup';
+import { fmtRelative } from '../almanac';
+
 import { BirdThumb } from '../components/BirdThumb';
+import { JardineName } from '../components/JardineName';
 import { Listen } from '../components/Listen';
 import type {
   Jardine,
@@ -40,8 +42,9 @@ import {
   pickDeskSpecies,
   sealLine,
   silences,
+  sicSpans,
   speciesBySci,
-  weakSource,
+  volumeRoman,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -71,35 +74,6 @@ const DRIFT_RANK: Record<string, number> = {
   collision: 4,
 };
 
-const ROMAN: Array<[number, string]> = [
-  [1000, 'M'],
-  [900, 'CM'],
-  [500, 'D'],
-  [400, 'CD'],
-  [100, 'C'],
-  [90, 'XC'],
-  [50, 'L'],
-  [40, 'XL'],
-  [10, 'X'],
-  [9, 'IX'],
-  [5, 'V'],
-  [4, 'IV'],
-  [1, 'I'],
-];
-
-/** Volume numbers are set the way the volumes are set: VOL. XXIV. */
-function roman(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return '—';
-  let v = Math.floor(n);
-  let out = '';
-  for (const [value, glyph] of ROMAN) {
-    while (v >= value) {
-      out += glyph;
-      v -= value;
-    }
-  }
-  return out;
-}
 
 /** The catalog's 'YYYY-MM-DD HH:MM:SS' split the way BirdPopup already splits a
  *  stamp for fmtRelative — the one relative-time helper in the tree. */
@@ -110,38 +84,22 @@ function relFromStamp(stamp: string | null): string | null {
   return out === '—' ? null : out;
 }
 
-/** Render text VERBATIM, with each preserved OCR artefact wearing a visible
- *  [sic]. Nothing is corrected — the artefacts are the proof that no model
- *  cleaned the source. Earliest match first, so overlapping needles are stable. */
+/** Render a passage VERBATIM, each preserved OCR artefact wearing a visible
+ *  [sic]. The SPLITTING is jardine.ts's sicSpans() — the one engine every
+ *  surface shares; this only turns its runs into nodes. */
 function sicNodes(text: string, sic: JardineSic[]): ReactNode {
-  if (sic.length === 0) return text;
-  const nodes: ReactNode[] = [];
-  let rest = text;
-  let key = 0;
-  for (;;) {
-    let at = -1;
-    let hit: JardineSic | null = null;
-    for (const s of sic) {
-      const i = rest.indexOf(s.find);
-      if (i >= 0 && (at < 0 || i < at)) {
-        at = i;
-        hit = s;
-      }
-    }
-    if (at < 0 || !hit) {
-      nodes.push(rest);
-      break;
-    }
-    if (at > 0) nodes.push(rest.slice(0, at));
-    nodes.push(
-      <span className="lib-sic" key={`sic-${key++}`} title={hit.note || 'as printed'}>
-        {hit.find}
+  const spans = sicSpans(text, sic);
+  if (spans.length === 1 && !spans[0].sic) return text;
+  return spans.map((s, i) =>
+    s.sic ? (
+      <span className="lib-sic" key={i} title={s.sic.note || 'as printed'}>
+        {s.text}
         <sup className="lib-sic-m">[sic]</sup>
-      </span>,
-    );
-    rest = rest.slice(at + hit.find.length);
-  }
-  return nodes;
+      </span>
+    ) : (
+      <span key={i}>{s.text}</span>
+    ),
+  );
 }
 
 /** THE FULL ACCOUNT — the whole of what Jardine wrote about one bird.
@@ -194,7 +152,7 @@ function FullAccount({
           </button>
         </div>
         <div className="lib-acct-sub">
-          {com} · vol. {roman(species.volume)} · {passages.length} passages, as printed
+          {com} · vol. {volumeRoman(species.volume)} · {passages.length} passages, as printed
         </div>
         <div className="lib-acct-body">
           {passages.map((p, i) => (
@@ -247,12 +205,7 @@ function SilenceIndex({
               {/* the SAME provenance marker the Roll prints. 11 of these 16
                   rows are weak-sourced; printing them bare stated a confidence
                   the extraction never had. */}
-              <span
-                className={weakSource(species) ? 'lib-sil-bin lib-roll-weak' : 'lib-sil-bin'}
-                title={weakSource(species) ?? undefined}
-              >
-                {sicNodes(species.jardine_binomial, species.sic)}
-              </span>
+              <JardineName species={species} className="lib-sil-bin" />
               <span className="lib-sil-n prose-nums">
                 {count.toLocaleString()} <span className="lib-sil-u">recorded here</span>
               </span>
@@ -298,7 +251,7 @@ function Attribution({ p, link = true }: { p: JardinePassage; link?: boolean }) 
       <span className="lib-cite-who">{p.speaker}</span>
       <span className="lib-cite-w">
         {p.is_quotation ? 'quoted in ' : ''}
-        vol. {roman(p.volume)}
+        vol. {volumeRoman(p.volume)}
         {p.volume_title ? ` · ${p.volume_title}` : ''}
         {p.volume_author && p.volume_author !== p.speaker ? ` · ${p.volume_author}` : ''}
       </span>
@@ -545,6 +498,8 @@ interface GardenFact {
   count: number;
   pct: string;
   com: string;
+  /** true = the catalog never loaded, so presence is UNKNOWN, not false. */
+  unknown?: boolean;
 }
 
 function gardenFact(
@@ -552,6 +507,12 @@ function gardenFact(
   byCatalog: Map<string, CatalogSpecies>,
   totalCalls: number,
 ): GardenFact {
+  // AN EMPTY CATALOG IS NOT AN ABSENCE. fetchCatalog() collapses every failure —
+  // 404, offline, malformed — to [], never null, so `catalog !== null` cannot
+  // tell "this garden has never heard it" from "species.json did not load". With
+  // no catalog at all the slip must say nothing rather than assert a silence the
+  // museum has not measured; that is the fabricated-absence class again.
+  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
   const c = byCatalog.get(sub.sci_name);
   if (!c) return { present: false, count: 0, pct: '0', com: '' };
   const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
@@ -582,7 +543,11 @@ function ModernHalf({
   if (!fact.present) {
     return (
       <div className="lib-modern lib-modern-none">
-        <div className="lib-inert">no recording — never heard in this garden.</div>
+        <div className="lib-inert">
+          {fact.unknown
+            ? 'the garden’s ledger is not to hand.'
+            : 'no recording — never heard in this garden.'}
+        </div>
       </div>
     );
   }
@@ -715,11 +680,16 @@ function ErratumSlip({
   // No. IV — THE COLLISION. One binomial, two entirely different birds, both in
   // this garden, both in the same 1838 volume two headings apart.
   if (e.kind === 'collision') {
-    const shared = e.subjects.map((s) => bySci.get(s.sci_name)?.jardine_binomial).find(Boolean);
+    // the shared 1838 name both birds were filed under. A plain string, not a
+    // rendered species: the slip is ABOUT the collision of the name itself, and
+    // there is no single species whose provenance marker would be correct here.
+    const sharedName = e.subjects
+      .map((s) => bySci.get(s.sci_name)?.jardine_binomial)
+      .find(Boolean);
     return (
       <article className="acard lib-slip lib-slip-wide" data-tone="red">
         {heading}
-        <div className="lib-coll-name">{shared || e.headline}</div>
+        <div className="lib-coll-name">{sharedName || e.headline}</div>
         <div className="lib-coll-rule" aria-hidden="true" />
         <div className="lib-coll-cols">
           {e.subjects.map((sub, i) => {
@@ -843,6 +813,29 @@ function BlindEar({
   const [round, setRound] = useState<Round | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
 
+  // THE QUIZ CLAIMS ITS OWN KEYS. The caption says "press 1, 2 or 3" and App
+  // owns 1–6 as global tab shortcuts (App.tsx:442) — so pressing 1 answered
+  // nothing and threw the reader off the Library tab entirely. The instruction
+  // had never worked.
+  //
+  // CAPTURE phase, so this runs before App's bubble-phase listener on the same
+  // target, and stopImmediatePropagation only when a key is actually consumed:
+  // 4–6 must still switch tabs from here, and so must 1–3 once the round is
+  // answered and the quiz has nothing left to claim.
+  useEffect(() => {
+    if (round === null || picked !== null) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > round.options.length) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      setPicked(n - 1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [round, picked]);
+
   const redraw = useCallback(() => {
     setPicked(null);
     setRound(drawRound(pool));
@@ -903,8 +896,13 @@ function BlindEar({
               {picked !== null && (
                 <span className="lib-opt-true">
                   {opt.jardine_title || opt.sci_name}
-                  {opt.jardine_binomial ? ` · ${opt.jardine_binomial}` : ''} · vol.{' '}
-                  {roman(opt.volume)}
+                  {opt.jardine_binomial && (
+                    <>
+                      {' · '}
+                      <JardineName species={opt} />
+                    </>
+                  )}{' '}
+                  · vol. {volumeRoman(opt.volume)}
                 </span>
               )}
             </button>
@@ -926,9 +924,18 @@ function BlindEar({
             <div className="lib-ear-rev-n">{answerCom || round.answer.sci_name}</div>
             <div className="lib-ear-rev-s">
               {round.answer.jardine_title}
-              {round.answer.jardine_binomial ? `, ${round.answer.jardine_binomial}` : ''}
-              {round.answer.jardine_authority ? ` ` : ''}
-              <span className="lib-scaps">{round.answer.jardine_authority}</span>
+              {round.answer.jardine_binomial && (
+                <>
+                  {', '}
+                  <JardineName species={round.answer} />
+                </>
+              )}
+              {round.answer.jardine_authority && (
+                <>
+                  {' '}
+                  <JardineName species={round.answer} className="lib-scaps" field="authority" />
+                </>
+              )}
             </div>
             {round.answer.voice && <Attribution p={round.answer.voice} />}
             <button type="button" className="lib-again" onClick={redraw}>
@@ -1151,7 +1158,7 @@ export function LibraryView({
                   {sicNodes(jardine.epigraph.text, jardine.epigraph.sic)}
                 </p>
                 <div className="lib-epi-cite">
-                  {jardine.epigraph.speaker} · vol. {roman(jardine.epigraph.volume)}
+                  {jardine.epigraph.speaker} · vol. {volumeRoman(jardine.epigraph.volume)}
                   {jardine.epigraph.volume_title ? ` · ${jardine.epigraph.volume_title}` : ''}
                   {jardine.epigraph.volume_author ? ` · ${jardine.epigraph.volume_author}` : ''} ·{' '}
                   <a
@@ -1251,16 +1258,16 @@ export function LibraryView({
                       className="lib-spine"
                       data-lit={lit ? 'yes' : 'no'}
                       key={`${v.n}-${v.title}`}
-                      onMouseEnter={() => setShelfHover(`vol. ${roman(v.n)} · ${v.title}`)}
+                      onMouseEnter={() => setShelfHover(`vol. ${volumeRoman(v.n)} · ${v.title}`)}
                       onMouseLeave={() => setShelfHover(null)}
-                      onFocus={() => setShelfHover(`vol. ${roman(v.n)} · ${v.title}`)}
+                      onFocus={() => setShelfHover(`vol. ${volumeRoman(v.n)} · ${v.title}`)}
                       onBlur={() => setShelfHover(null)}
                       tabIndex={0}
                       aria-label={`Volume ${v.n}: ${v.title}`}
                     >
                       <span className="lib-spine-foil" aria-hidden="true" />
                       <span className="lib-spine-t">{v.title}</span>
-                      <span className="lib-spine-n">{roman(v.n)}</span>
+                      <span className="lib-spine-n">{volumeRoman(v.n)}</span>
                     </div>
                   );
                 })}
@@ -1321,23 +1328,18 @@ export function LibraryView({
                               j.drift === 'unchanged' ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
                             }
                           >
-                            <span
-                              className={weakSource(j) ? 'lib-roll-weak' : undefined}
-                              title={weakSource(j) ?? undefined}
-                            >
-                              {j.jardine_binomial ? sicNodes(j.jardine_binomial, j.sic) : '—'}
-                            </span>
+                            {j.jardine_binomial ? <JardineName species={j} /> : '—'}
                             {j.jardine_authority && (
-                              <span className="lib-scaps">
+                              <>
                                 {' '}
-                                {sicNodes(j.jardine_authority, j.sic)}
-                              </span>
+                                <JardineName species={j} className="lib-scaps" field="authority" />
+                              </>
                             )}
                           </td>
                         ) : (
                           <td className="lib-roll-o lib-roll-none">the library is silent.</td>
                         )}
-                        <td className="lib-roll-vol">{j ? roman(j.volume) : ''}</td>
+                        <td className="lib-roll-vol">{j ? volumeRoman(j.volume) : ''}</td>
                         <td className="lib-roll-n">{c.detection_count.toLocaleString()}</td>
                       </tr>,
                     );

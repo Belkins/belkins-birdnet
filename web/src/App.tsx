@@ -715,7 +715,21 @@ export default function App() {
         <div className="colophon">Belkins BirdNET</div>
       )}
 
-      {framed && <FrameOverlay onExit={exitFrame} />}
+      {/* THE WALL PLACARD. FrameOverlay has accepted, styled and rendered a
+          tombstone since it was written and nothing ever passed one, so the
+          museum's most-seen surface carried no label at all. Gated on
+          !frameLibrary: the reading wall is already a page of text and does not
+          want a second title over it. */}
+      {framed && (
+        <FrameOverlay
+          onExit={exitFrame}
+          tombstone={
+            frameLibrary
+              ? undefined
+              : { title: 'Belkins BirdNET', sub: 'a London garden, listening' }
+          }
+        />
+      )}
 
       <div
         className="bird-hover"

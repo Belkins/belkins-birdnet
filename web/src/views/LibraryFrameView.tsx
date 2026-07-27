@@ -27,7 +27,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CatalogSpecies } from '../catalog';
 import { fetchCatalog } from '../catalog';
 import type { Jardine, JardinePassage, JardineSpecies } from '../jardine';
-import { fetchJardine } from '../jardine';
+import { dayOfYear, fetchJardine, heardHere, sicSpans, volumeRoman } from '../jardine';
 import type { RosterRow } from '../types';
 import { parseCatalogDate } from '../almanac';
 import { markFrameReady, PROFILE } from '../profile';
@@ -39,44 +39,8 @@ import './LibraryFrameView.css';
  *  worse than both. */
 const FONT_WAIT_MS = 4000;
 
-const ROMAN: ReadonlyArray<readonly [number, string]> = [
-  [1000, 'M'],
-  [900, 'CM'],
-  [500, 'D'],
-  [400, 'CD'],
-  [100, 'C'],
-  [90, 'XC'],
-  [50, 'L'],
-  [40, 'XL'],
-  [10, 'X'],
-  [9, 'IX'],
-  [5, 'V'],
-  [4, 'IV'],
-  [1, 'I'],
-];
-
-/** Volume number as Jardine set it: 24 → XXIV. '' for anything unusable, so the
- *  citation drops the shelf-mark rather than printing "VOL. NaN". */
-function roman(n: number): string {
-  if (!Number.isFinite(n) || n < 1) return '';
-  let v = Math.floor(n);
-  let out = '';
-  for (const [k, s] of ROMAN) {
-    while (v >= k) {
-      out += s;
-      v -= k;
-    }
-  }
-  return out;
-}
-
 /** Day-of-year in the panel's own local calendar, differenced in UTC so a DST
  *  boundary can never skip or repeat a page. */
-function dayOfYear(now: Date): number {
-  const jan1 = Date.UTC(now.getFullYear(), 0, 1);
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.floor((today - jan1) / 86_400_000);
-}
 
 /** "24 July 2026" from a catalog stamp, via the tree's ONE date parser
  *  (almanac.ts) — never a second one, and never `new Date(iso)`, which cannot
@@ -90,38 +54,11 @@ function heardOnLabel(iso: string | null): string | null {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-interface Seg {
-  t: string;
-  sic: boolean;
-}
 
 /** Split a verbatim passage around its recorded OCR artefacts so each one can
  *  carry a visible [sic]. Owner decision 3: the artefacts are the proof nothing
  *  was cleaned up by a model, so they are preserved and MARKED — never silently
  *  corrected, and never quietly passed off as Jardine's own spelling. */
-function sicSegments(text: string, sic: ReadonlyArray<{ find: string }>): Seg[] {
-  const hits: Array<{ start: number; end: number }> = [];
-  for (const s of sic) {
-    const find = s?.find;
-    if (typeof find !== 'string' || find === '') continue;
-    const at = text.indexOf(find);
-    if (at < 0) continue;
-    hits.push({ start: at, end: at + find.length });
-  }
-  if (hits.length === 0) return [{ t: text, sic: false }];
-  hits.sort((a, b) => a.start - b.start);
-
-  const segs: Seg[] = [];
-  let cur = 0;
-  for (const h of hits) {
-    if (h.start < cur) continue; // overlapping markers — the first one wins
-    if (h.start > cur) segs.push({ t: text.slice(cur, h.start), sic: false });
-    segs.push({ t: text.slice(h.start, h.end), sic: true });
-    cur = h.end;
-  }
-  if (cur < text.length) segs.push({ t: text.slice(cur), sic: false });
-  return segs;
-}
 
 interface Page {
   passage: JardinePassage;
@@ -172,7 +109,11 @@ function choosePage(
     const on = heardOnLabel(c ? c.last_detected : null);
     const com = c ? c.com_name || c.sci_name : (liveName.get(s.sci_name) ?? null);
     const page: Page = { passage: s.voice, title: s.jardine_title || null, com, heardOn: on };
-    if (c && on) heard.push(page);
+    // THE SHARED AUTHORITY, not a local last_detected test. The frame used to
+    // ask only whether a timestamp parsed, so a species with a real tally and a
+    // missing stamp printed "not yet heard in this garden" about a bird the Pi
+    // HAS recorded — a fabricated absence, on the one surface hanging on a wall.
+    if (c && heardHere(c)) heard.push(page);
     else unheard.push(page);
   }
 
@@ -286,7 +227,7 @@ export function LibraryFrameView(props: {
     };
   }, [page]);
 
-  const vol = page ? roman(page.passage.volume) : '';
+  const vol = page ? volumeRoman(page.passage.volume) : '';
   const cite = page
     ? [vol ? `Vol. ${vol}` : '', page.passage.volume_title].filter((s) => s !== '').join(' · ')
     : '';
@@ -305,14 +246,14 @@ export function LibraryFrameView(props: {
         <article className="lfr-page">
           {page.title && <div className="lfr-title">{page.title}</div>}
           <p className="lfr-passage prose-nums">
-            {sicSegments(page.passage.text, page.passage.sic).map((s, i) =>
+            {sicSpans(page.passage.text, page.passage.sic).map((s, i) =>
               s.sic ? (
-                <span key={i}>
-                  {s.t}
+                <span key={i} title={s.sic.note || 'as printed'}>
+                  {s.text}
                   <span className="lfr-sic">[sic]</span>
                 </span>
               ) : (
-                <span key={i}>{s.t}</span>
+                <span key={i}>{s.text}</span>
               ),
             )}
           </p>

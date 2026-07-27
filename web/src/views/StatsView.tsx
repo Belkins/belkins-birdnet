@@ -8,6 +8,8 @@ import type { RosterRow } from '../types';
 import { formatDay } from '../days';
 import { loadStats, type StatsData } from '../views-data';
 import './StatsView.css';
+import { fetchJardine, silences, type Jardine } from '../jardine';
+import { fetchCatalog, type CatalogSpecies } from '../catalog';
 
 export function StatsView({
   rows,
@@ -35,6 +37,31 @@ export function StatsView({
       alive = false;
     };
   }, []);
+
+  // THE SILENCE, on the museum's measured surface. Stats is where 2026 counts
+  // live and it knew nothing of the library; setting the corpus's silence beside
+  // the Pi's tallies is the sharpest thing either half can say. Never-throwing
+  // and memoised — an absent corpus removes the panel and changes nothing else.
+  const [jard, setJard] = useState<Jardine | null>(null);
+  const [cat, setCat] = useState<CatalogSpecies[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([fetchJardine(), fetchCatalog()])
+      .then(([d, c]) => {
+        if (!live) return;
+        setJard(d);
+        setCat(c);
+      })
+      .catch(() => {
+        /* the panel simply never appears */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  // silences() already requires a real tally, so a species the garden has not
+  // recorded can never reach this panel.
+  const silent = jard && cat ? silences(jard, cat) : [];
 
   const species = rows.length;
   const top = rows.slice(0, 6);
@@ -153,6 +180,19 @@ export function StatsView({
                 </div>
               ))}
             </div>
+            {silent.length > 0 && (
+              <div className="sb">
+                <div className="sh">The Silence</div>
+                <div className="ss">heard here · never described by the library</div>
+                {silent.slice(0, 8).map((r) => (
+                  <div className="r" key={r.species.sci_name}>
+                    <span className="k">silent</span>
+                    <span className="v">{r.species.note}</span>
+                    <span className="num am">{r.count.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="sb">
               <div className="sh">The Life List</div>
               <div className="ss">newest firsts · lifers</div>

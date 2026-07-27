@@ -972,3 +972,18 @@
   padding: 0 0 3px;
   cursor: pointer;
 }
+
+/* The 1838 name beneath the modern one on an atlas card. Same italic serif as
+   .acard-ln; the year is the museum's own mono annotation. Lives here because
+   this is where every other .acard rule lives — a separate AtlasView.css would
+   be imported by nothing and would silently do nothing. */
+.acard-ln-1838 {
+  opacity: 0.82;
+}
+.acard-yr {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+}
