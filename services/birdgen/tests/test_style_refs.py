@@ -95,10 +95,21 @@ def test_local_pipeline_cli_defaults_point_into_avian_not_services():
          "'refs':str(h.parent/'assets'/'references')}))"],
         cwd=str(AVIAN), text=True)
     d = json.loads(out.strip().splitlines()[-1])
+    # The invariant is WHICH TREE the defaults land in — that is what the symlink
+    # broke (avian/ -> services/). Assert that, and existence only for the dir
+    # that is actually committed.
     assert "/avian/assets/" in d["out"], "local --out escaped avian/: " + d["out"]
     assert "/avian/assets/" in d["refs"], "local --refs escaped avian/: " + d["refs"]
+    assert "/services/" not in d["out"], "local --out resolved into the service tree: " + d["out"]
+    assert "/services/" not in d["refs"], "local --refs resolved into the service tree: " + d["refs"]
+    # illustrations IS committed, so it must exist in any checkout.
     assert Path(d["out"]).is_dir(), "local --out points at a nonexistent dir: " + d["out"]
-    assert Path(d["refs"]).is_dir(), "local --refs points at a nonexistent dir: " + d["refs"]
+    # references/ is deliberately gitignored (.gitignore:57) — a local photo cache
+    # pregen creates on first run. Asserting it exists made this test pass on a
+    # working Mac and FAIL on a fresh CI checkout: an environment-dependent
+    # assertion, exactly the fixture-shaped blind spot this suite exists to avoid.
+    assert Path(d["refs"]).parent.is_dir(), \
+        "local --refs is not even under a real assets tree: " + d["refs"]
 
 
 def test_no_resolve_based_path_defaults_remain_in_pregen():
