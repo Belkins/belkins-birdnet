@@ -1,0 +1,16 @@
+[Unit]
+Description=Run the Belkins BirdNET frame-freshness watchdog every hour
+
+[Timer]
+# 20min after boot: birdframe.timer fires at OnBootSec=2min and its heal branch
+# repaints within minutes of a cold start, so checking earlier would just read a
+# pre-NTP timestamp on an RTC-less Pi. Hourly after that: the budget is >=30h
+# (heal_hours=24 + the quiet window + slack), so an hourly tick plus
+# FAIL_THRESHOLD=2 reports a frozen wall inside ~31h, and each run is two
+# stat()s and a small JSON read.
+OnBootSec=20min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

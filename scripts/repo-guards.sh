@@ -28,7 +28,7 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    workflow hardcodes the suite list. A NEW tests/ dir that isn't enumerated
 #    silently never runs while the badge stays green. This guard turns that
 #    silent skip into a red build with instructions.
-ENUMERATED="tests avian/catalog/tests services/birdgen/tests"
+ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
   case " $ENUMERATED " in

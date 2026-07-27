@@ -15,7 +15,7 @@
 // the bird silhouette — never a flat gray letter disc. Fetches its own data on
 // mount (the all-time catalog, independent of the live engine roster).
 import { useEffect, useState } from 'react';
-import { currentSeasonFacts, anniversariesFor } from '../almanac';
+import { currentSeasonFacts, anniversariesFor, departuresFor } from '../almanac';
 import type { CatalogSpecies } from '../catalog';
 import { fetchCatalog } from '../catalog';
 import { BirdThumb } from '../components/BirdThumb';
@@ -109,6 +109,12 @@ export function CollectionWallView() {
   const now = new Date();
   const almanac = species ? currentSeasonFacts(species, now) : null;
   const anniv = species ? anniversariesFor(species, now) : null;
+  // Departures — the one caption on this wall that can APPEAR rather than
+  // accrue. Computed for the whole catalog in one pass because the gate that
+  // keeps a dead catalog from narrating 47 fabricated departures is a fact
+  // about the collection, not about any one bird (see almanac.departuresFor).
+  // Empty for every bird still being heard, so a present garden stays calm.
+  const departures = species ? departuresFor(species, now) : null;
 
   // Use the PERMANENT accession No. the nightly build pins into species.json when
   // present; fall back to a client-side first-appearance derivation for old builds
@@ -191,6 +197,7 @@ export function CollectionWallView() {
         <div className="wall-grid">
           {ordered.map(({ s, no }) => {
             const band = rarityBand(s.detection_count);
+            const gone = departures?.get(s);
             return (
               <div className="acard wall-card" key={s.sci_name || s.com_name}>
                 {/* Permanent accession No. + first-seen date on the left; the
@@ -199,6 +206,11 @@ export function CollectionWallView() {
                   <span className="wall-cat">
                     <span className="acard-no">No. {no == null ? '—' : String(no).padStart(3, '0')}</span>
                     <span className="wall-seen">first seen {firstSeenLabel(s.first_confident)}</span>
+                    {gone && (
+                      <span className="wall-gone" data-gone={gone.band}>
+                        {gone.text}
+                      </span>
+                    )}
                   </span>
                   <span className="wall-tally">
                     <span className="wall-rarity" data-band={band}>{band}</span>

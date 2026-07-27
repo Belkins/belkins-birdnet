@@ -9,8 +9,10 @@
     "dev:real": "VITE_MOCK=0 vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "TZ=Europe/London node --test tests/almanac.departure.test.ts"
   },
+  "//test": "NOT RUN BY CI. .github/workflows/python-app.yml is pytest-only and never runs npm, and scripts/repo-guards.sh guard 3 only sees directories containing test_*.py, so web/tests/ is enumerated nowhere. Run `npm test` by hand before every web/dist rebuild. Node >= 22.18 (native TypeScript type-stripping); TZ is pinned so the DST cases are deterministic.",
   "dependencies": {
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

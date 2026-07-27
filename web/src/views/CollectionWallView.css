@@ -122,6 +122,25 @@
   text-transform: uppercase;
   color: var(--mut-2);
 }
+/* DEPARTURES — the wall's only subtraction. A species heard here and then not
+   heard for a fortnight gets ONE more caption under its "first seen" date;
+   everything still present renders nothing at all (silence over speculation,
+   the same contract as the almanac dateline). Typographically identical to
+   .wall-seen on purpose — it must read as a second line of the same museum
+   label, never as an alert. Deliberately NOT amber: amber is this card's single
+   "special find" accent (.wall-rarity[data-band='rare']) and a departure is a
+   fact to notice, not a warning. The seasonal register gets one muted step of
+   contrast and nothing more. No motion — calm: collection, not streaks. */
+.wall-gone {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+.wall-gone[data-gone='away'] {
+  color: var(--mut);
+}
 .wall-tally {
   flex: none;
   display: flex;
