@@ -27,7 +27,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
@@ -1875,4 +1875,61 @@ test('K2 sicSpans honours the recorded offset, and falls back when it lies', () 
   for (const s of [[sic('Ireland', second)], [sic('Ireland', null)], []]) {
     assert.equal(sicSpans(t, s).map((x) => x.text).join(''), t, 'sicSpans dropped or duplicated text');
   }
+});
+
+// ═══ L · THE LIBRARY OUT OF ITS ROOM ═══════════════════════════════════════
+
+test('L1 every cross-surface reader asks the ONE selector', () => {
+  // WHY: Jardine reached five files, and each new surface is a fresh chance to
+  // write `s.voice ? … : …` locally. That is precisely how the Roll, the Index
+  // of Silences and the dossier drifted into three different answers about which
+  // birds are silent. I5 protects /play; this protects the rest.
+  for (const f of ['../src/views/CollectionWallView.tsx', '../src/views/StatsView.tsx']) {
+    const src = stripComments(readFileSync(new URL(f, import.meta.url), 'utf8')).replace(/\s+/g, ' ');
+    assert.ok(
+      /counterpointFor\(|silences\(/.test(src),
+      `${f} reads the corpus without going through counterpointFor()/silences()`,
+    );
+    assert.ok(
+      !/\.voice\s*\?/.test(src),
+      `${f} hand-rolls the voice/silence branch instead of asking the selector`,
+    );
+  }
+});
+
+test('L2 every stylesheet the app ships is actually imported by something', () => {
+  // WHY — the orphan-CSS trap, which I walked straight into while writing this
+  // phase. I added .acard-ln-1838 to a NEW src/views/AtlasView.css that no
+  // module imports. Vite silently omits it, the rule never loads, and the page
+  // renders un-styled with nothing red anywhere: not tsc, not oxlint, not the
+  // console, not a single test. It is the same fail-open shape as a var() with a
+  // fallback — a stylesheet that does nothing is indistinguishable from one that
+  // works until somebody looks.
+  const dir = new URL('../src/', import.meta.url);
+  const sheets: string[] = [];
+  const walk = (d: URL): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.isDirectory()) walk(new URL(`${e.name}/`, d));
+      else if (e.name.endsWith('.css')) sheets.push(new URL(e.name, d).pathname);
+    }
+  };
+  walk(dir);
+  assert.ok(sheets.length > 5, 'no stylesheets found — the audit is vacuous');
+  const code: string[] = [];
+  const walkCode = (d: URL): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.isDirectory()) walkCode(new URL(`${e.name}/`, d));
+      else if (/\.tsx?$/.test(e.name)) code.push(readFileSync(new URL(e.name, d), 'utf8'));
+    }
+  };
+  walkCode(dir);
+  const all = code.join('\n');
+  const orphans = sheets
+    .map((p) => p.split('/').pop() as string)
+    .filter((name) => !all.includes(name) && name !== 'index.css');
+  assert.deepEqual(
+    orphans,
+    [],
+    `these stylesheets are imported by nothing and silently do nothing: ${orphans.join(', ')}`,
+  );
 });

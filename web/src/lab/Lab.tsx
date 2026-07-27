@@ -15,6 +15,7 @@ import { fetchCatalog, type CatalogSpecies } from '../catalog';
 import { SseStream, MockStream } from '../events';
 import { BASE, DERIVED_URL, EVENTS_URL, MOCK } from '../config';
 import type { BirdEvent, EventStream, LiveState } from '../types';
+import { fetchJardine, sealLine, type Jardine } from '../jardine';
 
 // ── derived.json shape (the derive.py single-writer output). Read defensively:
 // the file is absent until derive.py runs, and field access is tolerant so a
@@ -151,6 +152,27 @@ export function Lab(): JSX.Element {
     return hours > 72 ? hours : null;
   }, [derived]);
 
+  // THE CORPUS CHIP. The Lab is the museum's honesty console — it already flags
+  // a stale derived bundle rather than printing a timestamp as decoration. The
+  // corpus deserves the same treatment: its sha, when it was extracted, and
+  // whether a human has ever signed for the text. sealLine() reads the committed
+  // file and nothing else, so this chip cannot claim a proofing that has not
+  // happened.
+  const [jard, setJard] = useState<Jardine | null>(null);
+  useEffect(() => {
+    let live = true;
+    fetchJardine()
+      .then((d) => {
+        if (live) setJard(d);
+      })
+      .catch(() => {
+        /* the chip simply never appears */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+
   return (
     <div className="lab">
       <header className="lab-head">
@@ -186,6 +208,12 @@ export function Lab(): JSX.Element {
           <span className={staleHours != null ? 'lab-stale-chip' : undefined}>
             derived · {derived.built_at.slice(0, 16).replace('T', ' ')}
             {staleHours != null && ` · ${staleHours}h STALE`}
+          </span>
+        )}
+        {jard?.colophon && (
+          <span className={sealLine(jard.colophon).includes('unsigned') ? 'lab-stale-chip' : undefined}>
+            corpus · {jard.colophon.corpus_sha256.slice(0, 8)} · {jard.colophon.extracted_at} ·{' '}
+            {sealLine(jard.colophon)}
           </span>
         )}
         <a className="lab-nav" href={`${BASE}recap.html`}>weekly recap →</a>

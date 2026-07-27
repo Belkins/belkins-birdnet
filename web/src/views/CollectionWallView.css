@@ -221,3 +221,27 @@
   letter-spacing: 0.14em;
   color: var(--mut);
 }
+
+/* The 1838 counterpoint on a wall card. Jardine's sentence keeps the museum's
+   serif; the citation and the silence line are the museum speaking in 2026. */
+.wall-jard {
+  margin-top: 0.45rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+.wall-jard-t {
+  display: block;
+  font-family: var(--display);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.wall-jard-c {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
