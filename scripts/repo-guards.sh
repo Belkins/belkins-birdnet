@@ -229,5 +229,24 @@ done
 [ -e scripts/adminer.php ] \
   && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
 
+# 9. Web test-suite wiring guard. web/tests/ shipped 12 real tests that NOTHING
+#    ran: python-app.yml is pytest-only and never invokes npm, and guard 3's
+#    enumeration only counts directories containing test_*.py, so the web suite
+#    was green by human discipline alone. Three ways that silently rots, one
+#    assertion each — the workflow vanishes, it stops calling npm test, or the
+#    npm script gets pinned back to ONE filename. The glob is load-bearing
+#    because `node --test tests/` cannot be used at all (node resolves a bare
+#    directory as a module: MODULE_NOT_FOUND), so a pinned filename means a
+#    SECOND web test file never runs while the badge stays green.
+if ls web/tests/*.test.ts >/dev/null 2>&1; then
+  _wwf=.github/workflows/web-ci.yml
+  [ -f "$_wwf" ] \
+    || fail "web/tests/*.test.ts exists but $_wwf is missing — the web suite would run in no CI at all"
+  grep -qE '^[[:space:]]*run:[[:space:]]*npm test[[:space:]]*$' "$_wwf" \
+    || fail "$_wwf no longer runs 'npm test' — restore the step or the web suite silently stops running"
+  grep -qF "node --test tests/*.test.ts" web/package.json \
+    || fail "web/package.json's test script must glob 'tests/*.test.ts' — a pinned filename means a NEW web test never runs, and 'node --test tests/' is not a legal substitute (node resolves a bare dir as a module)"
+fi
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
