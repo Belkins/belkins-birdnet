@@ -269,12 +269,16 @@ function ReadingDesk({
   sp,
   lastDetected,
   live,
+  aimed = false,
   onAnother,
   canRotate,
 }: {
   sp: JardineSpecies;
   lastDetected: string | null;
   live: boolean;
+  /** The reader named this bird (?read=). Tier zero can land on a species with
+   *  NO voice, so the desk must be able to answer with the library's silence. */
+  aimed?: boolean;
   onAnother: () => void;
   canRotate: boolean;
 }) {
@@ -380,8 +384,16 @@ function ReadingDesk({
 
   return (
     <section className="lib-desk" aria-label="The reading desk">
+      {/* Say so when the reader chose this page. Without it an aimed desk is
+          indistinguishable from the daily rotation happening to agree, and the
+          reader cannot tell whether the button worked. */}
+      {aimed && <span className="lib-desk-aim">you asked for this one</span>}
       {sp.voice && <Prose p={sp.voice} />}
       {sp.coda && <Prose p={sp.coda} tone="coda" />}
+      {/* An aimed bird can be one of the silent ones. Rendering nothing would
+          repeat the dossier's old bug on a bigger surface, so the desk says
+          what the library actually has: nothing, and why. */}
+      {!sp.voice && sp.note && <p className="lib-desk-silence">{sp.note}</p>}
 
       <div className="lib-deskbar">
         <button
@@ -849,6 +861,8 @@ function BlindEar({
 export function LibraryView({
   rows,
   windowHours,
+  aim,
+  onReleaseAim,
   onOpen,
 }: {
   /** The live roster for the CURRENT period window (1H/12H/24H/7D) — on this
@@ -859,6 +873,11 @@ export function LibraryView({
    *  reasoning as BirdPopup's showWindowStat), so the desk stops answering
    *  "in this window" and falls to its daily rotation. */
   windowHours?: number;
+  /** ?read= — the bird the reader named from a dossier. Tier zero of the desk. */
+  aim?: string | null;
+  /** Called when the reader turns the page: the aim is spent and the URL should
+   *  stop claiming it, or Back would re-aim at a bird they have moved past. */
+  onReleaseAim?: () => void;
   onOpen?: (r: RosterRow) => void;
 }) {
   const [jardine, setJardine] = useState<Jardine | null>(null);
@@ -933,12 +952,14 @@ export function LibraryView({
         catalog: catalog ?? [],
         windowHours: windowHours ?? 24,
         now: new Date(),
+        aim,
         step,
       }),
-    [jardine, rows, catalog, windowHours, step],
+    [jardine, rows, catalog, windowHours, aim, step],
   );
   const desk = pick?.species ?? null;
   const deskIsLive = pick?.source === 'live';
+  const deskIsAimed = pick?.source === 'aimed';
 
   // The masthead's one derived ledger sentence, never hand-written.
   const volumes = jardine?.volumes ?? [];
@@ -1053,8 +1074,12 @@ export function LibraryView({
               sp={desk}
               lastDetected={byCatalog.get(desk.sci_name)?.last_detected ?? null}
               live={deskIsLive}
+              aimed={deskIsAimed}
               canRotate={voicePool.length > 1}
-              onAnother={() => setStep((s) => s + 1)}
+              onAnother={() => {
+                setStep((s) => s + 1);
+                onReleaseAim?.();
+              }}
             />
           ) : (
             // Only once the catalog has actually answered: an empty desk while
@@ -1220,6 +1245,13 @@ export function LibraryView({
                   → the Roll simply ends. Nothing is invented to close it. */}
               {jardine.roll_closing && (
                 <div className="lib-elegy">
+                  {/* the subject, named — the sentence's "it" is bound two
+                      sentences earlier in the source, so printed bare the
+                      pronoun dangles. The 2026 hand: this is the museum saying
+                      which bird, not Jardine. */}
+                  {jardine.roll_closing.subject && (
+                    <span className="lib-elegy-s">{jardine.roll_closing.subject}</span>
+                  )}
                   <p className="lib-elegy-t prose-nums">
                     {sicNodes(jardine.roll_closing.text, jardine.roll_closing.sic)}
                   </p>

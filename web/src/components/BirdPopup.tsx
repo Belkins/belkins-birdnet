@@ -32,7 +32,7 @@ import {
   weakSource,
   type JardineSpecies,
 } from '../jardine';
-import { clearBird, writeTab } from '../url';
+import { clearBird, writeRead, writeTab } from '../url';
 import { useBirdImage } from '../useBirdImage';
 import { useRepaint, type RepaintPhase } from '../repaint';
 import { downloadPlateCard } from '../export-card';
@@ -503,8 +503,14 @@ function Dialog({
   // truth for the tab (App.tsx's popstate handler re-reads it), so this reuses
   // url.ts's own writers — clearBird first, or the re-read would immediately
   // reopen this dossier on top of the tab it just went to.
+  // THE AIM. This used to clear the bird and write no replacement, so the
+  // Library fell through to "the loudest bird in the window" — and with this
+  // garden's 81% three-bird concentration that meant the Robin or the Parakeet
+  // almost regardless of which bird the reader had open. The button announced
+  // one destination and delivered another. Now it names the bird.
   function openInLibrary(): void {
     clearBird();
+    writeRead(bird.sci);
     writeTab('library');
     window.dispatchEvent(new PopStateEvent('popstate'));
     onClose();

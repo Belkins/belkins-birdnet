@@ -17,6 +17,10 @@ export interface UrlState {
   pose: 1 | 2;
   /** Pinned archive day ('YYYY-MM-DD'), or null = live NOW. */
   on: string | null;
+  /** THE AIM — the sci_name the Library's Reading Desk should open on, written
+   *  by "in the library →" in the dossier. Underscored like ?bird=. Null = the
+   *  desk chooses for itself. */
+  read: string | null;
 }
 
 export function readUrl(): UrlState {
@@ -29,7 +33,17 @@ export function readUrl(): UrlState {
     birdSlug: slug || null,
     pose: q.get('pose') === 'flight' ? 2 : 1,
     on: on && ON_RE.test(on) ? on : null,
+    read: readAim(q.get('read')),
   };
+}
+
+/** '?read=Turdus_merula' → 'Turdus merula'. Untrusted input: anything that is
+ *  not a plausible binomial resolves to null and the desk simply chooses for
+ *  itself, which is the pre-existing behaviour. Never throws. */
+function readAim(raw: string | null): string | null {
+  if (!raw) return null;
+  const sci = raw.replace(/_/g, ' ').trim();
+  return /^[A-Za-z][A-Za-z-]+ [A-Za-z][A-Za-z-]+$/.test(sci) ? sci : null;
 }
 
 /** Apply `mutate` to the current query and commit; push=false → replaceState.
@@ -101,4 +115,19 @@ export function writePose(pose: 1 | 2): void {
     if (want) qq.set('pose', want);
     else qq.delete('pose');
   }, false);
+}
+
+/** Aim the Library's Reading Desk at a species (push — arriving from a dossier
+ *  IS a navigation, and Back should return the reader to the bird). */
+export function writeRead(sci: string): void {
+  const q = new URLSearchParams(location.search);
+  const aim = sci.replace(/ /g, '_');
+  if (q.get('read') === aim) return; // compare-before-write: popstate-safe
+  write((qq) => qq.set('read', aim), true);
+}
+
+/** Drop the aim: the reader turned the page, so the desk is its own again. */
+export function clearRead(): void {
+  if (new URLSearchParams(location.search).get('read') === null) return;
+  write((q) => q.delete('read'), false);
 }

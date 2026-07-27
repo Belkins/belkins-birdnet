@@ -21,7 +21,15 @@ import { LibraryView } from './views/LibraryView';
 import { LibraryFrameView } from './views/LibraryFrameView';
 import { LiveView } from './views/LiveView';
 import type { FeedRow } from './views/LiveView';
-import { readUrl, writeTab, writeBird, clearBird, writePose, writeOn } from './url';
+import {
+  readUrl,
+  writeTab,
+  writeBird,
+  clearBird,
+  writePose,
+  writeOn,
+  clearRead,
+} from './url';
 import { fetchCatalog } from './catalog';
 import { Scrubber } from './components/Scrubber';
 import { fetchDayActivity, formatDay, isoDay } from './days';
@@ -128,6 +136,9 @@ export default function App() {
 
   // URL wins over localStorage so a shared ?tab= link boots into that view.
   const [tab, setTab] = useState<Tab>(() => asTab(BOOT_URL.tab) ?? loadTab());
+  // THE AIM (?read=) — which bird the Library's desk should open on. Seeded
+  // from the boot URL and refreshed on popstate, exactly like `tab`.
+  const [aim, setAim] = useState<string | null>(() => BOOT_URL.read);
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [status, setStatus] = useState('starting');
   const [latest, setLatest] = useState('');
@@ -394,6 +405,7 @@ export default function App() {
     const onPop = () => {
       const u = readUrl();
       setTab(asTab(u.tab) ?? 'collage');
+      setAim(u.read);
       if (u.birdSlug) openFromUrl(u.birdSlug, u.pose);
       else setPopup(null);
       if (u.on !== viewDayRef.current) selectDay(u.on);
@@ -658,6 +670,11 @@ export default function App() {
           <LibraryView
             rows={rows}
             windowHours={settings.windowHours}
+            aim={aim}
+            onReleaseAim={() => {
+              setAim(null);
+              clearRead();
+            }}
             onOpen={(r) => setPopup({ sci: r.sci, com: r.com, slug: r.slug, n: r.n })}
           />
         </Overlay>

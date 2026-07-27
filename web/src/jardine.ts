@@ -57,6 +57,15 @@ export interface JardinePassage {
   /** Volume page only — c82 has one id across 141 headings, so no per-passage anchor exists. */
   source_url: string;
   sic: JardineSic[];
+  /** The account heading this sentence was lifted from, VERBATIM ("The Common
+   *  Crane"). Null on every passage that is already rendered beside its own
+   *  bird — it exists for the Roll's closer, which is the one passage on the
+   *  tab that stands alone. Its sentence is "In Ireland it has not been seen
+   *  for a hundred years", and the "it" is bound two sentences earlier in the
+   *  source: printed bare, the pronoun dangles and the reader cannot know which
+   *  bird vanished. Naming the subject is the difference between an elegy and a
+   *  riddle, and the name is the source's own heading, not a caption. */
+  subject: string | null;
 }
 
 export interface JardineVolume {
@@ -220,6 +229,7 @@ function asPassage(v: unknown): JardinePassage | null {
     volume_author: asString(v.volume_author),
     source_url: asString(v.source_url),
     sic: asSic(v.sic),
+    subject: asNullableString(v.subject),
   };
 }
 
@@ -510,8 +520,9 @@ export function deskPool(species: JardineSpecies[], catalog: CatalogSpecies[]): 
 
 export interface DeskPick {
   species: JardineSpecies;
-  /** 'live' = audible in the current window (tier 1); 'rotation' = the day's page. */
-  source: 'live' | 'rotation';
+  /** 'aimed' = the reader named this bird (tier 0); 'live' = audible in the
+   *  current window (tier 1); 'rotation' = the day's page. */
+  source: 'aimed' | 'live' | 'rotation';
 }
 
 export interface DeskArgs {
@@ -524,6 +535,13 @@ export interface DeskArgs {
   /** settings.windowHours, straight off the shared period filter. */
   windowHours: number;
   now: Date;
+  /** THE AIM (?read=) — the species the reader asked for by name, from the
+   *  dossier's "in the library →". Tier ZERO: an explicit request outranks both
+   *  the loudest-live rule and the daily rotation, because otherwise that button
+   *  lands on whatever is loudest, and with this garden's 81% three-bird
+   *  concentration that is the Robin or the Parakeet almost regardless of which
+   *  bird the reader clicked. Unknown name → ignored, and the desk chooses. */
+  aim?: string | null;
   /** "☞ another passage" — how many pages forward of today's the reader has
    *  turned. Local view state, never persisted and never URL-bound. Any step
    *  above 0 also leaves the live bird behind: turning the page is a request
@@ -555,6 +573,21 @@ export function pickDeskSpecies(a: DeskArgs): DeskPick | null {
   // NaN takes the same path (it only survived before by accident, being falsy).
   const rawStep = a.step ?? 0;
   const step = Number.isFinite(rawStep) ? Math.max(0, Math.floor(rawStep)) : 0;
+
+  // TIER ZERO — guarded on `step === 0` ALONE. It must NOT inherit tier one's
+  // `windowHours <= LIVE_WINDOW_MAX_HOURS` clause: a reader on a 7-day window
+  // would then be silently un-aimed, and a guard scoped one clause too wide is
+  // this project's recorded failure mode. Turning the page (step > 0) IS a
+  // request for a different passage, so it releases the aim.
+  //
+  // The aim is honoured even when the species has NO voice: the desk answers
+  // with the library's silence for that bird, which is the true answer and the
+  // one the reader asked for. Falling through to rotation here would send them
+  // to an unrelated bird and call it an answer.
+  if (step === 0 && a.aim) {
+    const aimed = a.species.find((s) => s.sci_name === a.aim);
+    if (aimed) return { species: aimed, source: 'aimed' };
+  }
 
   if (step === 0 && a.windowHours <= LIVE_WINDOW_MAX_HOURS) {
     const voiced = new Map<string, JardineSpecies>();

@@ -107,6 +107,7 @@ const sealLine = jardineMod.sealLine as (c: unknown) => string;
 // inside LibraryView.tsx: `node --test` strips types but cannot parse JSX, so a
 // selector inside the view is a selector nothing can ever test.
 interface DeskArgs {
+  aim?: string | null;
   /** jardine.species[] — the filter to voice !== null is the selector's job. */
   species: JardineSpecies[];
   /** the live roster App.tsx already passes every view (types.ts RosterRow). */
@@ -1489,4 +1490,155 @@ test('H5 the Index never prints a bird this garden has not heard', () => {
   }
   // and with no catalog at all the section is empty, not a wall of zeroes
   assert.deepEqual(silences(j, []), []);
+});
+
+test('H6 the Roll’s elegy names its subject and is a real 1838 sentence', () => {
+  // WHY: roll_closing has been typed, defaulted, normalized, counted and fully
+  // rendered with an Attribution since the tab was built — and absent from the
+  // data, so the Roll's closing line had never once appeared. Now that it ships,
+  // it carries a failure mode no other passage has: it is the ONE passage on the
+  // tab that stands alone, beneath a ledger rather than beside its own bird.
+  // Its sentence is "In Ireland it has not been seen for a hundred years", whose
+  // "it" is bound two sentences earlier in the source. Printed without a subject
+  // the pronoun dangles and the elegy becomes a riddle — and no type can catch
+  // that, because a string is a string.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.equal(normalize(raw).roll_closing, null, 'no corpus — the Roll must simply end');
+    return;
+  }
+  const j = normalize(raw);
+  const c = j.roll_closing;
+  if (c === null) return; // optional by contract: absent means the Roll just ends
+  assert.ok(c.speaker.trim(), 'the elegy has no speaker');
+  assert.equal(c.is_quotation, false, 'the elegy is a quotation — it would be the wrong man’s grief');
+  assert.ok(c.subject && c.subject.trim(), 'the elegy names no subject — its "it" dangles');
+  // the subject must not be smuggled in as a caption: it is a real account
+  // heading, so it must not appear inside the 1838 sentence itself
+  assert.ok(
+    !c.text.includes(c.subject),
+    'the subject duplicates text already in the sentence — drop the label instead',
+  );
+  const vol = j.volumes.find((v) => v.n === c.volume);
+  assert.ok(vol, `the elegy cites volume ${c.volume}, which is not in the shelf`);
+  assert.equal(vol.author, c.volume_author, 'the elegy is filed under the wrong author');
+  // and the view must actually print the subject
+  const src = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.ok(
+    src.includes('jardine.roll_closing.subject'),
+    'the elegy renders without its subject — the pronoun dangles on the wall',
+  );
+});
+
+// ═══ I · THE AIM (?read=) ══════════════════════════════════════════════════
+
+test('I1 an explicit aim outranks the loudest bird AND the rotation', () => {
+  // WHY: "in the library →" used to clear the bird and write no replacement, so
+  // the desk fell through to tier 1, "the loudest bird in the window". With this
+  // garden's measured 81% three-bird concentration that meant the Robin or the
+  // Parakeet almost regardless of which bird the reader had open — the button
+  // named one destination and delivered another.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const voiced = j.species.filter((s) => s.voice);
+  const target = voiced[voiced.length - 1];
+  const loudest = voiced[0];
+  const rows = [
+    { sci: loudest.sci_name, com: '', slug: '', n: 9999, isNew: false },
+    { sci: target.sci_name, com: '', slug: '', n: 1, isNew: false },
+  ];
+  const got = pick({
+    species: j.species, rows, catalog: london, windowHours: 1,
+    now: new Date('2026-07-27T09:00:00Z'), aim: target.sci_name,
+  } as DeskArgs);
+  assert.equal(got?.sci_name, target.sci_name, 'the aim lost to the loudest bird');
+});
+
+test('I2 the aim is guarded on step ALONE, never on the window', () => {
+  // WHY — the scoped-guard trap, named in advance by the design round and
+  // recorded as this project's signature failure. Tier 1 is guarded on
+  // `step === 0 && windowHours <= 24`. If tier 0 inherits that second clause,
+  // a reader on the 7-day window is silently un-aimed and the button quietly
+  // resumes lying — for the ONE cohort least likely to notice, because a 7-day
+  // window makes the rotation look plausible.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const target = j.species.filter((s) => s.voice).slice(-1)[0];
+  for (const windowHours of [1, 12, 24, 168, 8760]) {
+    const got = pick({
+      species: j.species, rows: [], catalog: london, windowHours,
+      now: new Date('2026-07-27T09:00:00Z'), aim: target.sci_name,
+    } as DeskArgs);
+    assert.equal(got?.sci_name, target.sci_name, `the aim was dropped at windowHours=${windowHours}`);
+  }
+  // but turning the page IS a request for a different passage, so it releases it
+  const stepped = pick({
+    species: j.species, rows: [], catalog: london, windowHours: 1,
+    now: new Date('2026-07-27T09:00:00Z'), aim: target.sci_name, step: 1,
+  } as DeskArgs);
+  assert.notEqual(stepped?.sci_name, target.sci_name, 'the aim survived the reader turning the page');
+});
+
+test('I3 a SILENT bird can be aimed at, and the desk says so', () => {
+  // WHY: deskPool requires voice !== null, so without tier 0 handling silence
+  // the aim falls through to rotation for 19 of 51 species — the reader clicks
+  // "in the library →" on the Blue Tit and is shown an unrelated bird's passage
+  // as though it were the answer. The Blue Tit is the third-loudest bird in this
+  // garden, so that is not an edge case.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const silent = j.species.find((s) => s.voice === null && (s.note ?? '').trim());
+  assert.ok(silent, 'no silent species to aim at');
+  const got = pick({
+    species: j.species, rows: [], catalog: london, windowHours: 1,
+    now: new Date('2026-07-27T09:00:00Z'), aim: silent.sci_name,
+  } as DeskArgs);
+  assert.equal(got?.sci_name, silent.sci_name, 'aiming at a silent bird fell through to rotation');
+  const view = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.ok(
+    /!sp\.voice && sp\.note/.test(view),
+    'the desk renders nothing for an aimed silent bird — the dossier bug, on a bigger surface',
+  );
+});
+
+test('I4 an unknown or malformed aim degrades to the desk choosing for itself', () => {
+  // WHY: ?read= is untrusted input off a URL. It must never throw, never blank
+  // the desk, and never be coerced into a lookup — an unrecognised name simply
+  // means the reader did not name a bird this library holds.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  for (const aim of ['Nonexistent bird', '', '   ', 'DROP TABLE birds', null, undefined]) {
+    const got = pick({
+      species: j.species, rows: [], catalog: london, windowHours: 1,
+      now: new Date('2026-07-27T09:00:00Z'), aim,
+    } as DeskArgs);
+    assert.ok(got, `aim ${JSON.stringify(aim)} blanked the desk instead of falling through`);
+  }
+});
+
+test('I5 the Play reveal uses the ONE selector, and degrades to the old game', () => {
+  // WHY: Jardine reached only four files — jardine.ts, config.ts, BirdPopup and
+  // the two Library views. Play is the first surface he leaves them for, and the
+  // temptation there is a local `species.voice ? … : …`, which is exactly how the
+  // Roll, the Index of Silences and the dossier drifted into three different
+  // answers about which birds are silent. It must ask counterpointFor().
+  //
+  // And /play must survive an absent corpus: fetchJardine() resolves to the
+  // empty shape, speciesBySci() yields an empty map, get() returns undefined,
+  // counterpointFor(undefined) is null, and the block never mounts.
+  const src = readFileSync(new URL('../src/play/Play.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.ok(src.includes('counterpointFor('), '/play hand-rolls the voice/silence branch');
+  assert.ok(
+    !/\bq\.answer\b[^;]{0,80}\.voice\s*\?/.test(src),
+    '/play tests .voice directly instead of asking the selector',
+  );
+  assert.equal(counterpointFor(undefined as unknown as null), null, 'an absent row must be silent, not a throw');
+  assert.equal(speciesBySci(EMPTY).size, 0, 'the empty corpus must yield an empty map');
 });

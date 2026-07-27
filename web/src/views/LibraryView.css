@@ -1040,3 +1040,38 @@
 .lib-sil-play {
   margin-top: 0.6rem;
 }
+
+/* The elegy's subject — the museum naming the bird whose pronoun would
+   otherwise dangle. 2026 hand, per the two-hand law: Jardine wrote the
+   sentence, not the label. */
+.lib-elegy-s {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mut, #8f8f8f);
+}
+
+/* The desk, aimed by ?read=, and the desk answering with a silence. Both are
+   the museum speaking in 2026 about the book — the modern hand, never Cormorant. */
+.lib-desk-aim {
+  display: block;
+  margin-bottom: 0.6rem;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mut, #8f8f8f);
+}
+.lib-desk-silence {
+  margin: 0 0 0.4rem;
+  max-width: 62ch;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 1.65;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--mut, #8f8f8f);
+}
