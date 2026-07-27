@@ -9,8 +9,10 @@
     "dev:real": "VITE_MOCK=0 vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "TZ=Europe/London node --test tests/*.test.ts"
   },
+  "//test": "RUN BY CI via .github/workflows/web-ci.yml, and repo-guards.sh guard 5 fails the build if that workflow stops running it. The GLOB is load-bearing: `node --test tests/` cannot be used (node resolves a bare directory as a module and errors MODULE_NOT_FOUND), so a filename pinned here would mean a SECOND web test file silently never runs — guard 5 asserts the glob for that reason. Node >= 22.18 (native TypeScript type-stripping); TZ is pinned so the DST cases are deterministic.",
   "dependencies": {
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly off-box backup of the Christina irreplaceable state
+
+[Timer]
+# 04:30, an hour after catalog.timer's 03:30 rebuild (TimeoutStartSec=600 there),
+# so the ledgers that leave the box are the CURRENT night's, not last night's.
+# Persistent=true runs a missed backup on the next boot.
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

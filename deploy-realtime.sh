@@ -109,7 +109,9 @@ say "6. Install the auto-gen watcher forwarder + Railway liveness (POSTs new spe
 for f in avian/realtime/forwarder.py avian/realtime/railway_liveness.py \
          avian/realtime/forwarder.service avian/realtime/railway-liveness.service \
          avian/realtime/railway-liveness.timer avian/realtime/mic_watch.py \
-         avian/realtime/mic-watch.service avian/realtime/mic-watch.timer; do
+         avian/realtime/mic-watch.service avian/realtime/mic-watch.timer \
+         avian/backup/offbox_backup.py avian/backup/restore_offbox.py \
+         avian/backup/offbox-backup.service avian/backup/offbox-backup.timer; do
   [ -f "$HERE/$f" ] || die "missing $f — pull the full Belkins/belkins-birdnet repo"
 done
 
@@ -192,6 +194,73 @@ sudo install -m 644 "$HERE/avian/realtime/mic-watch.timer" /etc/systemd/system/m
 sudo systemctl daemon-reload
 sudo systemctl enable --now mic-watch.timer && ok "mic-watch timer enabled (checks every 15min)" || warn "could not enable mic-watch.timer"
 
+say "8. Off-box backup (birds.db + accession ledger + phenology ledger + Railway plates leave the card nightly)"
+# 8a. Compile here rather than folding into 6a: that call's success line says
+#     "forwarder python compiles", and a component's own compile check belongs
+#     with the component, not inside another one's message.
+"$PY" -m py_compile "$HERE/avian/backup/offbox_backup.py" "$HERE/avian/backup/restore_offbox.py"
+ok "backup python compiles"
+
+# 8b. Provision the backup env. IDEMPOTENT, same shape as 6b: never clobber an
+#     operator-filled destination on re-run — only create it (with a clearly
+#     marked placeholder) when absent.
+BK_ENV="$ENV_DIR/backup.env"
+BK_DEST=""
+BK_PLACEHOLDER=0
+if [ -f "$BK_ENV" ]; then
+  ok "backup.env already present — leaving it untouched ($BK_ENV)"
+  if [ ! -r "$BK_ENV" ]; then
+    BK_PLACEHOLDER=skip
+    warn "cannot read $BK_ENV — leaving offbox-backup's current state unchanged"
+  else
+    # Parse the way systemd does: LAST assignment wins, leading whitespace
+    # tolerated, optional quotes stripped (same reasoning as 6b).
+    BK_DEST="$(sed -n 's/^[[:space:]]*CHRISTINA_BACKUP_DEST=//p' "$BK_ENV" | tail -n1 | tr -d '"' | tr -d "'")"
+    case "$BK_DEST" in
+      ''|REPLACE_ME*)
+        BK_PLACEHOLDER=1
+        warn "CHRISTINA_BACKUP_DEST in $BK_ENV is missing/empty or still the REPLACE_ME placeholder"
+        ;;
+    esac
+  fi
+else
+  cat > "$BK_ENV" <<ENVEOF
+# Christina off-box backup config.
+# >>> REPLACE THIS PLACEHOLDER <<< with a directory on storage that is NOT this
+# SD card: an NFS/CIFS/sshfs mount (best), or a USB stick (second-best — it does
+# not survive theft or fire). The job REFUSES to run (exit 2 + one ntfy push) if
+# this is unset or resolves to the repo's own filesystem.
+CHRISTINA_BACKUP_DEST=REPLACE_ME_with_an_offbox_mount
+CHRISTINA_BACKUP_KEEP=14
+ENVEOF
+  chmod 600 "$BK_ENV"
+  BK_PLACEHOLDER=1
+  warn "wrote $BK_ENV with a PLACEHOLDER destination — see avian/backup/REHEARSAL.md"
+fi
+
+# 8c. Render + install the authored units (never hand-roll a rival unit in a
+#     deploy heredoc — catalog.service's own comment names that as the
+#     2026-07-02..26 incident).
+render_unit "$HERE/avian/backup/offbox-backup.service" /etc/systemd/system/offbox-backup.service
+sudo install -m 644 "$HERE/avian/backup/offbox-backup.timer" /etc/systemd/system/offbox-backup.timer
+sudo systemctl daemon-reload
+
+# 8d. Enable + start — but REFUSE to arm the timer on a placeholder destination,
+#     exactly as 6d refuses to start the forwarder on a placeholder secret. An
+#     armed job with no destination pushes a high-priority "UNCONFIGURED" to the
+#     SAME ntfy topic that carries mic-watch's dead-mic and railway-liveness's
+#     DOWN alerts — every night, until the operator mutes the topic and thereby
+#     silences those two as well.
+if [ "$BK_PLACEHOLDER" = skip ]; then
+  warn "offbox-backup left in its current state — fix the permissions on $BK_ENV and re-run"
+elif [ "$BK_PLACEHOLDER" = 1 ]; then
+  sudo systemctl disable --now offbox-backup.timer >/dev/null 2>&1 || true
+  warn "REFUSING to arm offbox-backup.timer: CHRISTINA_BACKUP_DEST in $BK_ENV is missing or still the placeholder."
+  warn "Fix: edit $BK_ENV, point it at an off-box mount, then: sudo systemctl enable --now offbox-backup.timer"
+else
+  sudo systemctl enable --now offbox-backup.timer && ok "offbox-backup timer enabled (nightly 04:30 -> $BK_DEST)" || warn "could not enable offbox-backup.timer"
+fi
+
 cat <<DONE
 
 ============================================================
@@ -205,6 +274,10 @@ cat <<DONE
    • railway-liveness: 6h timer alerts if the Railway gen-service silently dies.
    • mic-watch: 15-min timer detects a dead/unplugged/re-enumerated USB mic,
      restarts recording, and pings once (never on a merely quiet night).
+   • off-box backup: nightly 04:30 -> \$CHRISTINA_BACKUP_DEST (see
+     avian/backup/REHEARSAL.md). NOT armed until you point backup.env at a real
+     off-box mount — birds.db, both ledgers and the Railway plates are the only
+     irreplaceable state on this box, and today they share one card.
 
 ▶ WATCH IT LIVE (from your Mac, in your OWN terminal — has LAN access):
      cd "<repo>/web"

@@ -272,6 +272,46 @@ def _hour_of(time_s):
         return None
 
 
+def _accession_clip_path(date_s, com_name, file_name):
+    """Relative path of one extracted recording, EXACTLY as both purge consumers
+    spell it: ``<Date>/<Com_Name_safe>/<File_Name>``.
+
+    That shape is not cosmetic. ``scripts/disk_check.sh:23`` protects a file with
+    ``grep -qxFe "$i"`` where ``$i`` comes from ``for i in */*/*`` after
+    ``cd ${EXTRACTED}/By_Date/`` -- a FULL-LINE match against a path relative to
+    By_Date. A leading slash, an absolute path or an unsanitised common name
+    never matches, and the protection is a silent no-op.
+
+    Keep all THREE segments. ``scripts/disk_species_clean.sh:67`` greps with
+    ``-vFf`` and no ``-x``, i.e. SUBSTRING: shortening the pinned form to a bare
+    File_Name would start over-protecting unrelated paths and silently disable
+    the MAX_FILES_SPECIES cap.
+
+    The sanitisation mirrors ``scripts/utils/classes.py:22`` character for
+    character (apostrophes deleted, then spaces -> underscores); that is the
+    function that actually named the directory in
+    ``scripts/utils/reporting.py:79``. ``File_Name`` is stored as a bare
+    ``os.path.basename`` (``scripts/utils/db.py``), so it is used verbatim.
+
+    Returns None -- never a guess -- when any component is missing or malformed.
+    Old BirdNET-Pi rows can carry a NULL File_Name, and formatting None into the
+    path would pin ``<date>/<species>/None`` while leaving the real clip exposed.
+    """
+    if not date_s or not com_name or not file_name:
+        return None
+    date_s, com_name, file_name = str(date_s), str(com_name), str(file_name)
+    # A newline would inject an extra line into a line-oriented file; a slash in
+    # File_Name means it is not the bare basename the writer expects.
+    if any("\n" in p or "\r" in p for p in (date_s, com_name, file_name)):
+        return None
+    if "/" in file_name or "\\" in file_name or "/" in date_s:
+        return None
+    safe = com_name.replace("'", "").replace(" ", "_")
+    if not safe:
+        return None
+    return "%s/%s/%s" % (date_s, safe, file_name)
+
+
 def aggregate(con):  # noqa: C901  (complexity 18; pre-existing debt, see .flake8)
     """Single deterministic pass over ``detections``. Returns
     ``(species, com_counts, daily, hours, weeks, source_rows)``.
@@ -279,8 +319,14 @@ def aggregate(con):  # noqa: C901  (complexity 18; pre-existing debt, see .flake
     ``ORDER BY Date, Time, rowid`` makes the row order -- and therefore every
     derived value -- reproducible (SQLite gives no order guarantee otherwise).
     """
+    # File_Name is read for ONE purpose: to pin the recording that earned each
+    # species its permanent accession number against the BirdNET-Pi disk purge.
+    # See _accession_clip_path / pin_accession_clips below. The column is part of
+    # the stock schema (scripts/createdb.sh:17, NOT NULL), so this adds no
+    # portability risk -- but the value can still be NULL on rows written by
+    # older tooling, which _accession_clip_path handles by returning None.
     sql = (
-        "SELECT Date, Time, Sci_Name, Com_Name, Confidence, Week "
+        "SELECT Date, Time, Sci_Name, Com_Name, Confidence, Week, File_Name "
         "FROM detections ORDER BY Date, Time, rowid"
     )
     species = {}
@@ -309,6 +355,7 @@ def aggregate(con):  # noqa: C901  (complexity 18; pre-existing debt, see .flake
             sp = {
                 "first_dt": None, "last_dt": None, "first_conf_dt": None,
                 "count": 0, "conf_count": 0, "max_conf": None,
+                "first_conf_clip": None,
             }
             species[sci] = sp
             com_counts[sci] = {}
@@ -326,6 +373,12 @@ def aggregate(con):  # noqa: C901  (complexity 18; pre-existing debt, see .flake
                 sp["conf_count"] += 1
                 if dt is not None and (sp["first_conf_dt"] is None or dt < sp["first_conf_dt"]):
                     sp["first_conf_dt"] = dt
+                    # THIS row's Com_Name, deliberately -- not pick_com(). The
+                    # By_Date directory was created from the common name current
+                    # at extraction time (scripts/utils/reporting.py:79), so a
+                    # later rename of the species must not move the pinned path.
+                    sp["first_conf_clip"] = _accession_clip_path(
+                        date_s, com, row["File_Name"])
 
         cc = com_counts[sci]
         cc[com] = cc.get(com, 0) + 1
@@ -385,6 +438,248 @@ def _write_json_atomic(path, obj):
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, ensure_ascii=False, separators=(",", ":"))
     os.replace(tmp, path)
+
+
+# ---- accession-clip protection ---------------------------------------------
+#
+# Both sentinels are load-bearing. scripts/stats.php:216 rewrites everything from
+# "##start" up to "##end" on every Species Stats render, and scripts/disk_check.sh
+# :13 curls that very page immediately before purging -- so a pin written above
+# ##end is destroyed seconds before it is read. Pins therefore go strictly AFTER
+# ##end, which is also where scripts/play.php:48-54 puts a manual lock.
+_EXCLUDE_START = "##start"
+_EXCLUDE_END = "##end"
+
+# One word, grepped for in the journal. Every path that leaves an accession
+# recording exposed says it.
+_UNPROTECTED = "UNPROTECTED"
+
+# The path BOTH purge consumers hardcode: scripts/disk_check.sh:14,23 and
+# scripts/disk_species_clean.sh:67 spell it "$HOME/BirdNET-Pi/scripts/
+# disk_check_exclude.txt", as do scripts/stats.php:17 and scripts/play.php:45.
+# Deriving it from --out (the catalog's own output dir) instead would coincide
+# ONLY while the checkout happens to sit at ~/BirdNET-Pi and nobody passes
+# --out; any second checkout, rename or relocated repo would write a
+# perfectly-formed exclude file into a directory no consumer ever opens -- a
+# write-to-nowhere that still prints a success line.
+_DISK_EXCLUDE_DEFAULT = "~/BirdNET-Pi/scripts/disk_check_exclude.txt"
+
+
+def resolve_exclude_path():
+    """The CONSUMERS' exclude-file path -- ``$CHRISTINA_DISK_EXCLUDE`` first,
+    else ``~/BirdNET-Pi/scripts/disk_check_exclude.txt``. Deliberately NOT
+    derived from ``--out``: see _DISK_EXCLUDE_DEFAULT."""
+    env = os.environ.get("CHRISTINA_DISK_EXCLUDE")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    return os.path.abspath(os.path.expanduser(_DISK_EXCLUDE_DEFAULT))
+
+
+def _pin_lines(clips):
+    """The two lines that protect one clip: the recording and its ``.png``
+    spectrogram sibling. The spectrogram is its own ``*/*/*`` glob entry for
+    disk_check.sh, and both play.php:53-54 and stats.php:203-204 pin the pair."""
+    lines = []
+    for clip in clips:
+        lines.append(clip)
+        lines.append(clip + ".png")
+    return lines
+
+
+def _write_exclude(path, lines):
+    """Atomic tmp + ``os.replace`` (mirroring _write_json_atomic): an interrupted
+    write must never leave a TRUNCATED exclude file, because a file with no
+    ``##start`` makes disk_check.sh:14 exit and stop purging entirely.
+
+    The existing file's MODE is carried onto the replacement. This file is
+    CO-OWNED: stats.php / play.php write it as ``caddy``
+    (scripts/install_services.sh:363 rewrites php-fpm's user), while this builder
+    runs as ``belkins`` (catalog.service). ``os.replace`` needs only DIRECTORY
+    write permission, so it silently seizes the file; carrying the mode over --
+    and widening it for group+other when the owner differs -- keeps the PHP UI
+    able to rewrite it. Ownership itself cannot be restored without root, so that
+    is said out loud rather than assumed away.
+    """
+    st = os.stat(path)
+    mode = st.st_mode & 0o7777
+    if st.st_uid != os.getuid():
+        # stats.php:8-9 sets error_reporting(E_ERROR)/display_errors=0, so a
+        # file_put_contents it can no longer write fails in complete silence --
+        # freezing the max-confidence auto-protection this pin deliberately does
+        # not duplicate.
+        mode |= 0o060 | 0o006
+        sys.stderr.write(
+            "catalog: %s is owned by uid %d, not by this process (uid %d). "
+            "os.replace transfers ownership and cannot transfer it back without "
+            "root; widening the mode to %04o so the PHP UI (stats.php/play.php, "
+            "user caddy) can still rewrite it. Run "
+            "`sudo chown %d %s` if the PHP writers start failing silently.\n"
+            % (path, st.st_uid, os.getuid(), mode, st.st_uid, path)
+        )
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            # No blank line, ever: disk_species_clean.sh:67 greps -vFf with no
+            # -x, and an empty pattern matches every path -- silently disabling
+            # the whole MAX_FILES_SPECIES purge.
+            fh.write("\n".join(lines) + "\n")
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    finally:
+        # The .tmp sibling is NOT covered by .gitignore:39 (`scripts/*.txt`), so
+        # a crash between open() and os.replace would leave an untracked file a
+        # future `git add -A` could sweep in -- the 6274ec2 accident class.
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+
+def _refuse_absent(path, clips):
+    """The file does not exist (or cannot be read). DO NOT CREATE IT.
+
+    Verified this session: while the file is ABSENT both consumers are NO-OPS.
+    ``grep -qxFe ... missing_file`` returns 2, so disk_check.sh:14's ``if ! grep``
+    is true and the purge loop never runs; ``grep -vFf missing_file`` in
+    disk_species_clean.sh:67 errors, emits nothing, and the pipeline deletes only
+    its ``temp`` dummy. Creating the file would therefore ARM two dormant purges
+    -- on a station where a species has more than MAX_FILES_SPECIES (default
+    1000) recordings, the very next 02:00 cron would delete the excess. An item
+    written to PROTECT recordings would destroy several hundred on its first
+    night. The operator arms it deliberately, after checking the purge config.
+    """
+    sys.stderr.write(
+        "catalog: %s -- %s does not exist, so %d accession recording(s) are "
+        "unprotected. NOT creating it: while that file is absent BOTH purges are "
+        "no-ops (disk_check.sh:14 exits when grep fails; disk_species_clean.sh:67"
+        "'s grep -vFf errors and deletes nothing), and creating it ARMS them. "
+        "Before creating it, check the purge config and the per-species counts:\n"
+        "  grep -E 'MAX_FILES_SPECIES|PURGE_THRESHOLD|FULL_DISK' /etc/birdnet/birdnet.conf\n"
+        "  for d in ~/BirdSongs/Extracted/By_Date/*/*/; do echo \"$(ls \"$d\" | "
+        "grep -c mp3) $d\"; done | sort -rn | head\n"
+        "then, ONLY if no species exceeds MAX_FILES_SPECIES:\n"
+        "  printf '%s\\n%s\\n' > %s\n"
+        % (_UNPROTECTED, path, len(clips), _EXCLUDE_START, _EXCLUDE_END, path)
+    )
+    return 0, len(clips)
+
+
+def _pin_accession_clips(path, clips):
+    """The body of pin_accession_clips; see that function for the contract."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError:
+        return _refuse_absent(path, clips)
+
+    lines = text.splitlines()
+    if _EXCLUDE_START not in lines:
+        # NOT recoverable by us: stats.php:15-17 TRUNCATES a file with no
+        # ##start on the next Species Stats render, so anything appended now is
+        # destroyed. disk_check.sh:14 also stops purging in this state, so the
+        # exposure is latent rather than immediate -- but it is still exposure.
+        sys.stderr.write(
+            "catalog: %s -- %s has no %s sentinel; REFUSING to write, %d "
+            "accession recording(s) stay exposed. Repair the file (or delete it "
+            "and reload Species Stats) and the next rebuild will pin them.\n"
+            % (_UNPROTECTED, path, _EXCLUDE_START, len(clips))
+        )
+        return 0, len(clips)
+
+    if any(ln == "" for ln in lines):
+        # Not ours to remove (the ##start block belongs to stats.php), but it
+        # must be said out loud every single run.
+        sys.stderr.write(
+            "catalog: %s contains a BLANK line. disk_species_clean.sh:67 greps "
+            "-vFf (no -x), so an empty pattern matches every path and the whole "
+            "MAX_FILES_SPECIES purge is silently disabled.\n" % (path,)
+        )
+
+    healed = False
+    if _EXCLUDE_END not in lines:
+        # RECOVERABLE, and self-healing beats refusing forever: stats.php
+        # regenerates only the region ABOVE ##end, so appending the sentinel is
+        # safe. Without it stats.php's `substr($file, strpos($file,"##end"))`
+        # gets strpos===false and duplicates the whole file on every render --
+        # a state that reproduces itself, which a permanent refusal would leave
+        # in place for good behind a green nightly unit.
+        lines.append(_EXCLUDE_END)
+        healed = True
+        sys.stderr.write(
+            "catalog: %s had no %s sentinel -- appending it (stats.php only "
+            "regenerates the region above it) so accession pins have a durable "
+            "region to live in.\n" % (path, _EXCLUDE_END)
+        )
+
+    wanted = _pin_lines(clips)
+    existing = set(lines)
+    new = [ln for ln in wanted if ln not in existing]
+    if new or healed:
+        try:
+            _write_exclude(path, lines + new)
+        except OSError as exc:
+            sys.stderr.write(
+                "catalog: %s -- FAILED to write %s (%s); %d accession "
+                "recording(s) remain exposed to the disk purge\n"
+                % (_UNPROTECTED, path, exc, len(clips))
+            )
+            return 0, len(clips)
+        existing.update(new)
+
+    # STATE, not delta: report how many accession recordings are protected right
+    # now. A delta of 0 is ambiguous (idempotent run vs. refused-and-wrote-
+    # nothing); the state is not.
+    pinned = sum(1 for clip in clips if clip in existing)
+    return pinned, len(clips) - pinned
+
+
+def pin_accession_clips(path, clips):
+    """Protect each accession-defining recording from the BirdNET-Pi disk purge
+    by appending its path after the ``##end`` sentinel of
+    ``disk_check_exclude.txt``. Returns ``(pinned, refused)`` counted in CLIPS:
+    how many accession recordings are protected after this run, and how many are
+    still exposed.
+
+    WHY: ``_pin_accessions`` gives a species a PERMANENT, never-renumbered plate
+    number off its first confident (>=0.80) detection. Nothing protected that
+    recording. ``disk_check.sh`` deletes oldest-first and the first-confident
+    clip is by definition the oldest confident row; ``disk_species_clean.sh``
+    (nightly, 02:00) sorts by confidence and deletes everything past
+    MAX_FILES_SPECIES, and a barely-confident first hit on a 1,300-detection
+    species is far down that list. ``stats.php`` already auto-protects the
+    MAX-confidence clip per species via fetch_species_array's GROUP BY/MAX
+    (common.php:131-146) -- a DIFFERENT row -- so pinning max-confidence here
+    would be a silent no-op that looks like a fix. BirdNET species precision tops
+    out around 82-86%: the recording is the only thing that can ever adjudicate
+    whether a pinned plate is genuine.
+
+    APPEND-ONLY. Lines are added, never removed; removal belongs to play.php's
+    unlock UI. Idempotent by exact-line comparison -- precisely disk_check.sh's
+    own ``grep -qxFe`` semantics.
+
+    NEVER RAISES and never changes the exit code. Same trade
+    backup-accessions.sh already makes: a protection problem must not stop the
+    catalog publishing, and catalog.service's 0/3 contract (nightly.sh, guarded
+    by repo-guards.sh) must stay meaningful. Loud on stderr instead, EVERY run,
+    and the counts land in main()'s stdout summary so the nightly journal states
+    them.
+    """
+    # The clip file is deliberately NOT stat()-ed. This builder is stdlib-only,
+    # has no $EXTRACTED and runs off-box in CI. A line for an already-purged clip
+    # matches neither grep -qxFe nor grep -vFf, so it costs nothing -- and it is
+    # already in place if the recording is later restored from a backup.
+    if not clips:
+        return 0, 0
+    try:
+        return _pin_accession_clips(path, clips)
+    except Exception as exc:  # noqa: BLE001 -- protection must never fail the build
+        sys.stderr.write(
+            "catalog: %s -- pinning crashed (%s: %s); %d accession recording(s) "
+            "remain exposed to the disk purge\n"
+            % (_UNPROTECTED, type(exc).__name__, exc, len(clips))
+        )
+        return 0, len(clips)
 
 
 def _load_accessions(path):
@@ -605,6 +900,45 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
     json_path = os.path.join(os.path.dirname(os.path.abspath(out_path)), "species.json")
     _write_json_atomic(json_path, json_rows)
 
+    # LAST, after BOTH authorities (the ledger, then species.json) are on disk:
+    # protect the recording that earned each pinned plate its number. Derived
+    # fresh every run rather than stored in accessions.json -- that ledger is
+    # append-only "first writer wins", so a new field would never reach the
+    # species already pinned, which are exactly the ones at risk.
+    exclude_path = resolve_exclude_path()
+    catalog_side = os.path.join(os.path.dirname(os.path.abspath(out_path)),
+                                "disk_check_exclude.txt")
+    if exclude_path != os.path.abspath(catalog_side):
+        # Stated, never assumed. The two coincide only when the checkout IS
+        # ~/BirdNET-Pi; anywhere else, pinning into the catalog's own output dir
+        # would be a write-to-nowhere that still printed a success line.
+        sys.stderr.write(
+            "catalog: pinning into %s (the path disk_check.sh:14,23 and "
+            "disk_species_clean.sh:67 actually read), NOT the catalog output "
+            "dir's %s. If this box's purge reads somewhere else, accession "
+            "recordings are %s -- set CHRISTINA_DISK_EXCLUDE.\n"
+            % (exclude_path, catalog_side, _UNPROTECTED)
+        )
+    clips, unresolved = [], 0
+    for sci in accession_by_sci:
+        sp = species.get(sci)
+        if sp is None:
+            continue           # pinned but gone from birds.db (entry.absent) --
+            #                    no row, so no path to derive. Nothing to pin.
+        clip = sp.get("first_conf_clip")
+        if clip:
+            clips.append(clip)
+        else:
+            unresolved += 1
+    clips.sort()
+    pinned, refused = pin_accession_clips(exclude_path, clips)
+    if unresolved:
+        sys.stderr.write(
+            "catalog: %s -- %d accessioned species have no resolvable recording "
+            "path (NULL/malformed File_Name); their clips cannot be protected\n"
+            % (_UNPROTECTED, unresolved)
+        )
+
     return {
         "species": len(species_rows),
         "birds": len(json_rows),
@@ -612,6 +946,14 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
         "out": out_path,
         "json": json_path,
         "accessions": ledger_path,
+        # Accession-recording protection, reported as STATE not delta so the
+        # nightly journal can tell "all 36 protected" from "refused, wrote
+        # nothing". clips_refused counts every accessioned recording still
+        # exposed: a refused/failed write plus any whose path could not be
+        # derived at all.
+        "disk_exclude": exclude_path,
+        "clips_pinned": pinned,
+        "clips_refused": refused + unresolved,
         # False => a manifest URL was supplied but went unanswered, so some rows
         # say 'unknown'. main() turns this into a NON-ZERO exit so a nightly
         # timer cannot keep publishing a degraded catalog behind a green unit.
@@ -695,9 +1037,15 @@ def main(argv=None):
         manifest_url=args.manifest_url, built_at=built_at,
         manifest_timeout=args.manifest_timeout,
     )
+    # clips_pinned/clips_refused ride the existing summary line because every
+    # other catalog artefact reports its count here -- and because a protection
+    # step whose only output is stderr is indistinguishable, from every
+    # automated vantage point, from one that silently protects nothing.
     sys.stdout.write(
-        "catalog: %d species (%d birds) from %d rows -> %s\n"
-        % (result["species"], result["birds"], result["source_rows"], result["out"])
+        "catalog: %d species (%d birds) from %d rows -> %s "
+        "| clips_pinned=%d clips_refused=%d\n"
+        % (result["species"], result["birds"], result["source_rows"], result["out"],
+           result["clips_pinned"], result["clips_refused"])
     )
 
     # FAIL LOUD on a degraded catalog. The catalog still PUBLISHED above (a

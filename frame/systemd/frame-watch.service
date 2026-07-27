@@ -1,0 +1,39 @@
+[Unit]
+Description=Belkins BirdNET frame-freshness watchdog (alerts when the wall stops repainting)
+Documentation=https://github.com/Belkins/belkins-birdnet
+# display.py keeps the last panel image and exits 0 on every recoverable failure
+# (a dead shooter, a dead panel), so `systemctl is-failed birdframe` can NEVER
+# see a frozen wall. Only the timestamps can; this unit is that check.
+#
+# DELIBERATELY NO ConditionPathExists on ~/.birdframe/config.toml. systemd
+# treats an unmet condition as a SUCCESSFUL no-op (job result `done`, unit
+# inactive, is-failed says inactive), so conditioning on the artefact whose
+# disappearance IS the fault would make a deleted config the one case this unit
+# cannot report. frame_watch.py decides instead, and a missing config on a box
+# that still has birdframe.timer becomes a real exit code and an ntfy push.
+# (mic-watch.service conditions on the BirdNET-Pi install root -- a stable
+# am-I-the-right-box precondition -- never on the state it watches.)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# install.sh rewrites User= and the paths to match your install.
+Type=oneshot
+User=monalisa
+WorkingDirectory=/home/monalisa/belkins-birdnet/frame
+# Optional operator env ('-' = the watchdog still runs, journal-only, without
+# it): NOTIFY_URL=https://ntfy.sh/<topic> -- the SAME var mic-watch,
+# railway-liveness and weekly_digest read on the mic Pi. No new channel.
+# install.sh creates the file with a commented placeholder, chmod 600.
+EnvironmentFile=-/home/monalisa/.birdframe/watch.env
+Environment=PYTHONUNBUFFERED=1
+Environment=BIRDFRAME_CONF=/home/monalisa/.birdframe/config.toml
+Environment=FRAME_WATCH_STATE=/home/monalisa/.birdframe/frame-watch.state
+# The frame venv, like birdframe.service: on Pi OS < 3.11 tomllib comes from the
+# tomli pin in requirements-frame.txt, which only exists inside that venv.
+ExecStart=/home/monalisa/belkins-birdnet/frame/.venv/bin/python /home/monalisa/belkins-birdnet/frame/frame_watch.py
+Nice=10
+IOSchedulingClass=idle
+# A Type=oneshot with the default infinite start timeout can hang in
+# 'activating' forever and never be reported failed.
+TimeoutStartSec=120

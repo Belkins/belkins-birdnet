@@ -42,13 +42,15 @@ jobs:
       run: bash scripts/repo-guards.sh
     - name: Test with pytest
       run: |
-        # This repo hosts three independent components, each shipping its OWN
+        # This repo hosts five independent components, each shipping its OWN
         # tests/ package meant to run from its own directory. A single root
-        # `pytest` collects three like-named `tests` packages (which collide:
+        # `pytest` collects five like-named `tests` packages (which collide:
         # "No module named 'tests.test_analysis'") and mixes incompatible deps,
         # so each suite is run scoped to its directory instead. Adding a new
         # component's tests/? Add a scoped line here AND to the ENUMERATED list
         # in scripts/repo-guards.sh (the guard above fails the build otherwise).
         python -m pytest tests/                       # stock BirdNET-Pi (root requirements)
         (cd avian/catalog && python -m pytest tests/) # christina catalog builder (stdlib)
+        (cd avian/backup && python -m pytest tests/)  # off-box backup + restore (stdlib)
+        (cd frame && python -m pytest tests/)         # e-ink frame watchdog (stdlib)
         (cd services/birdgen && python -m pytest tests/)  # birdgen microservice (own deps)

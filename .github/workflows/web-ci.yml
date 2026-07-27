@@ -1,0 +1,57 @@
+# The museum's front end. Kept separate from python-app.yml deliberately: that
+# workflow installs the BirdNET-Pi python stack and its repo-guards step greps
+# itself for scoped `pytest` lines, so folding a node job into it would muddy a
+# gate that already carries three tripwires.
+#
+# Why this file exists at all: web/tests/ shipped 12 real tests that NOTHING ran.
+# python-app.yml is pytest-only and never invokes npm, and repo-guards' suite
+# enumeration only counts directories containing test_*.py — so the web suite was
+# green by human discipline alone. scripts/repo-guards.sh guard 5 now fails the
+# build if this workflow stops running `npm test`.
+name: Web
+
+on:
+  push:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yml'
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node >= 22.18 is required: the suite is .ts run directly under
+      # `node --test` via native type-stripping, with no build step.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # TZ is pinned inside the npm script so the DST cases are deterministic;
+      # the runner's UTC default would silently pass the wrong assertions.
+      - name: Test
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      # The build must stay green because web/dist is COMMITTED and guard 4 in
+      # repo-guards.sh checks the committed HTML against the git index. This step
+      # does not commit anything — it only proves the source still compiles, so a
+      # broken build is caught here rather than at the next dist rebuild.
+      # --base=/collage/ mirrors the only build this repo ever commits (guard 4b).
+      - name: Build
+        run: npm run build -- --base=/collage/

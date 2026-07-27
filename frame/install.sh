@@ -177,8 +177,29 @@ else
     systemd/birdframe.service | sudo tee /etc/systemd/system/birdframe.service >/dev/null
   sudo cp systemd/birdframe.timer /etc/systemd/system/birdframe.timer
 fi
+
+# Frame-freshness watchdog (all three modes): display.py keeps the last panel
+# image and exits 0 on every recoverable failure, so a dead shooter or a dead
+# panel is otherwise completely silent.
+sed "s|/home/monalisa/belkins-birdnet/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
+  systemd/frame-watch.service | sudo tee /etc/systemd/system/frame-watch.service >/dev/null
+sudo cp systemd/frame-watch.timer /etc/systemd/system/frame-watch.timer
+# One env file, created here with a commented placeholder rather than left for
+# the operator to invent: the frame's convention is one reference file per
+# surface (config.example.toml says so of itself), and 600 because a topic URL
+# is a write capability for anyone who can read it.
+WATCH_ENV="$HOME/.birdframe/watch.env"
+if [ ! -f "$WATCH_ENV" ]; then
+  printf '%s\n' '# NOTIFY_URL=https://ntfy.sh/your-topic-here' > "$WATCH_ENV"
+  chmod 600 "$WATCH_ENV"
+fi
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
+sudo systemctl enable --now frame-watch.timer
+echo "     Frame watchdog installed (frame-watch.timer, hourly). For a phone push when"
+echo "     the wall freezes, uncomment NOTIFY_URL in $WATCH_ENV"
+echo "     (ntfy app, subscribe the topic, no account)."
 
 case "$MODE" in
   local)

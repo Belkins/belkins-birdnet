@@ -1,5 +1,5 @@
 // ALMANAC — pure, deterministic fact-extractors over the nightly catalog.
-// Three functions, no fetches, no model calls: every sentence a consumer
+// Four functions, no fetches, no model calls: every sentence a consumer
 // renders is a template over real numbers/dates from CatalogSpecies, and each
 // function returns null on thin data so the caller renders NOTHING (silence
 // over speculation). Month-based on purpose — the frontend has no latitude
@@ -123,4 +123,107 @@ export function phenologyWeeks(species: CatalogSpecies): Phenology | null {
   }
   if (present === 0) return null; // blank = not heard; never interpolate
   return { cells, maxWeek: max, weeksPresent: present };
+}
+
+// ── DEPARTURES — the wall's one subtraction ───────────────────────────────────
+
+/** Whole calendar days of silence before the wall will say a bird is gone.
+ *  Below this it says NOTHING. The Pi listens 24/7, but a garden bird can go a
+ *  week unheard through weather, wind, a moult, or simply being quiet, and
+ *  calling that a departure is a claim the wall cannot take back. A fortnight
+ *  of continuous listening is about the bird, not about the sampling. */
+const GONE_DAYS = 14;
+
+/** Past this a day count stops being legible and the absence is seasonal —
+ *  switch to the same Month-Year register the "first seen" caption uses. */
+const AWAY_DAYS = 60;
+
+export interface Departure {
+  /** Ready-to-render caption: "not heard in 21 days" / "not heard since Aug 2026". */
+  text: string;
+  /** 'quiet' = a fresh gap, 'away' = a seasonal absence. Drives one muted step
+   *  of contrast only — the real signal is the change of sentence. */
+  band: 'quiet' | 'away';
+}
+
+/** The only field this section reads. CatalogSpecies satisfies it structurally,
+ *  so the Wall hands its catalog straight in and gets back a Map keyed by its
+ *  OWN row objects — no slug key to collide when the catalog carries a blank or
+ *  duplicated slug. */
+interface Departable {
+  last_detected: string | null;
+}
+
+/** Whole calendar days from a catalog stamp to `now`. BOTH sides are reduced to
+ *  their local calendar day and differenced in UTC, so a DST shift can never
+ *  bend the count by ±1 — a naive (now - then) / 86400000 over parsed local
+ *  dates loses an hour every spring and silently reports 13 for a real 14, i.e.
+ *  the caption blinks out at exactly the threshold. null when the stamp is
+ *  missing or unparseable, and null when it is in the FUTURE: a Pi has no RTC,
+ *  and a post-power-cut clock skew must render nothing, never "-3 days". */
+function daysSince(iso: string | null, now: Date): number | null {
+  const d = parseCatalogDate(iso);
+  if (!d) return null;
+  const then = Date.UTC(d.y, d.m - 1, d.d);
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const days = Math.round((today - then) / 86400000);
+  return days < 0 ? null : days;
+}
+
+/** One species' caption, or null when the wall must stay silent: never heard,
+ *  unparseable, clock skew, or heard inside the last GONE_DAYS. Always plural —
+ *  the caption cannot exist below 14 days.
+ *
+ *  NOTE for the next maintainer: this returns null IDENTICALLY for "heard
+ *  yesterday", "never heard", "corrupt stamp" and "clock ahead". Silence here is
+ *  therefore NOT proof that the row is fine. The raw stamp is visible per
+ *  species in the Lab's catalog table (src/lab/Lab.tsx, the `last_detected`
+ *  column) — debug corruption there, not by staring at a quiet wall. */
+function captionFor(lastDetected: string | null, now: Date): Departure | null {
+  const days = daysSince(lastDetected, now);
+  if (days === null || days < GONE_DAYS) return null;
+  if (days < AWAY_DAYS) return { text: `not heard in ${days} days`, band: 'quiet' };
+  const d = parseCatalogDate(lastDetected);
+  if (!d) return null; // unreachable — daysSince already parsed it; never throw
+  const mon = MONTHS_LONG[d.m - 1];
+  return {
+    text: mon ? `not heard since ${mon.slice(0, 3)} ${d.y}` : `not heard since ${d.y}`,
+    band: 'away',
+  };
+}
+
+/** Every departure caption the Wall may render, keyed by the caller's own row.
+ *  Species with nothing true to say are simply absent from the Map.
+ *
+ *  THE FRESHNESS GATE, and why the whole feature is one function instead of a
+ *  per-row helper: species.json carries NO build timestamp, so the Wall has
+ *  exactly one clock (the browser's) and no way to know whether the catalog
+ *  behind `last_detected` is from last night or last year. A dead
+ *  catalog.service, a clobbered /collage/species.json symlink, or the committed
+ *  8-species dev fixture served in its place would otherwise make this — the
+ *  museum's first surface capable of a NEGATIVE claim about the garden —
+ *  confidently narrate 47 departures that never happened, with a 200 all the
+ *  way down and no error state anywhere.
+ *
+ *  So the catalog must first prove itself alive out of its own data: if the
+ *  FRESHEST last_detected in the whole collection is itself older than
+ *  GONE_DAYS, every caption is suppressed. The honest read of "nothing at all
+ *  has been heard here for a fortnight" is a dead station or a dead build, never
+ *  a simultaneous mass departure. Routing every caption through this one entry
+ *  point is what makes the gate impossible to forget at a call site. */
+export function departuresFor(catalog: Departable[], now: Date): Map<Departable, Departure> {
+  const out = new Map<Departable, Departure>();
+  let freshest: number | null = null;
+  for (const s of catalog) {
+    const d = daysSince(s.last_detected, now);
+    if (d !== null && (freshest === null || d < freshest)) freshest = d;
+  }
+  // null = not one parseable stamp in the whole catalog (day zero, or a shape
+  // change upstream). Both that and a wholesale-stale catalog stay silent.
+  if (freshest === null || freshest >= GONE_DAYS) return out;
+  for (const s of catalog) {
+    const dep = captionFor(s.last_detected, now);
+    if (dep) out.set(s, dep);
+  }
+  return out;
 }

@@ -1,0 +1,33 @@
+[Unit]
+Description=Christina — off-box backup of the irreplaceable state (birds.db + accession + phenology ledgers + Railway plates)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# deploy-realtime.sh rewrites User= and the /home/belkins paths at install time.
+User=belkins
+Nice=10
+IOSchedulingClass=idle
+# Shared operator env: AV_RAILWAY_BASE (which plates to pull) + NOTIFY_URL (the
+# same ntfy topic mic-watch and railway-liveness already push to). Leading '-'
+# so a box without it still backs up the db + ledgers -- loudly DEGRADED
+# (exit 3), never silently.
+EnvironmentFile=-/home/belkins/.christina/forwarder.env
+# CHRISTINA_BACKUP_DEST lives here. UNSET IS A HARD REFUSAL (exit 2 + one phone
+# push): a backup unit that goes green while writing nowhere is worse than no
+# unit. deploy-realtime.sh refuses to ARM the timer while it is a placeholder,
+# so a fresh install cannot nightly-spam the shared ntfy topic.
+EnvironmentFile=-/home/belkins/.christina/backup.env
+# Set here rather than relying on the code default, matching mic-watch.service:20.
+Environment=BACKUP_STATE=/home/belkins/.christina/backup.state
+# A oneshot with an unbounded start timeout can never be reported failed --
+# same reasoning as catalog.service. A stalled NFS mount is exactly that case.
+# CHRISTINA_BACKUP_BUDGET (default 1200s) degrades the plate loop LOUDLY before
+# this SIGTERM can kill the process ahead of its own ntfy push.
+TimeoutStartSec=1800
+ExecStart=/usr/bin/python3 /home/belkins/BirdNET-Pi/avian/backup/offbox_backup.py
+
+# No [Install] section on purpose: railway-liveness.service, mic-watch.service
+# and weekly_digest.service (all timer-driven oneshots) carry none either, so the
+# only enableable unit is the .timer.

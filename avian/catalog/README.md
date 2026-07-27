@@ -76,6 +76,99 @@ is on disk, not a maintained list.
 3. Else → `art_status='none'`. **Every** species is cataloged, art or not; the
    collage decides what to show.
 
+## Accession-clip protection — `disk_check_exclude.txt`
+
+A species is given a **permanent, never-renumbered accession number** the first
+time it earns a confident (≥ 0.80) detection. Nothing protected the *recording*
+that earned it. BirdNET species precision tops out around 82–86 %, so that
+3-second clip is the only thing that can ever adjudicate whether plate No. 17 is
+real — purge it and the plate becomes unfalsifiable forever.
+
+After both authorities are on disk (the ledger, then `species.json`), the build
+re-derives each accessioned species' **first-confident** clip path and appends
+it — plus its `.png` spectrogram sibling — to the BirdNET-Pi exclude file.
+
+- **Line shape: `<Date>/<Com_Name_safe>/<File_Name>`**, plus `…/<File_Name>.png`.
+  `disk_check.sh:23` matches with `grep -qxFe "$i"` where `$i` comes from
+  `for i in */*/*` after `cd ${EXTRACTED}/By_Date/` — a **full-line** match on a
+  By_Date-**relative** path. A leading slash or an unsanitised common name
+  silently protects nothing. Sanitisation is copied character-for-character from
+  `scripts/utils/classes.py:22` (apostrophes deleted, spaces → `_`), the function
+  that actually named the directory. All **three** segments are kept:
+  `disk_species_clean.sh:67` greps `-vFf` with **no `-x`** (substring), so a
+  shortened form would over-protect and disable the species cap.
+- **First-confident, never max-confidence.** `stats.php` already auto-protects
+  each species' best-ever clip (`common.php:131-146`, `GROUP BY` + `MAX`).
+  Pinning that row again would be a silent no-op that looks like a fix.
+- **Pins go strictly AFTER `##end`.** `stats.php:216` regenerates everything from
+  `##start` up to `##end` on every Species Stats render, and `disk_check.sh:13`
+  curls that page **itself**, seconds before purging. A pin above `##end` is
+  destroyed seconds before it is read.
+- **The file is never created by the build.** It is gitignored runtime state
+  (`.gitignore:39` `scripts/*.txt`), written by the PHP UI (`play.php:45`,
+  `stats.php:17`) as user `caddy`. **Verified: while it is absent, BOTH purges
+  are no-ops** — `grep -qxFe … <missing>` returns 2 so `disk_check.sh:14` exits,
+  and `disk_species_clean.sh:67`'s `grep -vFf <missing>` errors and deletes
+  nothing. Creating it would *arm* two dormant purges, so the build refuses,
+  prints `UNPROTECTED` with the exact command, and leaves the decision to the
+  operator (see the pre-arm gate below).
+- **Sentinels:** no `##start` → refuse (a render then truncates the file
+  anyway). No `##end` → **self-heal** by appending it; `stats.php` only
+  regenerates the region above it, and the no-`##end` state reproduces itself on
+  every render, so a permanent refusal would leave it broken for good.
+- **Never a blank line.** `disk_species_clean.sh:67` treats an empty pattern as
+  matching every path, silently disabling the whole `MAX_FILES_SPECIES` purge —
+  it fails *safe*, so nothing alerts and the disk fills instead. Pre-existing
+  blanks are warned about, never removed (that region is `stats.php`'s).
+- **Write target = the CONSUMERS' path**, `$CHRISTINA_DISK_EXCLUDE` else
+  `~/BirdNET-Pi/scripts/disk_check_exclude.txt` — *not* derived from `--out`.
+  The two coincide only while the checkout is literally `~/BirdNET-Pi`; anywhere
+  else, deriving from `--out` would write a perfectly-formed file into a
+  directory no consumer opens and still print a success line. A divergence is
+  printed, never assumed.
+- **Mode is carried over** on the atomic `tmp` + `os.replace`. The file is
+  co-owned: the PHP UI writes it as `caddy`, this builder runs as `belkins`, and
+  `os.replace` needs only *directory* write permission — so a naked replace
+  seizes it and `stats.php`'s `file_put_contents` then fails in total silence
+  (`stats.php:8-9` suppresses errors). When the owner differs the mode is
+  widened for group+other and the fact is stated on stderr.
+- **Append-only, idempotent, never stats the filesystem, never fails the build.**
+  Removal belongs to `play.php`'s unlock UI. An already-purged clip is pinned
+  anyway: the line costs nothing and is exactly what a later restore needs
+  already in place. Every failure path is loud on stderr and returns 0 —
+  `catalog.service`'s 0/3 contract must stay meaningful.
+- **The counts are on `main()`'s stdout line**: `clips_pinned=<n>
+  clips_refused=<n>`, reported as **state, not delta**, so `journalctl -u
+  catalog` can tell "all 36 protected" from "refused, wrote nothing". A delta of
+  0 is ambiguous; the state is not.
+
+**Timing (verified):** `catalog.timer` fires at 03:30; the species purge runs at
+02:00 (`templates/cleanup.cron:4`). A clip first confirmed after 03:30 is seen by
+one 02:00 purge before its first pin — harmless, because
+`disk_species_clean.sh` unconditionally spares anything from the last 7 days by
+filename date. `disk_check.sh` has no such grace but deletes oldest-first, and a
+brand-new clip is the newest.
+
+**BLOCKING pre-arm gate (run on the Pi, before creating the file):** creating
+`disk_check_exclude.txt` switches on two purges that are currently inert, and it
+cannot be undone after the deletions happen.
+
+```bash
+ls -l ~/BirdNET-Pi/scripts/disk_check_exclude.txt
+grep -E 'MAX_FILES_SPECIES|PURGE_THRESHOLD|FULL_DISK' /etc/birdnet/birdnet.conf
+for d in ~/BirdSongs/Extracted/By_Date/*/*/; do
+  echo "$(ls "$d" | grep -c mp3) $d"
+done | sort -rn | head
+# Only if NO species exceeds MAX_FILES_SPECIES (raise it, or disable
+# disk_species_clean, first — Robin alone has ~1385 detections):
+printf '##start\n##end\n' > ~/BirdNET-Pi/scripts/disk_check_exclude.txt
+```
+
+After the next nightly run, `journalctl -u catalog.service -n 30` should show
+`clips_pinned=<accession count>` `clips_refused=0` and no `UNPROTECTED` line, and
+the exclude file should have grown by up to 2× the number of accessions, all
+lines **after** `##end`.
+
 ## Output schema
 
 `species` (PK `sci_name`): `com_name, slug, birdnet_label, genus, is_bird,
@@ -89,6 +182,91 @@ Rollups: `daily_counts(sci_name,date,n)`, `hour_buckets(sci_name,hour,n)`,
 `first_confident` then `com_name`; fields `sci_name, com_name, slug,
 first_confident, last_detected, detection_count, art_status`. Never-confident
 birds (`first_confident` NULL) sort last. Compact JSON.
+
+## Per-year phenology ledger — `phenology.json`
+
+`christina.db`'s `week_species(sci_name, week, n)` has **no year component**: a
+2026 and a 2027 detection in the same ISO week sum into one cell that can never
+be separated again. And every artefact above is rebuilt wholesale each night from
+live rows — so the moment rows leave `birds.db`, that period's phenology is gone.
+
+`phenology.py` is the answer: a **standalone stdlib sibling of `derive.py`**
+(second read-only pass over `birds.db`, own JSON artefact in `scripts/`, own
+exit code) that writes one entry per **(species, calendar year)** and **freezes**
+it once the year closes. Same durability class as `accessions.json`. It runs as
+**`nightly.sh`'s third step** — `catalog.timer` already fires it, no new unit.
+
+**Entry shape:** `sci_name, com_name, slug, year, first_heard, last_heard,
+days_heard, detections, peak_week, peak_week_n` plus provenance
+`source_rows_at_freeze, min_date_seen, frozen_at`. The payload carries
+`version, built_at, current_year, source_rows, species_years, coverage
+{min_date, max_date, source_rows, years}, notes, entries`.
+
+**The freeze rule.** `current_year` comes from the **data's** latest Date, never
+the wall clock. A `(sci, year)` already in the ledger with `year < current_year`
+is kept **byte-for-byte**; the open year is recomputed every run (freezing it
+would freeze the ledger the day it was created); an entry whose rows have left
+`birds.db` entirely is kept **verbatim, never deleted** — that case *is* the
+point.
+
+**The two clamps** (both verified, both load-bearing):
+
+- `date(2026,12,28).isocalendar() == (2026, 53, 1)` — ISO week 53 exists and 2026
+  has one. `web/src/almanac.ts:113` renders **52** cells and already folds 53
+  into 52, so `MAX_ISO_WEEK = 52`; the ledger must agree with the renderer that
+  already shipped.
+- `date(2024,12,30).isocalendar() == (2025, 1, 1)` — the ISO year disagrees with
+  the calendar year at every boundary. **A min/max clamp alone does not fix
+  this**: week 1 is already in range, so 30 December would file under "week 1"
+  and an `isocalendar()[0]` year would empty December out of 2024. So the year is
+  always `date.year`, and a disagreeing date is pulled to the matching **end** of
+  its own calendar year — 52 for late December, 1 for early January
+  (`date(2021,1,1)` is ISO `(2020, 53, 5)`). `min(52, max(1, w))` applies only to
+  the ordinary cases.
+
+**Provenance, because a frozen year is unfalsifiable.** Its rows are gone, so
+`days_heard: 4` would otherwise read as a scientific fact forever. An entry whose
+`min_date_seen` is `2026-11-04` is visibly a **stump** — a partial year frozen on
+first deployment — not a season, and `coverage` bounds what the run could
+possibly have known.
+
+**Failure behaviour (deliberately unlike `_load_accessions`).** A **missing**
+ledger is a clean first run. A ledger that **exists but is unreadable / not JSON
+/ wrong-shaped** fails **loud: exit 5, writes nothing.** `_load_accessions` can
+safely degrade to empty because accessions re-derive from rows that are still
+there; phenology's whole value is rows that are **gone**, so a silent reset is
+strictly worse than a crash. Zero scanned rows while the ledger is non-empty is
+also exit 5 — the death of the source must not be reported as success. A missing
+`birds.db` is exit 0 (nothing to freeze).
+
+```
+python3 phenology.py \
+  --birds  <birds.db>        # default: <repo>/scripts/birds.db (read-only)
+  --out    <phenology.json>  # default: <repo>/scripts/phenology.json
+  [--built-at ISO]           # omit -> now (UTC); supply -> reproducible output
+  [--dry-run]                # print the summary, write nothing
+```
+
+Exit codes: **0** ok (or skipped: no `birds.db`), **5** failed. `nightly.sh`
+passes 5 through as its lowest-priority branch, so no pre-existing exit code
+changes meaning. **Nothing on the Pi watches `catalog.service`** (unlike
+`mic-watch` / `railway-liveness`), so a persistently red unit is visible only in
+`systemctl --failed` and the journal — check it after deploying.
+
+**Size:** ~15 KB/year at 47 species with `indent=2`, and nothing is ever deleted.
+Fine for a decade; worth knowing, not worth mitigating.
+
+**HANDOFF (irreplaceable, not yet backed up):** `scripts/phenology.json` is
+irreplaceable for the same reason `accessions.json` is and **must** be added to
+the off-box backup set. This change deliberately does not touch
+`backup-accessions.sh` or `catalog.service`.
+
+**First-run loss is already in progress:** the ledger can only freeze what
+`birds.db` still holds the night it first runs. Every day this sits undeployed is
+a day of phenology that may already be unrecoverable. This is *not* "done" until
+it has run on the Pi.
+
+**Tests:** `tests/test_phenology.py`.
 
 ## Reproducibility / cold start
 
@@ -149,6 +327,12 @@ python3 -m unittest discover -s tests -v
 > test` gate must call. (A bare `python3 -m unittest` from `avian/catalog/`
 > with **no** `tests/__init__.py` discovers nothing and falsely prints
 > "Ran 0 tests … OK" — the green gate must not depend on that.)
+
+`tests/test_phenology.py` covers the per-year ledger: both December clamps, the
+year boundary split, the freeze rule against a **partially** purged year (a full
+purge is the easy case), the open year still refreshing, byte-identical reruns,
+a corrupt ledger failing loud without writing, a missing ledger as a clean first
+run, provenance/coverage, non-bird exclusion, and read-only over `birds.db`.
 
 `tests/test_catalog.py` builds a fixture `birds.db` in a tmp dir and asserts the
 specific computed values: first-detected vs first-confident split; non-bird

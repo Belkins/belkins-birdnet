@@ -57,3 +57,25 @@ Pick how the frame gets its birds:
 Each path enables SPI + I2C, installs the deps and a systemd timer, writes `~/.birdframe/config.toml`, and reboots once to bring SPI up. Full options live in [`config.example.toml`](config.example.toml).
 
 BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so there is no image set to copy over. ZIP codes with no station nearby fall back to the closest ones. If you are far from any BirdWeather station, add `--ebird-key <key>` (a free key from [ebird.org/api/keygen](https://ebird.org/api/keygen)) and the frame fills from eBird sightings instead.
+
+---
+
+### If the frame ever freezes
+
+`display.py` keeps the last picture on the panel and exits cleanly whenever a refresh fails — that is deliberate (a blank wall is worse than a stale one), but it means a dead screenshotter or a dead panel is completely silent. `frame_watch.py` runs hourly and alerts when the wall stops repainting: it compares the capture file and `~/.birdframe/state.json` against the frame's own configured cadence (`heal_hours` plus any quiet window), so a quiet garden or a muted night can never trigger it.
+
+```bash
+systemctl status frame-watch.timer
+sudo nano ~/.birdframe/watch.env    # uncomment NOTIFY_URL for phone pushes
+```
+
+Installing the timer and watching it exit 0 proves nothing — the healthy path is also the silent path. The only real proof is to make the wall look dead on purpose and wait for the push:
+
+```bash
+sudo cp ~/.birdframe/state.json /tmp/state.json.bak
+touch -d '3 days ago' ~/.birdframe/state.json
+sudo systemctl start frame-watch.service; sudo systemctl start frame-watch.service   # two ticks = one alert
+sudo cp /tmp/state.json.bak ~/.birdframe/state.json                                  # then restore
+```
+
+It watches for a FROZEN wall, not a wrong one: a blank or half-painted screenshot still refreshes both timestamps and reads as healthy.

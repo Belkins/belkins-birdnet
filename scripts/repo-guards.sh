@@ -28,7 +28,7 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    workflow hardcodes the suite list. A NEW tests/ dir that isn't enumerated
 #    silently never runs while the badge stays green. This guard turns that
 #    silent skip into a red build with instructions.
-ENUMERATED="tests avian/catalog/tests services/birdgen/tests"
+ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
   case " $ENUMERATED " in
@@ -188,24 +188,65 @@ grep -qE '\$expected === .."?\)?' scripts/common.php || grep -q "expected === ''
 #    identical in the safe and unsafe versions — what differs is whether the
 #    variable was escaped first. Matching the usage produced a guard that failed
 #    on correct code, which trains an operator to ignore it.
-grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
-  | grep -qE '\$file_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
-  || fail "scripts/play.php no longer escapes the deletefile path before exec() — ?deletefile=x;<cmd> is remote command execution, and it is a GET so any page in the house can fire it via <img src>"
-grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
-  | grep -qE '\$png_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
-  || fail "scripts/play.php no longer escapes the .png path before exec() — same injection, second argument"
+#    Scoped to two variables, this guard gave FALSE CONFIDENCE: it passed while
+#    THREE other injection sites in the same file were still unescaped (the
+#    changefile/newname exec, and $dir in both mkdir calls). Assert every
+#    user-derived exec input in the file, and forbid the specific unsafe shapes.
+#    Note double quotes are NOT protection: "\"$newname\"" still expands $( ).
+_play=$(grep -vE '^[[:space:]]*(#|//)' scripts/play.php)
+for v in file_pointer png_pointer; do
+  printf '%s\n' "$_play" | grep -qE "\\\$$v[[:space:]]*=[[:space:]]*escapeshellarg\\(" \
+    || fail "scripts/play.php: \$$v is no longer escapeshellarg'd before exec() — ?deletefile=x;<cmd> is command execution, and it is a GET so any page in the house can fire it via <img src>"
+done
+printf '%s\n' "$_play" | grep -qE '\$change_cmd[[:space:]]*=.*escapeshellarg\(' \
+  || fail "scripts/play.php: the changefile/newname exec is no longer built from escapeshellarg'd parts — that path runs sudo -u \$BIRDNET_USER, who has NOPASSWD:ALL, so injection there is effectively ROOT"
+printf '%s\n' "$_play" | grep -qE '\\"\$(oldname|newname)\\"' \
+  && fail "scripts/play.php interpolates \$oldname/\$newname inside DOUBLE QUOTES again — double quotes do not stop \$( ) or backticks (proven: echo \"x\$(id -un)\" executes)"
+[ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.\$shifted_path')" = "0" ] \
+  || fail "scripts/play.php: the mkdir path is unescaped again — \$dir comes from pathinfo(\$_GET['shiftfile']) with NO quotes, so even ; and | execute there"
+[ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.escapeshellarg\(')" = "2" ] \
+  || fail "scripts/play.php: expected BOTH mkdir call sites (ffmpeg + sox) to escapeshellarg their path"
 #    The no-password branch of the Caddyfile generator must DENY the admin plane,
 #    never emit an open config.
 grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
   || fail "scripts/update_caddyfile.sh no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal and adminer to the LAN"
 grep -q 'abort @badhost' scripts/update_caddyfile.sh \
   || fail "scripts/update_caddyfile.sh lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
-for pth in '/play.php\*' '/terminal\*' '/scripts\*' '/log\*' '/By_Date\*'; do
-  grep -q "basicauth $pth" scripts/update_caddyfile.sh \
-    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php"
+#    Do NOT hand-enumerate a subset: an earlier version listed 5 of the 11 gated
+#    paths, so /stream, /Processed*, /phpsysinfo*, /stats*, /Charts* and
+#    /views.php?view=File* could all have been dropped with CI still green —
+#    a guard scoped to the paths I happened to remember. Pin the COUNT and the
+#    set that must always be present, both derived from the file itself.
+_gated=$(grep -oE 'basicauth [^[:space:]]+' scripts/update_caddyfile.sh | awk '{print $2}' | sort -u)
+_n=$(printf '%s\n' "$_gated" | grep -c .)
+[ "$_n" -ge 11 ] \
+  || fail "scripts/update_caddyfile.sh gates only $_n paths (expected >= 11) — a path was dropped from the auth variant; compare against the live Caddyfile before assuming it is intentional"
+for pth in '/play.php*' '/terminal*' '/scripts*' '/log*' '/stats*' '/stream' \
+           '/phpsysinfo*' '/Processed*' '/By_Date*' '/Charts*' '/views.php?view=File*'; do
+  printf '%s\n' "$_gated" | grep -qxF "$pth" \
+    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
 done
 [ -e scripts/adminer.php ] \
   && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
+
+# 9. Web test-suite wiring guard. web/tests/ shipped 12 real tests that NOTHING
+#    ran: python-app.yml is pytest-only and never invokes npm, and guard 3's
+#    enumeration only counts directories containing test_*.py, so the web suite
+#    was green by human discipline alone. Three ways that silently rots, one
+#    assertion each — the workflow vanishes, it stops calling npm test, or the
+#    npm script gets pinned back to ONE filename. The glob is load-bearing
+#    because `node --test tests/` cannot be used at all (node resolves a bare
+#    directory as a module: MODULE_NOT_FOUND), so a pinned filename means a
+#    SECOND web test file never runs while the badge stays green.
+if ls web/tests/*.test.ts >/dev/null 2>&1; then
+  _wwf=.github/workflows/web-ci.yml
+  [ -f "$_wwf" ] \
+    || fail "web/tests/*.test.ts exists but $_wwf is missing — the web suite would run in no CI at all"
+  grep -qE '^[[:space:]]*run:[[:space:]]*npm test[[:space:]]*$' "$_wwf" \
+    || fail "$_wwf no longer runs 'npm test' — restore the step or the web suite silently stops running"
+  grep -qF "node --test tests/*.test.ts" web/package.json \
+    || fail "web/package.json's test script must glob 'tests/*.test.ts' — a pinned filename means a NEW web test never runs, and 'node --test tests/' is not a legal substitute (node resolves a bare dir as a module)"
+fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
