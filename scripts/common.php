@@ -67,12 +67,30 @@ function get_service_mount_name() {
 }
 
 function is_authenticated() {
-  $ret = false;
-  if (isset($_SERVER['PHP_AUTH_USER'])) {
-    $config = get_config();
-    $ret = ($_SERVER['PHP_AUTH_PW'] == $config['CADDY_PWD'] && $_SERVER['PHP_AUTH_USER'] == 'birdnet');
+  if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
+    return false;
   }
-  return $ret;
+  $config = get_config();
+  $expected = isset($config['CADDY_PWD']) ? (string)$config['CADDY_PWD'] : '';
+
+  // FAIL CLOSED on an unset password. This used to be `$pw == $config['CADDY_PWD']`,
+  // so an EMPTY CADDY_PWD made '' == '' true and every ensure_authenticated()
+  // gate in every page a no-op -- while the same empty value simultaneously made
+  // scripts/update_caddyfile.sh emit the no-basicauth variant of the Caddyfile.
+  // One unset variable silently disabled BOTH independent auth layers at once,
+  // leaving /terminal (a browser shell), adminer, birds.db and play.php's
+  // exec("sudo rm $_GET[...]") reachable unauthenticated from the LAN.
+  // An install with no password configured must be LOCKED, never open.
+  if ($expected === '') {
+    error_log('is_authenticated: CADDY_PWD is empty -- refusing all authentication. '
+              . 'Set CADDY_PWD in birdnet.conf and re-run scripts/update_caddyfile.sh.');
+    return false;
+  }
+
+  // hash_equals: constant-time, and immune to PHP's loose-compare type juggling
+  // (== would treat some numeric-looking strings as equal).
+  return hash_equals($expected, (string)$_SERVER['PHP_AUTH_PW'])
+      && hash_equals('birdnet', (string)$_SERVER['PHP_AUTH_USER']);
 }
 
 function ensure_authenticated($error_message = 'You cannot edit the settings for this installation') {
