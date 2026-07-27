@@ -220,7 +220,7 @@ def save_state(s):
     os.replace(tmp, STATE)
 
 
-def main():
+def main():  # noqa: C901  (complexity 22; pre-existing debt, see .flake8)
     if not os.path.isfile(CONF):
         print(f"{CONF} not found -- not a BirdNET box?", file=sys.stderr)
         return 2

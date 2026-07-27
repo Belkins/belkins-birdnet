@@ -86,11 +86,25 @@ docker run -p 8000:8000 \
 
 ## Notes / known limitations
 
-- `creamkey.py`, `prompt.template.md`, `species-notes.json` are **verbatim copies**
-  of the `avian/scripts/` originals — keep them in sync. `pregen.py` **intentionally
-  diverges** from `avian/scripts/pregen.py`: a prior defensive-titles fix, plus the
-  `STYLE_REFS` remap described below. Do **not** mirror these back into `avian/` —
-  the divergence is deliberate and documented here.
+- **This directory is CANONICAL. `avian/scripts/` holds symlinks to it.**
+  `creamkey.py`, `prompt.template.md`, `species-notes.json`, `pregen.py` and
+  `verify.py` each exist once, here; the `avian/scripts/` entries are symlinks.
+  Edit either path — they are the same bytes.
+
+  This replaces the previous "keep them in sync by hand" / "the divergence is
+  deliberate" instruction, which did not survive contact. Auditing the two trees
+  on 2026-07-26 found the sync had failed in every direction at once:
+  `verify.py` had the `AV_VERIFY_MODEL` override and the `whole_bird` fragment
+  check on ONE side; `species-notes.json` was missing `Erithacus rubecula` — the
+  robin note that took 28 commits to develop — on the other; and `pregen.py`
+  carried a defensive-titles `IndexError` fix in only one copy. 675 duplicated
+  lines were being maintained to express one 10-line difference.
+
+  That one real difference is **`style-refs.json`**, which is deliberately NOT a
+  symlink: the two deployments ship different style plates (see below). It is
+  data, and each entry point supplies its own. `scripts/repo-guards.sh` enforces
+  both halves — the shared files must stay symlinks, `style-refs.json` must not
+  become one, and both copies must cover every style category.
 - **Style references are now BUNDLED + on by default.** A curated set of 8 of the
   project's own house plates ships at `services/birdgen/styles/` (downscaled copies
   of `avian/assets/illustrations/` cutouts, ~512px long side), and `STYLE_REFS` maps

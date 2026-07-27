@@ -1,0 +1,13 @@
+{
+  "_comment": "Style-plate filenames for the LOCAL/manual pipeline. Resolved against --styles (default avian/assets/references/styles/). These are the original Edo kacho-e prints by Ohara Koson and Hiroshi Yoshida — someone else's art, NOT bundled in this repo; place them yourself under the filenames below. Only the painting technique is borrowed. Keep every category present: select_style_ref indexes this directly.",
+  "small_songbird_perched": "01-sparrows-on-bamboo-Koson.jpg",
+  "dark_bird_perched":      "02-cawing-crow-Koson.jpg",
+  "vivid_perched":          "03-jays-on-berry-tree-Koson.jpg",
+  "vibrant_perched":        "04-kingfisher-Koson.jpg",
+  "owl":                    "05-owl-on-ginkgo-Koson.jpg",
+  "large_flight":           "06-goose-flying-in-moonlight-Koson.jpg",
+  "small_flight":           "07-swallows-in-flight-Koson.jpg",
+  "wader":                  "08-crane-in-small-water-Koson.jpg",
+  "pale_perched":           "09-cockatoo-Yoshida.jpg",
+  "waterfowl_perched":      "10-mandarin-ducks-Yoshida.jpg"
+}
