@@ -261,6 +261,62 @@
   color: var(--mut);
 }
 
+/* ── THE RETURN LEG — the library's 1838 line under the modern name ─ */
+/* A graft, not a section: a hairline, the binomial as printed then, the opening
+   of the passage on this bird's voice, and the volume it stands in. Two hands —
+   everything from 1838 is Cormorant and cool, everything from now is Space Mono
+   and muted. No new colour, font or radius; absent row renders nothing at all. */
+.bp-jard {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-2);
+}
+.bp-jard-name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--display);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.bp-jard-bin {
+  font-style: italic;
+}
+/* The ~74% weak path admitted in the UI: a binomial read off the synonymy line
+   rather than the account's own em-dashed heading carries a dotted underline
+   and says so on hover, exactly as the Roll does. */
+.bp-jard-bin[data-weak='true'] {
+  border-bottom: 1px dotted var(--mut-2);
+  cursor: help;
+}
+.bp-jard-auth {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+.bp-jard-voice {
+  margin: 8px 0 0;
+  font-family: var(--display);
+  font-size: 17px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.bp-jard-cite {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+}
+.bp-jard-src {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
 .bp-stats {
   display: flex;
   gap: 10px;
@@ -685,4 +741,19 @@
   .bp-card {
     animation: none;
   }
+}
+
+/* THE SILENCE, in the dossier. The note is the MUSEUM speaking in 2026 about
+   what an 1838 book failed to write down — so it takes the modern hand (mono,
+   uppercase, --mut), never the Cormorant reserved for Jardine's own sentences.
+   Set in the same register as .bp-jard-src directly beneath it, so a reader
+   never mistakes the label for the text it describes. */
+.bp-jard-silence {
+  margin: 0.5rem 0 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut, #8f8f8f);
 }

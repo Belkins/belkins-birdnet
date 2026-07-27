@@ -30,6 +30,14 @@ export const CATALOG_URL: string = env.VITE_CATALOG_URL ?? `${BASE}species.json`
  *  every reader degrades to silence. Overridable via VITE_DERIVED_URL. */
 export const DERIVED_URL: string = env.VITE_DERIVED_URL ?? `${BASE}derived.json`;
 
+/** The Library's committed static corpus — forty volumes of Jardine's The
+ *  Naturalist's Library extracted once, served verbatim beside species.json
+ *  under /collage/. Nothing on that tab is fetched or generated at runtime, so
+ *  this is the tab's ONLY network read beyond the catalog the museum already
+ *  loads. Absent until the extraction lands, and every reader degrades to
+ *  silence rather than an error. Overridable via VITE_JARDINE_URL. */
+export const JARDINE_URL: string = env.VITE_JARDINE_URL ?? `${BASE}jardine.json`;
+
 /** Conservator's Mark reader (birdgen's public, CORS-open /attest/<slug>).
  *  Quality metadata only — no art, no queue control — so the popup fetches it
  *  straight from the browser. Every reader degrades to silence: a 404 means a

@@ -266,3 +266,37 @@ body {
 .pl-foot a:hover {
   color: var(--ink);
 }
+
+/* THE 1838 REVEAL. Jardine's own sentence is Cormorant, per the two-hand law;
+   the citation and the silence label are the museum speaking in 2026, so they
+   take the mono hand. The game may never put a curator's words in his mouth. */
+.pl-jard {
+  margin: 0.85rem 0 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--pl-rule, rgba(255, 255, 255, 0.1));
+}
+.pl-jard-t {
+  margin: 0 0 0.35rem;
+  font-family: var(--display, "Cormorant Garamond", Georgia, serif);
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: var(--pl-ink, #e8e4dc);
+}
+.pl-jard-s {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--pl-ink, #e8e4dc);
+}
+.pl-jard-c {
+  display: block;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  color: var(--pl-mut, #8f8f8f);
+}
