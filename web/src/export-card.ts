@@ -287,9 +287,14 @@ export async function composeWeeklySheet(
   ctx.font = '800 66px "Archivo", "Space Grotesk", system-ui, sans-serif';
   ctx.fillText(meta.title, SHEET_PAD, 168);
   if (meta.log) {
+    // THE TWO-HAND LAW, on the one artefact that leaves the museum. `log` is a
+    // warden's caption COMPUTED THIS MORNING from the catalog — 2026 prose — and
+    // it was being set in Cormorant italic, the hand this project reserves for
+    // 1838. On screen a mistake like that is a redraw; on an exported PNG it is
+    // a claim that cannot be recalled. Mono, uppercase, at the dateline's weight.
     ctx.fillStyle = pal.faint;
-    ctx.font = 'italic 500 28px "Cormorant Garamond", Georgia, serif';
-    ctx.fillText(meta.log, SHEET_PAD, 200);
+    ctx.font = '600 22px "Space Mono", ui-monospace, monospace';
+    ctx.fillText(meta.log.toUpperCase(), SHEET_PAD, 200);
   }
 
   // Cells.

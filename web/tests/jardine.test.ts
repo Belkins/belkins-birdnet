@@ -90,6 +90,16 @@ const EMPTY = jardineMod.EMPTY_JARDINE as Jardine;
 const fetchJardine = jardineMod.fetchJardine as () => Promise<Jardine>;
 const speciesBySci = jardineMod.speciesBySci as (j: Jardine) => Map<string, JardineSpecies>;
 const firstSentence = jardineMod.firstSentence as (t: string) => string;
+type Counterpoint =
+  | { kind: 'voice'; passage: JardinePassage }
+  | { kind: 'silence'; note: string }
+  | null;
+const counterpointFor = jardineMod.counterpointFor as (s: JardineSpecies | null) => Counterpoint;
+const silences = jardineMod.silences as (
+  j: Jardine,
+  c: CatalogSpecies[],
+) => Array<{ species: JardineSpecies; count: number }>;
+const sealLine = jardineMod.sealLine as (c: unknown) => string;
 
 // ── THE READING DESK selector ────────────────────────────────────────────────
 // The desk's two-tier pick is the tab's signature and the only job the shared
@@ -1209,4 +1219,165 @@ test('G4 the Roll still ROUTES both rendered fields through sicNodes()', () => {
       `the Roll prints j.${field} without routing it through sicNodes() — its [sic] markers would vanish silently`,
     );
   }
+});
+
+test('G5 every binomial_source in the corpus survives normalize AND is classified', () => {
+  // WHY — the Grey Lag-goose bug, pinned so it cannot come back. Its row carries
+  // binomial_source 'scaps' (the tertiary discriminator, the WEAKEST of the
+  // three paths). The union listed only 'em' | 'synonymy', so asEnum() nulled it
+  // and the Roll's `=== 'synonymy'` test went false — leaving the single most
+  // weakly-sourced binomial in the corpus as the one row wearing NO verify
+  // marker. A row silently losing its provenance marker looks exactly like a row
+  // that never needed one, which is the fail-open shape this project keeps
+  // shipping.
+  //
+  // Two independent halves, because they break independently: the LOADER must
+  // not null a source the data actually uses, and the VIEW must classify every
+  // member of the union. Adding a fourth source to the type without teaching
+  // weakSource() about it fails here rather than on the wall.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
+    return;
+  }
+  const rawSources = new Set(
+    ((raw as { species?: Array<{ binomial_source?: unknown }> }).species ?? [])
+      .map((s) => s.binomial_source)
+      .filter((v): v is string => typeof v === 'string' && v !== ''),
+  );
+  assert.ok(rawSources.size > 0, 'the corpus reports no binomial_source at all');
+
+  // half 1 — the loader keeps every source the data actually uses
+  const j = normalize(raw);
+  const kept = new Set(j.species.map((s) => s.binomial_source).filter(Boolean));
+  for (const src of rawSources) {
+    assert.ok(
+      kept.has(src as (typeof j.species)[number]['binomial_source']),
+      `binomial_source ${JSON.stringify(src)} is in the corpus but normalize() nulls it — ` +
+        `add it to the JardineBinomialSource union, or the row loses its provenance marker silently`,
+    );
+  }
+
+  // half 2 — the view classifies every member of the union
+  const src = readFileSync(new URL('../src/jardine.ts', import.meta.url), 'utf8');
+  const union = /export type JardineBinomialSource =([^;]+);/.exec(src);
+  assert.ok(union, 'could not find the JardineBinomialSource union');
+  const members = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+  assert.ok(members.includes('em'), 'the strong path vanished from the union');
+  const view = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  for (const m of members.filter((x) => x !== 'em')) {
+    assert.ok(
+      view.includes(`case '${m}':`),
+      `weakSource() has no case for '${m}' — it would fall through to strong and print no verify marker`,
+    );
+  }
+});
+
+// ═══ H · THE SILENCE, AND THE SEAL ═════════════════════════════════════════
+
+test('H1 the counterpoint branches on voice===null, NEVER on note!==null', () => {
+  // WHY — the fabricated-absence trap, and the reason this selector exists at
+  // all. FIVE species carry BOTH a voice and a note; on those the note is
+  // commentary, not a silence. A branch written the obvious way (`note ? …`)
+  // prints "the library never described its voice" under five birds whose
+  // voices Jardine described at length. That is a fabricated absence — the same
+  // class of error as a fabricated presence, and far harder to catch, because
+  // it reads as modesty rather than as a lie.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.equal(counterpointFor(null), null, 'no corpus — the selector must still be total');
+    return;
+  }
+  const j = normalize(raw);
+  const both = j.species.filter((s) => s.voice && (s.note ?? '').trim());
+  assert.ok(both.length > 0, 'the fixture no longer exercises the voice+note overlap');
+  for (const s of both) {
+    const c = counterpointFor(s);
+    assert.equal(
+      c?.kind,
+      'voice',
+      `${s.sci_name} carries a voice AND a note — it must read as VOICE, not as a silence`,
+    );
+  }
+  for (const s of j.species.filter((x) => x.voice === null && (x.note ?? '').trim())) {
+    assert.equal(counterpointFor(s)?.kind, 'silence', `${s.sci_name} should read as a silence`);
+  }
+  // total on every degenerate input the loader can hand it
+  assert.equal(counterpointFor(null), null);
+});
+
+test('H2 the Index of Silences is loudest-first and never shows an unexplained blank', () => {
+  // WHY: the ordering IS the argument — inverted from the Roll on purpose so the
+  // ledger opens on the bird this garden shouts about most and the library is
+  // quietest on. If someone "fixes" it to match the Roll, the section still
+  // renders and quietly stops making its point, which no type can catch.
+  // And a silence with no note is indistinguishable from a bug: this section
+  // exists to make absence legible, so an unexplained one must not appear.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.deepEqual(silences(EMPTY, []), [], 'no corpus — the section must be empty, not absent');
+    return;
+  }
+  const j = normalize(raw);
+  const rows = silences(j, london);
+  assert.ok(rows.length > 0, 'no silences at all — the corpus lost its notes');
+  for (const r of rows) {
+    assert.equal(r.species.voice, null, `${r.species.sci_name} has a voice and is not a silence`);
+    assert.ok((r.species.note ?? '').trim(), `${r.species.sci_name} is a blank, not a documented silence`);
+  }
+  const counts = rows.map((r) => r.count);
+  assert.deepEqual(counts, [...counts].sort((a, b) => b - a), 'the index is not loudest-first');
+  // the point of the inversion, pinned: the top row must be a bird the garden
+  // actually shouts about, not an alphabetical accident.
+  assert.ok(rows[0].count > 0, 'the loudest silence has no recordings — the catalog join broke');
+  // an empty catalog must not throw and must not invent tallies
+  for (const r of silences(j, [])) assert.equal(r.count, 0);
+});
+
+test('H3 the colophon admits the acceptance pass is unsigned', () => {
+  // WHY — this was a LIVE defect, not a hypothetical. The colophon rendered
+  // "hand-proofed by {verified_by} on {verified_at}" unconditionally while both
+  // fields are null, and asString() coerces null to '', so the museum shipped
+  // the sentence "hand-proofed by  on " — a claim of human acceptance that has
+  // never happened, printed as two blanks nobody reads. The one line on the tab
+  // whose entire job is honesty was the least honest line on it.
+  //
+  // NEGATIVE-TESTED both ways, because a seal that cannot fail is not a seal.
+  const unsigned = sealLine({ verified_by: '', verified_at: '' });
+  assert.ok(!/hand-proofed by/i.test(unsigned), 'an unsigned corpus still claims a hand-proofing');
+  assert.match(unsigned, /unsigned/i);
+  // whitespace is not a signature
+  assert.ok(!/hand-proofed by/i.test(sealLine({ verified_by: '   ', verified_at: '  ' })));
+  // half a signature is not a signature
+  assert.ok(!/hand-proofed by/i.test(sealLine({ verified_by: 'V. Podoliako', verified_at: '' })));
+  assert.ok(!/hand-proofed by/i.test(sealLine({ verified_by: '', verified_at: '2026-07-27' })));
+  assert.ok(!/hand-proofed by/i.test(sealLine(null)));
+  // and it CAN say so once a human actually signs — otherwise this guard is inert
+  assert.match(
+    sealLine({ verified_by: 'V. Podoliako', verified_at: '2026-07-27' }),
+    /hand-proofed by V\. Podoliako on 2026-07-27/,
+  );
+  // the committed corpus is, as of today, unsigned — and must say so
+  const raw = corpusRaw() as { colophon?: unknown } | null;
+  if (raw && raw.colophon) {
+    const j = normalize(raw);
+    if (!(j.colophon?.verified_by ?? '').trim()) {
+      assert.ok(!/hand-proofed by/i.test(sealLine(j.colophon)));
+    }
+  }
+});
+
+test('H4 the dossier actually RENDERS the silence leg', () => {
+  // WHY: H1 proves the selector classifies; nothing else proves the popup shows
+  // it. They break independently — deleting the <p> leaves H1 green while 16 of
+  // 47 species silently go back to rendering their binomial, then "Vol. XXIV",
+  // then nothing. Source-level for the same reason as G4: no DOM in this suite.
+  const src = readFileSync(new URL('../src/components/BirdPopup.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.ok(src.includes('counterpointFor(jardine)'), 'the dossier no longer asks the one branch point');
+  assert.ok(
+    /counterpoint\?\.kind === 'silence'/.test(src),
+    'the dossier has no silence branch — voice:null birds render nothing again',
+  );
 });

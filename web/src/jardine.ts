@@ -28,7 +28,14 @@ import type { RosterRow } from './types';
 
 export type JardineDivision = 'birds' | 'mammals' | 'insects' | 'fish';
 export type JardineDrift = 'unchanged' | 'spelling' | 'genus' | 'family' | 'collision';
-export type JardineBinomialSource = 'em' | 'synonymy';
+/** How the 1838 binomial was found, weakest last. `em` is the strong path (an
+ *  italic binomial line). `synonymy` and `scaps` are both WEAK and both wear the
+ *  Roll's verify marker: `scaps` is the tertiary discriminator — a small-caps
+ *  binomial opening an ordinary narrative paragraph, the path that recovered the
+ *  Grey Lag-goose. It was previously absent from this union, so `asEnum()` nulled
+ *  it and the single most weakly-sourced binomial in the corpus was the one row
+ *  displaying NO verify marker. Widening is strictly additive. */
+export type JardineBinomialSource = 'em' | 'synonymy' | 'scaps';
 export type JardineErratumKind = 'precedence' | 'slip' | 'collision';
 export type JardineSubjectRole = 'garden' | 'library' | 'absent';
 
@@ -74,7 +81,8 @@ export interface JardineSpecies {
    *  visible [sic] in the Roll, never repaired: see the file header. A needle
    *  may sit in EITHER field, so both are rendered through sicNodes(). */
   sic: JardineSic[];
-  /** 'synonymy' = the weak path; surfaced in the Roll as a dotted underline. */
+  /** 'synonymy' and 'scaps' are BOTH weak paths; each is surfaced in the Roll as
+   *  a dotted underline carrying its own verify tooltip. 'em' is the strong one. */
   binomial_source: JardineBinomialSource | null;
   volume: number;
   volume_title: string;
@@ -178,7 +186,7 @@ function asEnum<T extends string>(v: unknown, allowed: readonly T[]): T | null {
 
 const DIVISIONS: readonly JardineDivision[] = ['birds', 'mammals', 'insects', 'fish'];
 const DRIFTS: readonly JardineDrift[] = ['unchanged', 'spelling', 'genus', 'family', 'collision'];
-const SOURCES: readonly JardineBinomialSource[] = ['em', 'synonymy'];
+const SOURCES: readonly JardineBinomialSource[] = ['em', 'synonymy', 'scaps'];
 const KINDS: readonly JardineErratumKind[] = ['precedence', 'slip', 'collision'];
 const ROLES: readonly JardineSubjectRole[] = ['garden', 'library', 'absent'];
 
@@ -340,6 +348,74 @@ export function normalize(raw: unknown): Jardine {
 
 /** Resolve a committed engraving path against the app base ('jardine/24-11.jpg'
  *  → '/collage/jardine/24-11.jpg'). Null in, null out. */
+/** THE SEAL. The colophon's one job is to be the honest label on a wall of
+ *  honest labels, and it was the least honest line on the tab: it printed
+ *  "hand-proofed by {verified_by} on {verified_at}" unconditionally, and BOTH
+ *  fields are null in the committed corpus. asString() coerces null to '', so
+ *  the museum shipped the sentence "hand-proofed by  on " — a claim of human
+ *  acceptance that has never happened, rendered as two blanks nobody reads.
+ *
+ *  Two states, derived from the COMMITTED FILE and nothing else. No local
+ *  state, no session flag and no UI affordance may ever promote the unsigned
+ *  string to the signed one: a seal that a reader can set is not a seal. A
+ *  machine may verify the sha256 — that is arithmetic — but only a human may
+ *  sign for having read the prose, so this returns the unsigned string until
+ *  the JSON itself carries a name AND a date. */
+export function sealLine(c: JardineColophon | null): string {
+  if (!c) return 'the acceptance pass is unsigned';
+  const who = c.verified_by.trim();
+  const when = c.verified_at.trim();
+  return who && when
+    ? `hand-proofed by ${who} on ${when}`
+    : 'the acceptance pass is unsigned — no human has yet signed for this text';
+}
+
+/** What the library has to say about a bird: either an 1838 sentence, or the
+ *  museum's own account of why there isn't one. */
+export type Counterpoint =
+  | { kind: 'voice'; passage: JardinePassage }
+  | { kind: 'silence'; note: string }
+  | null;
+
+/** THE ONE BRANCH POINT. Every surface that asks "what did the library say
+ *  about this bird" must ask HERE, so the dossier and the Library can never
+ *  disagree about which birds are silent.
+ *
+ *  THE TEST IS `voice === null`, NEVER `note !== null`. Five species carry BOTH
+ *  a voice and a note — Erithacus rubecula, Phylloscopus collybita, Picus
+ *  viridis, Psittacula krameri, Sitta europaea — and on those the note is
+ *  commentary, not an absence. Branching on the note would print "the library
+ *  never described its voice" under five birds whose voices Jardine described
+ *  at length, which is a fabricated absence: the same class of error as a
+ *  fabricated presence, and harder to spot because it reads as modesty. */
+export function counterpointFor(s: JardineSpecies | null | undefined): Counterpoint {
+  if (!s) return null;
+  if (s.voice) return { kind: 'voice', passage: s.voice };
+  const note = (s.note ?? '').trim();
+  return note ? { kind: 'silence', note } : null;
+}
+
+/** The birds Jardine described without ever describing their sound, loudest
+ *  first — the Pi's tally, descending.
+ *
+ *  The Roll is ordered by drift and never by tally, deliberately; this section
+ *  inverts that ON PURPOSE and the inversion is the whole argument. Sorted this
+ *  way the ledger opens on the bird this garden shouts about most and the
+ *  library is quietest on. Do not "fix" this to match the Roll.
+ *
+ *  A silence with no note is not shown: an unexplained blank is indistinguishable
+ *  from a bug, and this section exists to make absence legible. */
+export function silences(
+  j: Jardine,
+  catalog: CatalogSpecies[],
+): Array<{ species: JardineSpecies; count: number }> {
+  const tally = new Map(catalog.map((c) => [c.sci_name, c.detection_count]));
+  return j.species
+    .filter((s) => s.voice === null && (s.note ?? '').trim() !== '')
+    .map((s) => ({ species: s, count: tally.get(s.sci_name) ?? 0 }))
+    .sort((a, b) => b.count - a.count || a.species.sci_name.localeCompare(b.species.sci_name));
+}
+
 export function jardineImageUrl(image: string | null): string | null {
   if (!image) return null;
   return `${BASE}${image.replace(/^\/+/, '')}`;

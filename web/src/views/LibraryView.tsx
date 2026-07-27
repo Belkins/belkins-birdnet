@@ -36,6 +36,8 @@ import {
   fetchJardine,
   jardineImageUrl,
   pickDeskSpecies,
+  sealLine,
+  silences,
   speciesBySci,
 } from '../jardine';
 import type { RosterRow } from '../types';
@@ -137,6 +139,86 @@ function sicNodes(text: string, sic: JardineSic[]): ReactNode {
     rest = rest.slice(at + hit.find.length);
   }
   return nodes;
+}
+
+/** THE WEAK-PATH RULE, single-sourced. Two of the three discriminators are
+ *  weak and BOTH must wear the verify marker: `synonymy` reads the binomial off
+ *  a synonymy line, `scaps` off a small-caps run opening a narrative paragraph.
+ *  Returns the tooltip when the row is weak, null when it is strong — so the
+ *  marker and its explanation can never drift apart. Adding a source to the
+ *  union without adding it here is caught by the G5 test. */
+function weakSource(j: JardineSpecies): string | null {
+  switch (j.binomial_source) {
+    case 'synonymy':
+      return 'read from the synonymy line; verify';
+    case 'scaps':
+      return 'read from a small-caps opening line; verify';
+    default:
+      return null;
+  }
+}
+
+/** THE INDEX OF SILENCES — the birds Jardine described without ever describing
+ *  their sound, and the Pi playing the very thing the book failed to write down.
+ *
+ *  Ordered by the Pi's tally DESCENDING, which deliberately inverts the Roll's
+ *  never-by-tally rule. That inversion IS the argument: sorted this way the
+ *  ledger opens on the bird this garden shouts about most and the library is
+ *  quietest on. Do not align it with the Roll.
+ *
+ *  THE TWO-HAND LAW is the subtle part here. The note is the MUSEUM writing in
+ *  2026 about a gap in an 1838 book, so it takes the modern hand. Only the coda
+ *  — where one exists — is Jardine's own sentence, and it alone gets Cormorant
+ *  and an <Attribution>. Setting a curator's note in Cormorant would file the
+ *  museum's opinion under a dead man's name, which is this project's one
+ *  unrecoverable failure. */
+function SilenceIndex({
+  rows,
+  comFor,
+}: {
+  rows: Array<{ species: JardineSpecies; count: number }>;
+  comFor: (sci: string) => string;
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <section className="lib-sec lib-silences">
+      <div className="lib-sec-h">
+        <span className="lib-sec-k">the index of silences</span>
+        <span className="lib-sec-t">
+          Birds the library describes without ever describing their sound.
+        </span>
+      </div>
+      <ol className="lib-sil-list">
+        {rows.map(({ species, count }) => (
+          <li className="lib-sil-row" key={species.sci_name}>
+            <div className="lib-sil-head">
+              <span className="lib-sil-com">{comFor(species.sci_name)}</span>
+              <span className="lib-sil-bin">{sicNodes(species.jardine_binomial, species.sic)}</span>
+              <span className="lib-sil-n prose-nums">
+                {count.toLocaleString()} <span className="lib-sil-u">recorded here</span>
+              </span>
+            </div>
+            {/* 2026 prose about a gap in an 1838 book — the modern hand. */}
+            <p className="lib-sil-note">{species.note}</p>
+            {/* the ONLY 1838 words in this row, and the only Cormorant. */}
+            {species.coda && (
+              <div className="lib-sil-coda">
+                <span className="lib-sil-lab">what he wrote instead</span>
+                <Prose p={species.coda} tone="coda" />
+                <Attribution p={species.coda} />
+              </div>
+            )}
+            <div className="lib-sil-play">
+              <Listen sci={species.sci_name} />
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="lib-close">
+        The book has no word for these. The microphone does.
+      </div>
+    </section>
+  );
 }
 
 /** THE ATTRIBUTION RULE, rendered: the speaker is printed under every single
@@ -912,6 +994,13 @@ export function LibraryView({
   }, [jardine]);
 
   const colophon = jardine?.colophon ?? null;
+  // The silent birds, loudest first. Empty (and the section unmounts) whenever
+  // the corpus is absent — the tab keeps its honest empty state.
+  const silenceRows = useMemo(
+    () => (jardine ? silences(jardine, catalog ?? []) : []),
+    [jardine, catalog],
+  );
+
   const empty = jardine !== null && volumes.length === 0 && jardine.species.length === 0;
 
   return (
@@ -1012,6 +1101,9 @@ export function LibraryView({
             </section>
           )}
 
+          {/* 3b · THE INDEX OF SILENCES. */}
+          <SilenceIndex rows={silenceRows} comFor={comFor} />
+
           {/* 4 · THE BLIND EAR. */}
           <BlindEar pool={voicePool} art={art} comFor={comFor} slugFor={slugFor} />
 
@@ -1104,14 +1196,8 @@ export function LibraryView({
                             }
                           >
                             <span
-                              className={
-                                j.binomial_source === 'synonymy' ? 'lib-roll-weak' : undefined
-                              }
-                              title={
-                                j.binomial_source === 'synonymy'
-                                  ? 'read from the synonymy line; verify'
-                                  : undefined
-                              }
+                              className={weakSource(j) ? 'lib-roll-weak' : undefined}
+                              title={weakSource(j) ?? undefined}
                             >
                               {j.jardine_binomial ? sicNodes(j.jardine_binomial, j.sic) : '—'}
                             </span>
@@ -1156,9 +1242,8 @@ export function LibraryView({
             {colophon && (
               <div className="lib-col-l">
                 text extracted once on {colophon.extracted_at} from {colophon.volumes_fetched}{' '}
-                volume pages · sha256 {colophon.corpus_sha256.slice(0, 12)} · hand-proofed by{' '}
-                {colophon.verified_by} on {colophon.verified_at} · nothing on this page is fetched
-                or generated at runtime
+                volume pages · sha256 {colophon.corpus_sha256.slice(0, 12)} · {sealLine(colophon)} ·
+                nothing on this page is fetched or generated at runtime
               </div>
             )}
             <div className="lib-col-l">

@@ -25,7 +25,12 @@ import { fetchCatalog } from '../catalog';
 import { API_BASE, ATTEST_URL } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
-import { fetchJardine, firstSentence, type JardineSpecies } from '../jardine';
+import {
+  counterpointFor,
+  fetchJardine,
+  firstSentence,
+  type JardineSpecies,
+} from '../jardine';
 import { clearBird, writeTab } from '../url';
 import { useBirdImage } from '../useBirdImage';
 import { useRepaint, type RepaintPhase } from '../repaint';
@@ -513,7 +518,15 @@ function Dialog({
     jardine && jardine.jardine_binomial && jardine.jardine_binomial !== bird.sci
       ? jardine.jardine_binomial
       : null;
-  const jardineVoice = jardine?.voice?.text ? firstSentence(jardine.voice.text) : null;
+  // What the library has to say — an 1838 sentence, or the museum's own account
+  // of why there isn't one. Routed through jardine.ts's ONE branch point so this
+  // dossier and the Library's Index of Silences can never disagree about which
+  // birds are silent. Before this, a voice:null bird rendered its binomial, then
+  // "Vol. XXIV", then nothing at all — sixteen of forty-seven species, including
+  // the Blue Tit, which is 8.5% of everything this garden has ever heard.
+  const counterpoint = counterpointFor(jardine);
+  const jardineVoice =
+    counterpoint?.kind === 'voice' ? firstSentence(counterpoint.passage.text) : null;
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
   const recordings = detail?.recordings ?? [];
 
@@ -656,6 +669,9 @@ function Dialog({
                   </div>
                 )}
                 {jardineVoice && <p className="bp-jard-voice prose-nums">{jardineVoice}</p>}
+                {counterpoint?.kind === 'silence' && (
+                  <p className="bp-jard-silence">{counterpoint.note}</p>
+                )}
                 <div className="bp-jard-cite">
                   <span className="bp-jard-src">
                     {jardineVoice && jardine.voice?.speaker ? `${jardine.voice.speaker} · ` : ''}

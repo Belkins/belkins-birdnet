@@ -742,3 +742,18 @@
     animation: none;
   }
 }
+
+/* THE SILENCE, in the dossier. The note is the MUSEUM speaking in 2026 about
+   what an 1838 book failed to write down — so it takes the modern hand (mono,
+   uppercase, --mut), never the Cormorant reserved for Jardine's own sentences.
+   Set in the same register as .bp-jard-src directly beneath it, so a reader
+   never mistakes the label for the text it describes. */
+.bp-jard-silence {
+  margin: 0.5rem 0 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut, #8f8f8f);
+}
