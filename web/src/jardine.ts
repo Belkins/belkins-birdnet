@@ -35,7 +35,7 @@ export type JardineDrift = 'unchanged' | 'spelling' | 'genus' | 'family' | 'coll
  *  Grey Lag-goose. It was previously absent from this union, so `asEnum()` nulled
  *  it and the single most weakly-sourced binomial in the corpus was the one row
  *  displaying NO verify marker. Widening is strictly additive. */
-export type JardineBinomialSource = 'em' | 'synonymy' | 'scaps';
+export type JardineBinomialSource = 'em' | 'synonymy' | 'scaps' | 'scaps_paragraph';
 export type JardineErratumKind = 'precedence' | 'slip' | 'collision';
 export type JardineSubjectRole = 'garden' | 'library' | 'absent';
 
@@ -201,7 +201,7 @@ function asEnum<T extends string>(v: unknown, allowed: readonly T[]): T | null {
 
 const DIVISIONS: readonly JardineDivision[] = ['birds', 'mammals', 'insects', 'fish'];
 const DRIFTS: readonly JardineDrift[] = ['unchanged', 'spelling', 'genus', 'family', 'collision'];
-const SOURCES: readonly JardineBinomialSource[] = ['em', 'synonymy', 'scaps'];
+const SOURCES: readonly JardineBinomialSource[] = ['em', 'synonymy', 'scaps', 'scaps_paragraph'];
 const KINDS: readonly JardineErratumKind[] = ['precedence', 'slip', 'collision'];
 const ROLES: readonly JardineSubjectRole[] = ['garden', 'library', 'absent'];
 
@@ -478,6 +478,13 @@ export function weakSource(s: JardineSpecies): string | null {
     case 'synonymy':
       return 'read from the synonymy line; verify';
     case 'scaps':
+    case 'scaps_paragraph':
+      // BOTH spellings, because the producer and the committed file disagree:
+      // extract.py writes 'scaps_paragraph' (extract.py:974) while
+      // jardine.json carries 'scaps'. Accepting only one means the next
+      // extractor re-run silently re-opens the very hole this case was added to
+      // close — asEnum() nulls the value and the corpus's weakest binomial goes
+      // back to printing as though it were certain.
       return 'read from a small-caps opening line; verify';
     default:
       return null;

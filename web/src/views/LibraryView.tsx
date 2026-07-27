@@ -498,6 +498,8 @@ interface GardenFact {
   count: number;
   pct: string;
   com: string;
+  /** true = the catalog never loaded, so presence is UNKNOWN, not false. */
+  unknown?: boolean;
 }
 
 function gardenFact(
@@ -505,6 +507,12 @@ function gardenFact(
   byCatalog: Map<string, CatalogSpecies>,
   totalCalls: number,
 ): GardenFact {
+  // AN EMPTY CATALOG IS NOT AN ABSENCE. fetchCatalog() collapses every failure —
+  // 404, offline, malformed — to [], never null, so `catalog !== null` cannot
+  // tell "this garden has never heard it" from "species.json did not load". With
+  // no catalog at all the slip must say nothing rather than assert a silence the
+  // museum has not measured; that is the fabricated-absence class again.
+  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
   const c = byCatalog.get(sub.sci_name);
   if (!c) return { present: false, count: 0, pct: '0', com: '' };
   const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
@@ -535,7 +543,11 @@ function ModernHalf({
   if (!fact.present) {
     return (
       <div className="lib-modern lib-modern-none">
-        <div className="lib-inert">no recording — never heard in this garden.</div>
+        <div className="lib-inert">
+          {fact.unknown
+            ? 'the garden’s ledger is not to hand.'
+            : 'no recording — never heard in this garden.'}
+        </div>
       </div>
     );
   }
@@ -800,6 +812,29 @@ function BlindEar({
 }) {
   const [round, setRound] = useState<Round | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+
+  // THE QUIZ CLAIMS ITS OWN KEYS. The caption says "press 1, 2 or 3" and App
+  // owns 1–6 as global tab shortcuts (App.tsx:442) — so pressing 1 answered
+  // nothing and threw the reader off the Library tab entirely. The instruction
+  // had never worked.
+  //
+  // CAPTURE phase, so this runs before App's bubble-phase listener on the same
+  // target, and stopImmediatePropagation only when a key is actually consumed:
+  // 4–6 must still switch tabs from here, and so must 1–3 once the round is
+  // answered and the quiz has nothing left to claim.
+  useEffect(() => {
+    if (round === null || picked !== null) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (!Number.isInteger(n) || n < 1 || n > round.options.length) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      setPicked(n - 1);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [round, picked]);
 
   const redraw = useCallback(() => {
     setPicked(null);

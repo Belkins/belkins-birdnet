@@ -100,6 +100,7 @@ const silences = jardineMod.silences as (
   c: CatalogSpecies[],
 ) => Array<{ species: JardineSpecies; count: number }>;
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
+const weakSource = jardineMod.weakSource as (s: JardineSpecies) => string | null;
 type SicRow = { find: string; note: string; offset: number | null };
 const sicSpans = jardineMod.sicSpans as (
   t: string,
@@ -1931,5 +1932,74 @@ test('L2 every stylesheet the app ships is actually imported by something', () =
     orphans,
     [],
     `these stylesheets are imported by nothing and silently do nothing: ${orphans.join(', ')}`,
+  );
+});
+
+test('M1 both spellings of the small-caps path wear the verify marker', () => {
+  // WHY: extract.py:974 writes `binomial_source = "scaps_paragraph"`; the
+  // committed jardine.json carries `"scaps"`. Accepting only one means the next
+  // extractor re-run emits a token the union rejects, asEnum() nulls it, and the
+  // corpus's single most weakly-sourced binomial goes back to printing as though
+  // the extraction were certain — silently re-opening the exact hole the union
+  // was widened to close.
+  for (const src of ['scaps', 'scaps_paragraph']) {
+    const j = normalize({
+      version: 1,
+      species: [{ sci_name: 'Anser anser', jardine_binomial: 'Anser ferus', binomial_source: src }],
+    });
+    assert.equal(j.species[0].binomial_source, src, `normalize() nulled '${src}'`);
+    assert.ok(weakSource(j.species[0]), `'${src}' is not classified as a weak path`);
+  }
+  // and the strong path must NOT be marked, or the marker means nothing
+  const strong = normalize({
+    version: 1,
+    species: [{ sci_name: 'X y', jardine_binomial: 'X y', binomial_source: 'em' }],
+  });
+  assert.equal(weakSource(strong.species[0]), null, "'em' must not wear a verify marker");
+});
+
+test('M2 an unreachable catalog is never reported as an absence', () => {
+  // WHY: fetchCatalog() collapses EVERY failure — 404, offline, malformed — to
+  // [], never null. So `catalog !== null` cannot distinguish "this garden has
+  // never heard it" from "species.json did not load", and the errata slips
+  // asserted the former while the truth was the latter. A museum that says
+  // "never heard in this garden" because its own ledger failed to load is
+  // fabricating an absence, which is the same class as fabricating a presence.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    src,
+    /byCatalog\.size === 0/,
+    'gardenFact() no longer distinguishes an empty catalog from a real absence',
+  );
+  assert.match(src, /unknown/, 'the unknown state was removed from the slip');
+  // silences() must agree: no catalog, no rows — never a wall of amber zeroes
+  const raw = corpusRaw();
+  if (raw !== null) assert.deepEqual(silences(normalize(raw), []), []);
+});
+
+test('M3 the Blind Ear claims its own number keys', () => {
+  // WHY: the quiz caption reads "press 1, 2 or 3" and App owns 1–6 as global tab
+  // shortcuts (App.tsx:442), so pressing 1 answered nothing and threw the reader
+  // off the Library tab entirely. The instruction had never once worked.
+  //
+  // The listener must be CAPTURE phase to run before App's bubble listener on
+  // the same target, and it must only swallow a key it actually consumes —
+  // 4, 5 and 6 have to keep switching tabs from this screen.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(src, /press 1, 2 or 3/, 'the caption changed — re-check this guard');
+  assert.match(
+    src,
+    /addEventListener\('keydown', onKey, true\)/,
+    'the quiz listens in BUBBLE phase, so App eats 1/2/3 before it sees them',
+  );
+  assert.match(src, /stopImmediatePropagation\(\)/, 'the quiz does not stop App from also acting');
+  assert.match(
+    src,
+    /n < 1 \|\| n > round\.options\.length/,
+    'the quiz swallows keys outside its own options — 4/5/6 must still switch tabs',
   );
 });
