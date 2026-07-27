@@ -212,7 +212,10 @@ if(isset($_GET['view'])){
     echo "<iframe src='scripts/filemanager/filemanager.php'></iframe>";
   }
   if($_GET['view'] == "Adminer"){
-    echo "<iframe src='scripts/adminer.php'></iframe>";
+    // Adminer removed (2026-07-27 security review): a full DB-admin UI with a
+    // history of RCE advisories, reachable from the LAN. It was only ever linked
+    // from this view. Use sqlite3 over SSH instead.
+    echo "<p>Database admin (Adminer) was removed for security. Use <code>sqlite3 ~/BirdNET-Pi/scripts/birds.db</code> over SSH.</p>";
   }
   if($_GET['view'] == "Webterm"){
     ensure_authenticated('You cannot access the web terminal');

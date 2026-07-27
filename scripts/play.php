@@ -25,8 +25,21 @@ if(isset($_GET['deletefile'])) {
   $statement1 = $db_writable->prepare('DELETE FROM detections WHERE File_Name = :file_name LIMIT 1');
   ensure_db_ok($statement1);
   $statement1->bindValue(':file_name', explode("/", $_GET['deletefile'])[2]);
-  $file_pointer = $home."/BirdSongs/Extracted/By_Date/".$_GET['deletefile'];
-  if (!exec("sudo rm $file_pointer 2>&1 && sudo rm $file_pointer.png 2>&1", $output)) {
+  // COMMAND INJECTION FIX. This was interpolated UNQUOTED into exec(), guarded
+  // only by a regex blocking '../' -- which does nothing about ';', '|', '&&',
+  // '$( )' or backticks. `?deletefile=x;<command>` ran <command> as the caddy
+  // user. It is a state-changing GET, so any page on any device in the house
+  // could fire it via <img src="http://<pi>/play.php?deletefile=...">: no
+  // attacker foothold on the network required, and once a browser has cached
+  // basic-auth credentials it replays them automatically on such a request.
+  //
+  // escapeshellarg() makes each path a single literal argument, so shell
+  // metacharacters are inert. Belt and braces alongside the auth fix, because
+  // the auth layer has already silently failed open once.
+  $base = $home."/BirdSongs/Extracted/By_Date/".$_GET['deletefile'];
+  $file_pointer = escapeshellarg($base);
+  $png_pointer  = escapeshellarg($base.".png");
+  if (!exec("sudo rm $file_pointer 2>&1 && sudo rm $png_pointer 2>&1", $output)) {
     echo "OK";
   } else {
     echo "Error - file deletion failed : " . implode(", ", $output) . "<br>";

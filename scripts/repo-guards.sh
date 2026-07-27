@@ -176,5 +176,36 @@ grep -qE '^freshness_check\(\)' scripts/verify.sh \
 grep -q 'age_h" -gt "\$max' scripts/verify.sh \
   || fail "freshness_check no longer compares age against its limit — the function survives as a shell that can never fail"
 
+# 8. Auth fail-closed guard. ONE empty variable (CADDY_PWD) silently disabled two
+#    independent auth layers at once, leaving a browser shell (/terminal), a DB
+#    admin UI, the whole detection database and an exec("sudo rm $_GET[...]")
+#    reachable unauthenticated from the LAN. Neither layer said a word.
+grep -q 'hash_equals' scripts/common.php \
+  || fail "scripts/common.php no longer uses hash_equals — a loose == comparison is both timing-unsafe and vulnerable to PHP type juggling"
+grep -qE '\$expected === .."?\)?' scripts/common.php || grep -q "expected === ''" scripts/common.php \
+  || fail "scripts/common.php lost the empty-password guard — an unset CADDY_PWD makes is_authenticated() return true for EVERYONE (the 2026-07 LAN exposure)"
+#    Check the ASSIGNMENT, not the usage: `exec("sudo rm $file_pointer ...")` is
+#    identical in the safe and unsafe versions — what differs is whether the
+#    variable was escaped first. Matching the usage produced a guard that failed
+#    on correct code, which trains an operator to ignore it.
+grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
+  | grep -qE '\$file_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
+  || fail "scripts/play.php no longer escapes the deletefile path before exec() — ?deletefile=x;<cmd> is remote command execution, and it is a GET so any page in the house can fire it via <img src>"
+grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
+  | grep -qE '\$png_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
+  || fail "scripts/play.php no longer escapes the .png path before exec() — same injection, second argument"
+#    The no-password branch of the Caddyfile generator must DENY the admin plane,
+#    never emit an open config.
+grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
+  || fail "scripts/update_caddyfile.sh no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal and adminer to the LAN"
+grep -q 'abort @badhost' scripts/update_caddyfile.sh \
+  || fail "scripts/update_caddyfile.sh lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
+for pth in '/play.php\*' '/terminal\*' '/scripts\*' '/log\*' '/By_Date\*'; do
+  grep -q "basicauth $pth" scripts/update_caddyfile.sh \
+    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php"
+done
+[ -e scripts/adminer.php ] \
+  && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
