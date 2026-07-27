@@ -95,7 +95,23 @@ if(isset($_GET['changefile']) && isset($_GET['newname'])) {
   }
   $oldname = basename(urldecode($_GET['changefile']));
   $newname = urldecode($_GET['newname']);
-  if (!exec("sudo -u ".$user." ".$home."/BirdNET-Pi/scripts/birdnet_changeidentification.sh \"$oldname\" \"$newname\" log_errors 2>&1", $output)) {
+  // COMMAND INJECTION FIX #2 — found by an adversarial review pass on 2026-07-27,
+  // AFTER the deletefile site above was patched in a PR titled "LAN security
+  // hardening". The fix had stopped at the one line that was flagged.
+  //
+  // DOUBLE QUOTES DO NOT PROTECT. "\"$newname\"" still expands $( ) and
+  // backticks; only ; | && are neutralised. Demonstrated on this box's own PHP:
+  //   echo "benign$(id -un)"  ->  benignbelkins    (executed)
+  //   echo 'benign$(id -un)'  ->  benign$(id -un)  (inert)
+  // basename() on $oldname strips path components but NOT shell metacharacters.
+  //
+  // Strictly worse than the deletefile site: that one runs as `caddy` (scoped
+  // sudoers, cannot read the secrets). This runs `sudo -u $BIRDNET_USER` = belkins,
+  // who holds ALL=(ALL) NOPASSWD:ALL — so injection here is effectively root.
+  $change_cmd = "sudo -u ".escapeshellarg($user)." "
+              . escapeshellarg($home."/BirdNET-Pi/scripts/birdnet_changeidentification.sh")." "
+              . escapeshellarg($oldname)." ".escapeshellarg($newname)." log_errors 2>&1";
+  if (!exec($change_cmd, $output)) {
     echo "OK";
   } else {
     echo "Error : " . implode(", ", $output) . "<br>";
@@ -116,18 +132,22 @@ if(isset($_GET['shiftfile'])) {
     $pi = $home."/BirdSongs/Extracted/By_Date/";
 
     if(isset($_GET['doshift'])) {
+  // COMMAND INJECTION FIX #3/#4: $dir is pathinfo($_GET['shiftfile'])['dirname'],
+  // interpolated with NO quotes at all — so here even ; and | executed, not just
+  // $( ). pathinfo() does not sanitise. $cmd itself was already escapeshellarg'd,
+  // which is exactly what made the unescaped mkdir prefix easy to miss.
   $freqshift_tool = $config['FREQSHIFT_TOOL'];
 
   if ($freqshift_tool == "ffmpeg") {
     $cmd = "sudo /usr/bin/nohup /usr/bin/ffmpeg -y -i ".escapeshellarg($pi.$filename)." -af \"rubberband=pitch=".$config['FREQSHIFT_LO']."/".$config['FREQSHIFT_HI']."\" ".escapeshellarg($shifted_path.$filename)."";
-    shell_exec("sudo mkdir -p ".$shifted_path.$dir." && ".$cmd);
+    shell_exec("sudo mkdir -p ".escapeshellarg($shifted_path.$dir)." && ".$cmd);
 
   } else if ($freqshift_tool == "sox") {
     //linux.die.net/man/1/sox
     $soxopt = "-q";
     $soxpitch = $config['FREQSHIFT_PITCH'];
     $cmd = "sudo /usr/bin/nohup /usr/bin/sox ".escapeshellarg($pi.$filename)." ".escapeshellarg($shifted_path.$filename)." pitch ".$soxopt." ".$soxpitch;
-   shell_exec("sudo mkdir -p ".$shifted_path.$dir." && ".$cmd);
+   shell_exec("sudo mkdir -p ".escapeshellarg($shifted_path.$dir)." && ".$cmd);
   }
     } else {
      $cmd = "sudo rm -f " . escapeshellarg($shifted_path.$filename);
