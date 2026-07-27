@@ -1075,3 +1075,82 @@
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
 }
+
+/* ── THE FULL ACCOUNT — the reading room ────────────────────────────────────
+   A dialog over the tab, set at the reading measure. The prose keeps the
+   museum's 1838 hand (<Prose> supplies it); everything the museum says ABOUT
+   the account — the eyebrow, the count, the close — is mono, per the two-hand
+   law. No motion above the reduced-motion gate. */
+.lib-acct-back {
+  position: fixed;
+  inset: 0;
+  z-index: 58;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 4vh 1rem;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.72);
+}
+.lib-acct {
+  width: min(74ch, 100%);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  padding: 1.6rem 1.8rem 2rem;
+}
+.lib-acct-h {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.lib-acct-k {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.lib-acct-t {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--display);
+  font-size: 1.5rem;
+  color: var(--ink-2);
+}
+.lib-acct-x {
+  flex: none;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0.3rem 0.4rem;
+  color: var(--mut);
+}
+.lib-acct-x:hover {
+  color: var(--ink-2);
+}
+.lib-acct-sub {
+  margin-top: 0.5rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.lib-acct-body {
+  margin-top: 1.1rem;
+}
+.lib-sil-read {
+  margin-left: 0.75rem;
+}
+@media (max-width: 760px) {
+  .lib-acct {
+    padding: 1.1rem 1rem 1.5rem;
+  }
+}

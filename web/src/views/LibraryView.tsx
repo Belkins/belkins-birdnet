@@ -29,10 +29,12 @@ import type {
   JardineErratumSubject,
   JardinePassage,
   JardineSic,
+  JardineAccounts,
   JardineSpecies,
 } from '../jardine';
 import {
   deskPool,
+  fetchAccounts,
   fetchJardine,
   jardineImageUrl,
   pickDeskSpecies,
@@ -142,6 +144,69 @@ function sicNodes(text: string, sic: JardineSic[]): ReactNode {
   return nodes;
 }
 
+/** THE FULL ACCOUNT — the whole of what Jardine wrote about one bird.
+ *
+ *  The tab in front of this shows the curated reading: one passage chosen by
+ *  ear, sometimes a coda. That is 58 passages across 51 species. The extraction
+ *  verified 211. This is the other 153 — already attributed, already through
+ *  the speaker wall, and until now reaching nobody.
+ *
+ *  Every passage renders through the same <Prose> and <Attribution> the desk
+ *  uses, so the attribution rule ("printed under every single passage, always")
+ *  holds here for free rather than being re-implemented. */
+function FullAccount({
+  species,
+  passages,
+  com,
+  onClose,
+}: {
+  species: JardineSpecies;
+  passages: JardinePassage[];
+  com: string;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  return (
+    <div className="lib-acct-back" onClick={onClose}>
+      <div
+        className="lib-acct"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Jardine's full account of the ${com}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="lib-acct-h">
+          <div>
+            <span className="lib-acct-k">the full account</span>
+            <span className="lib-acct-t">{species.jardine_title}</span>
+          </div>
+          <button type="button" className="lib-acct-x" onClick={onClose} ref={closeRef}>
+            ✕
+          </button>
+        </div>
+        <div className="lib-acct-sub">
+          {com} · vol. {roman(species.volume)} · {passages.length} passages, as printed
+        </div>
+        <div className="lib-acct-body">
+          {passages.map((p, i) => (
+            <Prose p={p} key={i} />
+          ))}
+          {passages.length > 0 && <Attribution p={passages[0]} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** THE INDEX OF SILENCES — the birds Jardine described without ever describing
  *  their sound, and the Pi playing the very thing the book failed to write down.
  *
@@ -159,9 +224,11 @@ function sicNodes(text: string, sic: JardineSic[]): ReactNode {
 function SilenceIndex({
   rows,
   comFor,
+  onReadAll,
 }: {
   rows: Array<{ species: JardineSpecies; count: number }>;
   comFor: (sci: string) => string;
+  onReadAll?: (sci: string) => void;
 }) {
   if (rows.length === 0) return null;
   return (
@@ -202,6 +269,15 @@ function SilenceIndex({
             )}
             <div className="lib-sil-play">
               <Listen sci={species.sci_name} />
+              {onReadAll && (
+                <button
+                  type="button"
+                  className="lib-another lib-sil-read"
+                  onClick={() => onReadAll(species.sci_name)}
+                >
+                  ☞ read what he DID write
+                </button>
+              )}
             </div>
           </li>
         ))}
@@ -270,6 +346,7 @@ function ReadingDesk({
   lastDetected,
   live,
   aimed = false,
+  onReadAll,
   onAnother,
   canRotate,
 }: {
@@ -279,6 +356,9 @@ function ReadingDesk({
   /** The reader named this bird (?read=). Tier zero can land on a species with
    *  NO voice, so the desk must be able to answer with the library's silence. */
   aimed?: boolean;
+  /** Open the bird's complete account. Absent when the accounts file is not in
+   *  the tree, in which case the control never renders. */
+  onReadAll?: (sci: string) => void;
   onAnother: () => void;
   canRotate: boolean;
 }) {
@@ -414,6 +494,11 @@ function ReadingDesk({
         {canRotate && (
           <button type="button" className="lib-another" onClick={onAnother}>
             ☞ another passage
+          </button>
+        )}
+        {onReadAll && (
+          <button type="button" className="lib-another" onClick={() => onReadAll(sp.sci_name)}>
+            ☞ the whole account
           </button>
         )}
       </div>
@@ -1007,6 +1092,29 @@ export function LibraryView({
   }, [jardine]);
 
   const colophon = jardine?.colophon ?? null;
+
+  // THE READING ROOM. `openSci` is the bird whose full account is open; the
+  // ~277 KB accounts file is fetched on the FIRST open and never before, so the
+  // tab's first paint is unchanged by this feature existing. fetchAccounts()
+  // never throws and yields {} when the file is absent, in which case the
+  // affordance never renders and the tab behaves exactly as it did.
+  const [accounts, setAccounts] = useState<JardineAccounts | null>(null);
+  const [openSci, setOpenSci] = useState<string | null>(null);
+  useEffect(() => {
+    if (openSci === null || accounts !== null) return;
+    let live = true;
+    fetchAccounts()
+      .then((a) => {
+        if (live) setAccounts(a);
+      })
+      .catch(() => {
+        if (live) setAccounts({});
+      });
+    return () => {
+      live = false;
+    };
+  }, [openSci, accounts]);
+  const openAccount = useCallback((sci: string) => setOpenSci(sci), []);
   // The silent birds, loudest first. Empty (and the section unmounts) whenever
   // the corpus is absent — the tab keeps its honest empty state.
   const silenceRows = useMemo(
@@ -1075,6 +1183,7 @@ export function LibraryView({
               lastDetected={byCatalog.get(desk.sci_name)?.last_detected ?? null}
               live={deskIsLive}
               aimed={deskIsAimed}
+              onReadAll={openAccount}
               canRotate={voicePool.length > 1}
               onAnother={() => {
                 setStep((s) => s + 1);
@@ -1119,7 +1228,7 @@ export function LibraryView({
           )}
 
           {/* 3b · THE INDEX OF SILENCES. */}
-          <SilenceIndex rows={silenceRows} comFor={comFor} />
+          <SilenceIndex rows={silenceRows} comFor={comFor} onReadAll={openAccount} />
 
           {/* 4 · THE BLIND EAR. */}
           <BlindEar pool={voicePool} art={art} comFor={comFor} slugFor={slugFor} />
@@ -1260,6 +1369,21 @@ export function LibraryView({
               )}
             </section>
           )}
+
+          {openSci !== null &&
+            (() => {
+              const sp = bySci.get(openSci);
+              const ps = accounts?.[openSci];
+              if (!sp || !ps || ps.length === 0) return null;
+              return (
+                <FullAccount
+                  species={sp}
+                  passages={ps}
+                  com={comFor(openSci)}
+                  onClose={() => setOpenSci(null)}
+                />
+              );
+            })()}
 
           {/* 7 · THE COLOPHON — the museum's own honesty label. */}
           <div className="lib-colophon">
