@@ -188,12 +188,24 @@ grep -qE '\$expected === .."?\)?' scripts/common.php || grep -q "expected === ''
 #    identical in the safe and unsafe versions — what differs is whether the
 #    variable was escaped first. Matching the usage produced a guard that failed
 #    on correct code, which trains an operator to ignore it.
-grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
-  | grep -qE '\$file_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
-  || fail "scripts/play.php no longer escapes the deletefile path before exec() — ?deletefile=x;<cmd> is remote command execution, and it is a GET so any page in the house can fire it via <img src>"
-grep -vE '^[[:space:]]*(#|//)' scripts/play.php \
-  | grep -qE '\$png_pointer[[:space:]]*=[[:space:]]*escapeshellarg\(' \
-  || fail "scripts/play.php no longer escapes the .png path before exec() — same injection, second argument"
+#    Scoped to two variables, this guard gave FALSE CONFIDENCE: it passed while
+#    THREE other injection sites in the same file were still unescaped (the
+#    changefile/newname exec, and $dir in both mkdir calls). Assert every
+#    user-derived exec input in the file, and forbid the specific unsafe shapes.
+#    Note double quotes are NOT protection: "\"$newname\"" still expands $( ).
+_play=$(grep -vE '^[[:space:]]*(#|//)' scripts/play.php)
+for v in file_pointer png_pointer; do
+  printf '%s\n' "$_play" | grep -qE "\\\$$v[[:space:]]*=[[:space:]]*escapeshellarg\\(" \
+    || fail "scripts/play.php: \$$v is no longer escapeshellarg'd before exec() — ?deletefile=x;<cmd> is command execution, and it is a GET so any page in the house can fire it via <img src>"
+done
+printf '%s\n' "$_play" | grep -qE '\$change_cmd[[:space:]]*=.*escapeshellarg\(' \
+  || fail "scripts/play.php: the changefile/newname exec is no longer built from escapeshellarg'd parts — that path runs sudo -u \$BIRDNET_USER, who has NOPASSWD:ALL, so injection there is effectively ROOT"
+printf '%s\n' "$_play" | grep -qE '\\"\$(oldname|newname)\\"' \
+  && fail "scripts/play.php interpolates \$oldname/\$newname inside DOUBLE QUOTES again — double quotes do not stop \$( ) or backticks (proven: echo \"x\$(id -un)\" executes)"
+[ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.\$shifted_path')" = "0" ] \
+  || fail "scripts/play.php: the mkdir path is unescaped again — \$dir comes from pathinfo(\$_GET['shiftfile']) with NO quotes, so even ; and | execute there"
+[ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.escapeshellarg\(')" = "2" ] \
+  || fail "scripts/play.php: expected BOTH mkdir call sites (ffmpeg + sox) to escapeshellarg their path"
 #    The no-password branch of the Caddyfile generator must DENY the admin plane,
 #    never emit an open config.
 grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
