@@ -29,9 +29,11 @@ import {
   counterpointFor,
   fetchJardine,
   firstSentence,
-  weakSource,
   type JardineSpecies,
 } from '../jardine';
+import { JardineName } from './JardineName';
+import { volumeRoman } from '../jardine';
+import { fmtRelative } from '../almanac';
 import { clearBird, writeRead, writeTab } from '../url';
 import { useBirdImage } from '../useBirdImage';
 import { useRepaint, type RepaintPhase } from '../repaint';
@@ -74,17 +76,6 @@ type Pose = 1 | 2;
 
 // ── formatting helpers (ported from the legacy modal) ─────────────────────────
 
-/** "6h ago" / "3d ago" from a BirdNET Date + Time pair. */
-export function fmtRelative(d: string | null, t: string | null): string {
-  if (!d) return '—';
-  const date = new Date(`${d}T${t || '00:00:00'}`);
-  if (Number.isNaN(date.getTime())) return `${d} ${t || ''}`.trim();
-  const ago = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (ago < 60) return `${ago}s ago`;
-  if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
-  if (ago < 86400) return `${Math.floor(ago / 3600)}h ago`;
-  return `${Math.floor(ago / 86400)}d ago`;
-}
 
 /** "1 Jul · 05:09" — a compact absolute stamp for the recording rows. */
 function fmtDateLine(d: string | null, t: string | null): string {
@@ -95,30 +86,6 @@ function fmtDateLine(d: string | null, t: string | null): string {
   return `${day} · ${t ? t.slice(0, 5) : ''}`.trim();
 }
 
-/** 24 → "XXIV". The Naturalist's Library is forty volumes and always will be,
- *  so the table stops at XL; anything outside 1–40 falls back to the plain
- *  figure rather than inventing a numeral. Exported so the Library tab cites
- *  its volumes through this one converter. */
-export function volumeRoman(n: number): string {
-  if (!Number.isInteger(n) || n < 1 || n > 40) return String(n);
-  const table: Array<[number, string]> = [
-    [40, 'XL'],
-    [10, 'X'],
-    [9, 'IX'],
-    [5, 'V'],
-    [4, 'IV'],
-    [1, 'I'],
-  ];
-  let out = '';
-  let rest = n;
-  for (const [v, s] of table) {
-    while (rest >= v) {
-      out += s;
-      rest -= v;
-    }
-  }
-  return out;
-}
 
 /** Detections-per-day heuristic → a plain-language rarity band. */
 function rarityLabel(total: number | null, firstSeenIso: string | null): string | null {
@@ -659,15 +626,13 @@ function Dialog({
               <div className="bp-jard">
                 {jardineName && (
                   <div className="bp-jard-name">
-                    <span
-                      className="bp-jard-bin"
-                      data-weak={weakSource(jardine) ? 'true' : undefined}
-                      title={weakSource(jardine) ?? undefined}
-                    >
-                      {jardineName}
-                    </span>
+                    <JardineName species={jardine} className="bp-jard-bin" />
                     {jardine.jardine_authority && (
-                      <span className="bp-jard-auth">{jardine.jardine_authority}</span>
+                      <JardineName
+                        species={jardine}
+                        className="bp-jard-auth"
+                        field="authority"
+                      />
                     )}
                   </div>
                 )}

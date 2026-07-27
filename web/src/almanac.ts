@@ -227,3 +227,21 @@ export function departuresFor(catalog: Departable[], now: Date): Map<Departable,
   }
   return out;
 }
+
+/** "6h ago" / "3d ago" from a BirdNET Date + Time pair. THE ONE relative-time
+ *  helper in the tree. It lived in BirdPopup.tsx, which made that component file
+ *  export a non-component — the file's only lint warning — and put a pure date
+ *  function somewhere node --test cannot reach it. almanac.ts is where every
+ *  other date derivation already lives.
+ *
+ *  (original doc) "6h ago" / "3d ago" from a BirdNET Date + Time pair. */
+export function fmtRelative(d: string | null, t: string | null): string {
+  if (!d) return '—';
+  const date = new Date(`${d}T${t || '00:00:00'}`);
+  if (Number.isNaN(date.getTime())) return `${d} ${t || ''}`.trim();
+  const ago = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (ago < 60) return `${ago}s ago`;
+  if (ago < 3600) return `${Math.floor(ago / 60)}m ago`;
+  if (ago < 86400) return `${Math.floor(ago / 3600)}h ago`;
+  return `${Math.floor(ago / 86400)}d ago`;
+}

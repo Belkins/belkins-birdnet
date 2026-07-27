@@ -43,6 +43,12 @@ export type JardineSubjectRole = 'garden' | 'library' | 'absent';
 export interface JardineSic {
   find: string;
   note: string;
+  /** Where the extractor FOUND this artefact. A needle can occur more than once
+   *  in a passage and only one of them is the scanner's error — "Ireland" is
+   *  flagged in one sentence and correct in the next — so the offset is what
+   *  makes the marker precise rather than approximate. null when the source did
+   *  not record one; sicSpans() then falls back to the first occurrence. */
+  offset: number | null;
 }
 
 /** A verbatim 1838 passage. `speaker` is REQUIRED — see the file header. */
@@ -206,7 +212,7 @@ function asSic(v: unknown): JardineSic[] {
     if (!isRecord(item)) continue;
     const find = asString(item.find);
     if (!find) continue; // an empty needle would match everywhere / nowhere
-    out.push({ find, note: asString(item.note) });
+    out.push({ find, note: asString(item.note), offset: asNullableNumber(item.offset) });
   }
   return out;
 }
@@ -380,6 +386,78 @@ export function sealLine(c: JardineColophon | null): string {
     : 'the acceptance pass is unsigned — no human has yet signed for this text';
 }
 
+const ROMAN: ReadonlyArray<readonly [number, string]> = [
+  [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+  [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+];
+
+/** Volume numbers are set the way the volumes are set: VOL. XXIV. One copy,
+ *  because there were three — BirdPopup's exported volumeRoman, and a private
+ *  `roman` in each of the two Library views. Identical today; three chances to
+ *  diverge tomorrow. Living here also stops BirdPopup exporting a non-component,
+ *  which was the file's only lint warning. */
+export function volumeRoman(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  let v = Math.floor(n);
+  let out = '';
+  for (const [value, glyph] of ROMAN) {
+    while (v >= value) {
+      out += glyph;
+      v -= value;
+    }
+  }
+  return out;
+}
+
+/** One run of a passage: plain prose, or a preserved OCR artefact with the note
+ *  that explains it. */
+export interface SicSpan {
+  text: string;
+  sic: JardineSic | null;
+}
+
+/** THE ONE [sic] ENGINE. Splits a passage into runs so every surface marks the
+ *  same characters, with the same note, in the same places.
+ *
+ *  It replaces two implementations that had quietly diverged. LibraryView's
+ *  consumed the string and so marked EVERY occurrence of a needle; the frame's
+ *  called indexOf once and so marked only the FIRST; and the frame's typed its
+ *  input as `{find}` alone, which meant the curator's note — the entire
+ *  explanation of the artefact — was structurally unreachable on the wall.
+ *
+ *  This is more precise than either. A needle can occur several times while only
+ *  one is the scanner's error ("Ireland" is flagged in one sentence and correct
+ *  in the next), so the RECORDED OFFSET wins whenever it still lands on the
+ *  needle, and indexOf is only the fallback for a row that carries none. An
+ *  offset that no longer validates is treated as absent rather than trusted —
+ *  the text is the authority, not a number that may have drifted from it. */
+export function sicSpans(text: string, sic: JardineSic[]): SicSpan[] {
+  const hits: Array<{ at: number; s: JardineSic }> = [];
+  for (const s of sic) {
+    if (!s || typeof s.find !== 'string' || s.find === '') continue; // '' matches everywhere
+    const o = s.offset;
+    const at =
+      typeof o === 'number' && o >= 0 && text.slice(o, o + s.find.length) === s.find
+        ? o
+        : text.indexOf(s.find);
+    if (at < 0) continue;
+    hits.push({ at, s });
+  }
+  if (hits.length === 0) return [{ text, sic: null }];
+  hits.sort((a, b) => a.at - b.at);
+
+  const out: SicSpan[] = [];
+  let cur = 0;
+  for (const h of hits) {
+    if (h.at < cur) continue; // overlapping markers — the earliest wins
+    if (h.at > cur) out.push({ text: text.slice(cur, h.at), sic: null });
+    out.push({ text: text.slice(h.at, h.at + h.s.find.length), sic: h.s });
+    cur = h.at + h.s.find.length;
+  }
+  if (cur < text.length) out.push({ text: text.slice(cur), sic: null });
+  return out;
+}
+
 /** THE WEAK-PATH RULE — the ONE authority, exported because it had three
  *  implementations and they disagreed.
  *
@@ -501,7 +579,12 @@ export function dayOfYear(d: Date): number {
  *  with a real detection — parsed by the ONE date parser in the tree
  *  (almanac.parseCatalogDate, which handles both the prod
  *  'YYYY-MM-DD HH:MM:SS' and the fixture's bare 'YYYY-MM-DD'). */
-function heardHere(c: CatalogSpecies): boolean {
+/** Has this garden actually recorded the bird? EITHER a parseable last_detected
+ *  OR a non-zero tally — a row with a real count and a missing timestamp has
+ *  still been heard. Exported because the frame tested `last_detected` alone and
+ *  therefore printed "not yet heard in this garden" about birds the Pi had
+ *  recorded: a fabricated ABSENCE, the same class as a fabricated presence. */
+export function heardHere(c: CatalogSpecies): boolean {
   return parseCatalogDate(c.last_detected) !== null || (c.detection_count || 0) > 0;
 }
 
