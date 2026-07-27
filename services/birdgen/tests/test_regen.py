@@ -255,8 +255,8 @@ def test_keep_pose1_alias_equivalence(client, auth):
     assert r1.status_code == 200, r1.text
     # explicit equivalent
     r2 = client.post("/requeue",
-                    json={"slugs": [b], "poses": [2], "keep_current": True},
-                    headers=auth)
+                     json={"slugs": [b], "poses": [2], "keep_current": True},
+                     headers=auth)
     assert r2.status_code == 200, r2.text
 
     # both encode the SAME directive: regen only pose-2...
@@ -297,14 +297,14 @@ def test_manual_budget_ceiling_refuses_manual_not_auto(client, auth):
     assert app.manual_budget_exhausted() is True
 
     r_manual = client.post("/requeue",
-                          json={"slugs": [slug], "source": "manual"}, headers=auth)
+                           json={"slugs": [slug], "source": "manual"}, headers=auth)
     assert r_manual.status_code == 200, r_manual.text
     assert r_manual.json()["refused"] == {slug: "manual_budget"}
     assert r_manual.json()["requeued"] == []
 
     # auto-gen is unaffected by the manual sub-ceiling.
     r_auto = client.post("/requeue",
-                        json={"slugs": [slug], "source": "auto"}, headers=auth)
+                         json={"slugs": [slug], "source": "auto"}, headers=auth)
     assert r_auto.status_code == 200, r_auto.text
     assert r_auto.json()["requeued"] == [slug]
     assert "refused" not in r_auto.json()

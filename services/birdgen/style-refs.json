@@ -1,0 +1,13 @@
+{
+  "_comment": "Style-plate filenames for the BIRDGEN SERVICE. Resolved against AV_STYLES_DIR (app.py:172, default services/birdgen/styles/). These are the project's own bundled house plates — the Edo kacho-e prints are not redistributable, so the service uses its own canon. Keep every category present: select_style_ref indexes this directly.",
+  "small_songbird_perched": "passer-domesticus.png",
+  "dark_bird_perched":      "corvus-brachyrhynchos.png",
+  "vivid_perched":          "aphelocoma-californica.png",
+  "vibrant_perched":        "aphelocoma-californica.png",
+  "owl":                    "bubo-virginianus.png",
+  "large_flight":           "aquila-chrysaetos-2.png",
+  "small_flight":           "apus-apus-2.png",
+  "wader":                  "ardea-alba.png",
+  "pale_perched":           "ardea-alba.png",
+  "waterfowl_perched":      "aix-sponsa.png"
+}

@@ -15,8 +15,10 @@ PI_URL = "http://birdnet.local/avian/api/birdnet-api.php?action=recent&hours=1"
 
 seen_keys: set[str] = set()
 
+
 def slugify(s: str) -> str:
     return "".join(c.lower() if c.isalnum() else "-" for c in s).strip("-")
+
 
 def loop(client: mqtt.Client) -> None:
     while True:
@@ -24,7 +26,7 @@ def loop(client: mqtt.Client) -> None:
             with urllib.request.urlopen(PI_URL, timeout=10) as r:
                 payload = json.loads(r.read())
             for s in payload.get("species", []):
-                key = f"{s['sci']}|{s.get('last_seen','')}"
+                key = f"{s['sci']}|{s.get('last_seen', '')}"
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
@@ -34,6 +36,7 @@ def loop(client: mqtt.Client) -> None:
         except Exception as e:
             print(f"poll error: {e}")
         time.sleep(60)
+
 
 def main() -> None:
     # paho-mqtt 2.x requires CallbackAPIVersion; the constructor below
@@ -48,6 +51,7 @@ def main() -> None:
     client.connect(BROKER, PORT, keepalive=60)
     client.loop_start()
     loop(client)
+
 
 if __name__ == "__main__":
     main()

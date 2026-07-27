@@ -96,11 +96,15 @@ def call_gemini(api_key: str, parts: list) -> dict:
                 return json.loads(r.read())
         except urllib.error.HTTPError as e:
             if e.code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(backoff); backoff *= 2; continue
+                time.sleep(backoff)
+                backoff *= 2
+                continue
             raise RuntimeError(f"HTTP {e.code}: {e.read().decode(errors='ignore')[:300]}")
         except urllib.error.URLError:
             if attempt < 3:
-                time.sleep(backoff); backoff *= 2; continue
+                time.sleep(backoff)
+                backoff *= 2
+                continue
             raise
     raise RuntimeError("retries exhausted")
 
@@ -218,7 +222,7 @@ def csv_row(slug: str, pose: int, sci: str, v: dict) -> str:
     ]) + "\n"
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901  (complexity 17; pre-existing debt, see .flake8)
     here = Path(__file__).resolve().parents[1]
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -268,16 +272,21 @@ def main() -> int:
 
         match = v.get("matches_target", False)
         tag = "[ok]   " if match else "[MISS] "
-        print(f"  {tag}{png.name}: reads as {v.get('guessed_species_com','?')} "
-              f"(conf={v.get('guess_confidence','?')})" + ("" if match else f", expected {com}"))
+        print(f"  {tag}{png.name}: reads as {v.get('guessed_species_com', '?')} "
+              f"(conf={v.get('guess_confidence', '?')})" + ("" if match else f", expected {com}"))
         if not match:
             mismatches += 1
         flags = []
-        if v.get("wing_count", 2) != 2: flags.append(f"wings={v.get('wing_count')}")
-        if v.get("leg_count", 2) and v.get("leg_count", 2) > 2: flags.append(f"legs={v.get('leg_count')}")
-        if v.get("has_stick_or_perch"): flags.append("has perch/stick")
-        if v.get("anatomy_issues"): flags.append(str(v["anatomy_issues"]))
-        if v.get("diagnostic_features_missing"): flags.append(f"missing: {v['diagnostic_features_missing']}")
+        if v.get("wing_count", 2) != 2:
+            flags.append(f"wings={v.get('wing_count')}")
+        if v.get("leg_count", 2) and v.get("leg_count", 2) > 2:
+            flags.append(f"legs={v.get('leg_count')}")
+        if v.get("has_stick_or_perch"):
+            flags.append("has perch/stick")
+        if v.get("anatomy_issues"):
+            flags.append(str(v["anatomy_issues"]))
+        if v.get("diagnostic_features_missing"):
+            flags.append(f"missing: {v['diagnostic_features_missing']}")
         if flags:
             print(f"         [warn] {'; '.join(flags)}")
         with args.out.open("a") as f:

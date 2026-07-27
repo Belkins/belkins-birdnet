@@ -96,14 +96,34 @@ done
 #    thin perch" text — and pregen.py's own docstring pointed maintainers at the
 #    STALE copy. The template is now a symlink so it CANNOT diverge; this guard
 #    keeps it that way and covers the other known-identical pair.
-if [ -e avian/scripts/prompt.template.md ]; then
-  [ -L avian/scripts/prompt.template.md ] \
-    || fail "avian/scripts/prompt.template.md is a real file again, not a symlink to services/birdgen/prompt.template.md — the two prompt copies can now silently diverge (the robin-legs class)"
-  cmp -s avian/scripts/prompt.template.md services/birdgen/prompt.template.md \
-    || fail "avian/scripts/prompt.template.md does not resolve to services/birdgen/prompt.template.md — the generator reads the birdgen copy (app.py:144); a fix in the other one is invisible"
-fi
-cmp -s avian/scripts/creamkey.py services/birdgen/creamkey.py \
-  || fail "avian/scripts/creamkey.py and services/birdgen/creamkey.py have diverged — they are a known byte-identical pair; a one-sided fix will not reach the generator"
+#    services/birdgen/ is canonical; avian/scripts/ holds symlinks to it. The
+#    ONLY legitimate per-deployment difference is style-refs.json (different
+#    style plates — the Koson/Yoshida prints are not redistributable), and that
+#    is DATA, deliberately not a symlink.
+for f in prompt.template.md creamkey.py pregen.py verify.py species-notes.json; do
+  if [ -e "avian/scripts/$f" ]; then
+    [ -L "avian/scripts/$f" ] \
+      || fail "avian/scripts/$f is a real file again, not a symlink to services/birdgen/$f — this is exactly how 675 lines of pregen.py, the AV_GEN_MODEL override, the defensive-titles fix and the robin species-note ended up on one side only"
+    cmp -s "avian/scripts/$f" "services/birdgen/$f" \
+      || fail "avian/scripts/$f does not resolve to services/birdgen/$f — the generator reads the birdgen copy, so a fix in the other one is invisible"
+  fi
+done
+# style-refs.json must NOT be a symlink (it carries the real divergence) and BOTH
+# copies must cover every category — select_style_ref indexes the dict directly,
+# so a missing category is a KeyError for one genus only.
+for d in avian/scripts services/birdgen; do
+  [ -L "$d/style-refs.json" ] \
+    && fail "$d/style-refs.json is a symlink — it must stay a per-deployment file; symlinking it collapses the legitimate style-plate divergence"
+  python3 -c "
+import json,sys
+req={'small_songbird_perched','dark_bird_perched','vivid_perched','vibrant_perched','owl',
+     'large_flight','small_flight','wader','pale_perched','waterfowl_perched'}
+d=json.load(open('$d/style-refs.json'))
+missing=sorted(k for k in req if not isinstance(d.get(k),str) or not d[k])
+sys.exit(1 if missing else 0)
+" 2>/dev/null \
+    || fail "$d/style-refs.json is invalid or missing a style category — select_style_ref would KeyError for one genus only"
+done
 
 # 6. Catalog-unit single-definition guard. deploy-christina.sh used to heredoc
 #    its OWN /etc/systemd/system/catalog.service with only ONE ExecStart, which

@@ -108,14 +108,27 @@ ROBIN_GENERA = set()  # placeholder for future use
 # `_anti_<key>.jpg` filename in the references directory and feeds into
 # `ANTI_REF_TRIGGERS` below.
 # ---- Style references ----
-# House-style reference set. The original Edo kachō-e prints (Koson/Yoshida) are
-# not redistributable/in this repo, so the style lock uses a curated subset of
-# the project's OWN bundled plates (avian/assets/illustrations) — they ARE the
-# canonical house look every auto-gen must match. Bundled at services/birdgen/
-# styles/. Mapped by genus + pose; only the painting technique is borrowed.
-# NOTE: this diverges from avian/scripts/pregen.py (kept on the Koson/Yoshida
-# names); see services/birdgen/README.md for why the two copies differ.
-STYLE_REFS = {
+# Category -> style-plate FILENAME. This mapping is the ONE thing that legitimately
+# differs between the two deployments, because they ship different plates:
+#
+#   services/birdgen/  the project's own bundled house plates. The Edo kachō-e
+#                      prints (Koson/Yoshida) are someone else's art and are not
+#                      redistributable, so the SERVICE cannot ship them.
+#   avian/scripts/     the original Koson/Yoshida prints, kept locally by the
+#                      operator (see avian/scripts/README.md).
+#
+# That difference is real. The rest of this file's former divergence was NOT: the
+# two copies had also drifted on the AV_GEN_MODEL override and a defensive-titles
+# IndexError fix, so a one-sided fix reached only one deployment — the same class
+# that left the robin species-note (28 commits) in one copy and not the other.
+#
+# So the mapping moved OUT to `style-refs.json` beside the script, and ONE
+# pregen.py now serves both. The dict is data; the pipeline is code.
+#
+# NOTE: abspath, NOT realpath/resolve — this file is imported through a SYMLINK
+# from avian/scripts/, and resolving would load the birdgen sidecar for both,
+# silently reintroducing the very divergence this removes.
+_STYLE_REFS_FALLBACK = {
     "small_songbird_perched": "passer-domesticus.png",
     "dark_bird_perched":      "corvus-brachyrhynchos.png",
     "vivid_perched":          "aphelocoma-californica.png",
@@ -128,56 +141,88 @@ STYLE_REFS = {
     "waterfowl_perched":      "aix-sponsa.png",
 }
 
+
+def _load_style_refs():
+    """Read style-refs.json from THIS script's directory (symlink-aware).
+
+    Every category in the fallback must be present, because select_style_ref
+    indexes STYLE_REFS directly — a partial sidecar would raise KeyError mid-run
+    for one genus only, i.e. a failure that shows up as "one bird looks wrong".
+    A missing/!bad sidecar degrades to the bundled mapping and says so, rather
+    than disabling the style lock silently.
+    """
+    path = os.environ.get("AV_STYLE_REFS") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "style-refs.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write("pregen: style-refs.json unusable (%s: %s) — using bundled mapping\n"
+                         % (type(exc).__name__, exc))
+        return dict(_STYLE_REFS_FALLBACK)
+    if not isinstance(data, dict):
+        sys.stderr.write("pregen: style-refs.json is not an object — using bundled mapping\n")
+        return dict(_STYLE_REFS_FALLBACK)
+    missing = [k for k in _STYLE_REFS_FALLBACK if not isinstance(data.get(k), str) or not data[k]]
+    if missing:
+        sys.stderr.write("pregen: style-refs.json missing/invalid categories %s — using bundled mapping\n"
+                         % (sorted(missing),))
+        return dict(_STYLE_REFS_FALLBACK)
+    return data
+
+
+STYLE_REFS = _load_style_refs()
+
 # Genus → perched style category. The first match wins. Fallback is
 # "small_songbird_perched" (Koson sparrows-on-bamboo) for every uncategorized
 # genus - covers passer/melospiza/spizella/junco/etc.
 GENUS_STYLE_PERCHED = {
     # Owls
-    "Tyto":"owl","Bubo":"owl","Asio":"owl","Megascops":"owl","Athene":"owl",
-    "Strix":"owl","Glaucidium":"owl","Aegolius":"owl",
+    "Tyto": "owl", "Bubo": "owl", "Asio": "owl", "Megascops": "owl", "Athene": "owl",
+    "Strix": "owl", "Glaucidium": "owl", "Aegolius": "owl",
     # Hummingbirds + jays + colorful crested (vibrant color anchor)
-    "Calypte":"vibrant_perched","Archilochus":"vibrant_perched",
-    "Selasphorus":"vibrant_perched","Calothorax":"vibrant_perched",
-    "Cyanocitta":"vibrant_perched","Aphelocoma":"vibrant_perched",
-    "Pica":"vibrant_perched","Nucifraga":"vibrant_perched",
-    "Perisoreus":"vibrant_perched",
+    "Calypte": "vibrant_perched", "Archilochus": "vibrant_perched",
+    "Selasphorus": "vibrant_perched", "Calothorax": "vibrant_perched",
+    "Cyanocitta": "vibrant_perched", "Aphelocoma": "vibrant_perched",
+    "Pica": "vibrant_perched", "Nucifraga": "vibrant_perched",
+    "Perisoreus": "vibrant_perched",
     # Waxwings + orioles + tanagers (vivid perching with berry-tree composition feel)
-    "Bombycilla":"vivid_perched","Icterus":"vivid_perched",
-    "Piranga":"vivid_perched","Pheucticus":"vivid_perched",
-    "Passerina":"vivid_perched","Cardellina":"vivid_perched",
-    "Setophaga":"vivid_perched","Icteria":"vivid_perched",
+    "Bombycilla": "vivid_perched", "Icterus": "vivid_perched",
+    "Piranga": "vivid_perched", "Pheucticus": "vivid_perched",
+    "Passerina": "vivid_perched", "Cardellina": "vivid_perched",
+    "Setophaga": "vivid_perched", "Icteria": "vivid_perched",
     # Corvids + vultures (dark perching)
-    "Corvus":"dark_bird_perched","Coragyps":"dark_bird_perched",
-    "Cathartes":"dark_bird_perched","Gymnogyps":"dark_bird_perched",
+    "Corvus": "dark_bird_perched", "Coragyps": "dark_bird_perched",
+    "Cathartes": "dark_bird_perched", "Gymnogyps": "dark_bird_perched",
     # Waterfowl perched (mandarin-ducks anchor)
-    "Anas":"waterfowl_perched","Aix":"waterfowl_perched","Mareca":"waterfowl_perched",
-    "Spatula":"waterfowl_perched","Branta":"waterfowl_perched","Anser":"waterfowl_perched",
-    "Cygnus":"waterfowl_perched","Aythya":"waterfowl_perched",
-    "Bucephala":"waterfowl_perched","Lophodytes":"waterfowl_perched",
-    "Mergus":"waterfowl_perched","Oxyura":"waterfowl_perched",
-    "Podiceps":"waterfowl_perched","Podilymbus":"waterfowl_perched",
-    "Aechmophorus":"waterfowl_perched","Gavia":"waterfowl_perched",
-    "Pelecanus":"waterfowl_perched","Phalacrocorax":"waterfowl_perched",
-    "Urile":"waterfowl_perched",
+    "Anas": "waterfowl_perched", "Aix": "waterfowl_perched", "Mareca": "waterfowl_perched",
+    "Spatula": "waterfowl_perched", "Branta": "waterfowl_perched", "Anser": "waterfowl_perched",
+    "Cygnus": "waterfowl_perched", "Aythya": "waterfowl_perched",
+    "Bucephala": "waterfowl_perched", "Lophodytes": "waterfowl_perched",
+    "Mergus": "waterfowl_perched", "Oxyura": "waterfowl_perched",
+    "Podiceps": "waterfowl_perched", "Podilymbus": "waterfowl_perched",
+    "Aechmophorus": "waterfowl_perched", "Gavia": "waterfowl_perched",
+    "Pelecanus": "waterfowl_perched", "Phalacrocorax": "waterfowl_perched",
+    "Urile": "waterfowl_perched",
     # Waders + herons (crane-in-reeds anchor)
-    "Ardea":"wader","Egretta":"wader","Bubulcus":"wader","Butorides":"wader",
-    "Nycticorax":"wader","Plegadis":"wader","Limosa":"wader","Numenius":"wader",
-    "Himantopus":"wader","Recurvirostra":"wader","Charadrius":"wader",
-    "Actitis":"wader","Calidris":"wader","Tringa":"wader",
+    "Ardea": "wader", "Egretta": "wader", "Bubulcus": "wader", "Butorides": "wader",
+    "Nycticorax": "wader", "Plegadis": "wader", "Limosa": "wader", "Numenius": "wader",
+    "Himantopus": "wader", "Recurvirostra": "wader", "Charadrius": "wader",
+    "Actitis": "wader", "Calidris": "wader", "Tringa": "wader",
     # Pale-bodied (gulls, terns, skimmer - cockatoo anchor)
-    "Larus":"pale_perched","Leucophaeus":"pale_perched","Sterna":"pale_perched",
-    "Thalasseus":"pale_perched","Hydroprogne":"pale_perched","Rynchops":"pale_perched",
+    "Larus": "pale_perched", "Leucophaeus": "pale_perched", "Sterna": "pale_perched",
+    "Thalasseus": "pale_perched", "Hydroprogne": "pale_perched", "Rynchops": "pale_perched",
 }
 
 # Genera that should use large_flight (instead of small_flight) for pose 2.
 LARGE_FLIGHT_GENERA = {
-    "Tyto","Bubo","Asio","Megascops","Athene","Strix","Glaucidium","Aegolius",
-    "Anas","Aix","Mareca","Spatula","Branta","Anser","Cygnus","Aythya",
-    "Bucephala","Lophodytes","Mergus","Oxyura","Pelecanus","Phalacrocorax",
-    "Urile","Ardea","Egretta","Bubulcus","Butorides","Nycticorax","Plegadis",
-    "Limosa","Numenius","Himantopus","Recurvirostra",
-    "Buteo","Accipiter","Aquila","Circus","Falco","Cathartes","Coragyps",
-    "Haliaeetus","Pandion","Elanus","Gymnogyps","Corvus",
+    "Tyto", "Bubo", "Asio", "Megascops", "Athene", "Strix", "Glaucidium", "Aegolius",
+    "Anas", "Aix", "Mareca", "Spatula", "Branta", "Anser", "Cygnus", "Aythya",
+    "Bucephala", "Lophodytes", "Mergus", "Oxyura", "Pelecanus", "Phalacrocorax",
+    "Urile", "Ardea", "Egretta", "Bubulcus", "Butorides", "Nycticorax", "Plegadis",
+    "Limosa", "Numenius", "Himantopus", "Recurvirostra",
+    "Buteo", "Accipiter", "Aquila", "Circus", "Falco", "Cathartes", "Coragyps",
+    "Haliaeetus", "Pandion", "Elanus", "Gymnogyps", "Corvus",
 }
 
 
@@ -410,7 +455,7 @@ def _anti_ref_line(anti_ref_key: str | None) -> str:
     )
 
 
-def gen_one(
+def gen_one(  # noqa: C901  (complexity 19; pre-existing debt, see .flake8)
     api_key: str,
     prompt: str,
     sci: str,
@@ -553,7 +598,7 @@ def _mime_for(p: Path) -> str:
     return "application/octet-stream"
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901  (complexity 24; pre-existing debt, see .flake8)
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,

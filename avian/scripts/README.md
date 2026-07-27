@@ -53,10 +53,18 @@ style. `pregen.py` attaches up to three reference images per request:
   Blue Jay) and swallows (vs Barn Swallow); add more in the `ANTI_REFS` table
   and place photos at `references/_anti_<key>.jpg`.
 - **Style** (IMAGE 3, optional): a real Edo-period kachō-e print whose painting
-  technique is borrowed. The genus-to-print mapping is in `pregen.py`'s
-  `STYLE_REFS`. The prints are not bundled (they are someone else's art); put
+  technique is borrowed. The genus-to-print mapping is **`style-refs.json`** in
+  this directory. The prints are not bundled (they are someone else's art); put
   your own in `assets/references/styles/`. The Koson and Yoshida prints used
-  originally are easy to find on the public web by the filenames in `STYLE_REFS`.
+  originally are easy to find on the public web by the filenames in that file.
+
+  > `pregen.py`, `verify.py`, `creamkey.py`, `prompt.template.md` and
+  > `species-notes.json` here are **symlinks** to `services/birdgen/` — one
+  > implementation, so a fix can no longer reach one deployment and not the
+  > other. `style-refs.json` is the deliberate exception: it is not a symlink,
+  > because the hosted service ships the project's own house plates instead of
+  > the Koson/Yoshida prints it cannot redistribute. Change the mapping here;
+  > the pipeline lives there.
 
 All three degrade gracefully: a missing reference is simply not attached.
 
