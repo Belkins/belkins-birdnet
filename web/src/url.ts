@@ -1,5 +1,5 @@
 // Deep-link URL state — hand-rolled, no router (spec: utility-features.md #1).
-// Grammar:  ?tab=index|stats|atlas|wall   (absent = collage)
+// Grammar:  ?tab=index|stats|atlas|wall|library   (absent = collage)
 //           ?bird=Genus_species           (underscored sci; matched by slug)
 //           ?pose=flight                  (absent = perched)
 //           ?on=YYYY-MM-DD                (time-travel scrubber; absent = NOW)

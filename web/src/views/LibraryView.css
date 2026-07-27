@@ -1,0 +1,967 @@
+/* THE LIBRARY — same museum, different room. Not one new colour, not one new
+   font, not one new radius: every value below resolves from a token already in
+   index.css, so [data-theme='day'] inverts for free. The difference from the
+   rest of the app is furniture and measure, never palette.
+
+   THE TWO-HAND LAW. Everything from 1838: var(--display), ragged-right,
+   --ink-2, no caps, a real reading measure. Everything from 2026: var(--mono),
+   9–10px, letter-spacing 0.12–0.16em, uppercase, --mut. Authorities take
+   font-variant: small-caps on Cormorant, mirroring Rougeux's own span.scaps.
+
+   THE AMBER LAW. --amber marks exactly two things: an UNCHANGED 1838 binomial,
+   and a number MEASURED BY THE PI. --red is reserved for errata slips. --live
+   is untouched. The thesis is therefore legible in a screenshot with the sound
+   off and the text unread.
+
+   MOTION. One thing moves — the amber playhead, and it moves because audio is
+   playing. Nothing fades in, nothing counts up, nothing parallaxes, no hover
+   animation; prefers-reduced-motion is honoured by construction. */
+
+.lib {
+  /* The reading measure. Everything on the desk — the passage, the band, the
+     citation — shares it, which is what makes the band read as the printed rule
+     under the type rather than as a chart in a box. */
+  --measure: 38ch;
+}
+
+/* ── loading / empty — a composed gallery label, never a spinner ───────────── */
+.lib-loading,
+.lib-empty {
+  max-width: 1180px;
+  margin: 0 auto;
+  min-height: 46vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.lib-loading .word {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 30px;
+  color: var(--mut);
+}
+.lib-empty .word {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 44px;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  max-width: 20ch;
+}
+.lib-empty .rule {
+  width: 64px;
+  height: 1px;
+  background: var(--line);
+  margin: 22px 0;
+}
+.lib-empty .cap {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--mut);
+}
+
+/* ── 1 · THE EPIGRAPH — alone on the ground, no card ───────────────────────── */
+.lib-epi-wrap {
+  max-width: 40em;
+  margin: 0 auto 54px;
+  text-align: center;
+}
+.lib-epi {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 30px;
+  line-height: 1.45;
+  color: var(--ink);
+  max-width: 30em;
+  margin: 0 auto;
+}
+.lib-epi-cite,
+.lib-ledger {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+  margin-top: 16px;
+  line-height: 1.9;
+}
+.lib-ledger {
+  color: var(--mut-2);
+  margin-top: 8px;
+}
+
+/* ── 2 · THE READING DESK — the signature ──────────────────────────────────── */
+.lib-desk {
+  max-width: calc(var(--measure) + 96px);
+  margin: 0 auto 64px;
+  padding: 40px 48px 30px;
+  background: var(--card);
+  border-radius: 14px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+:root:not([data-theme='day']) .lib-desk {
+  box-shadow:
+    inset 0 1px 0 rgba(241, 234, 217, 0.05),
+    0 18px 40px -22px rgba(0, 0, 0, 0.8);
+}
+
+/* PROSE IS THE REAL DESIGN PROBLEM. 30px / 1.5 / 38ch / --ink-2 — full ink at
+   this size and length glares on obsidian, and body size would fail the tab. */
+.lib-prose {
+  font-family: var(--display);
+  font-size: 30px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: var(--measure);
+  margin: 0 0 18px;
+  text-align: left; /* ragged right */
+}
+.lib-prose-coda {
+  font-size: 24px;
+  color: var(--mut);
+}
+.lib-prose-slip {
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+
+/* An OCR artefact, preserved verbatim and admitted in the margin. Never
+   corrected — the artefacts are the proof that no model cleaned the source. */
+.lib-sic {
+  border-bottom: 1px dotted var(--mut-2);
+}
+.lib-sic-m {
+  font-family: var(--mono);
+  font-size: 7.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  margin-left: 2px;
+  vertical-align: super;
+}
+
+/* The speaker is printed under every single passage, always. */
+.lib-cite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+  max-width: var(--measure);
+}
+.lib-cite-who {
+  color: var(--ink-2);
+}
+.lib-cite-w {
+  color: var(--mut-2);
+}
+.lib-cite-l {
+  color: var(--mut);
+  text-decoration: none;
+  border-bottom: 1px solid var(--line);
+}
+.lib-cite-l:hover {
+  color: var(--ink-2);
+}
+
+.lib-deskbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: var(--measure);
+  margin: 26px 0 10px;
+}
+.lib-another {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.lib-another:hover {
+  color: var(--ink-2);
+}
+
+/* THE BAND — the printed rule under the type, the way an engraved plate carries
+   an ornament under its caption. Same measure as the passage, 44px tall, and
+   deliberately NOT a card: no box, no label, no axis. The four filter
+   declarations are COPIED from .bp-spectro-img (BirdPopup.css:483-495) rather
+   than refactored out of the museum's most-used component. */
+.lib-band {
+  position: relative;
+  height: 44px;
+  max-width: var(--measure);
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  overflow: hidden;
+  background: var(--card-2);
+}
+.lib-band-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  filter: grayscale(1) contrast(1.05) opacity(0.55);
+  pointer-events: none;
+  user-select: none;
+}
+:root:not([data-theme='day']) .lib-band-img {
+  filter: grayscale(1) invert(1) contrast(1.05) opacity(0.55);
+}
+/* The one thing that moves, and it moves because audio is playing. */
+.lib-band-head {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--pos, 0%);
+  width: 1.5px;
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--amber);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.lib-deskfoot {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* The garden's answer — a number/time MEASURED BY THE PI, so it is amber. The
+   off-Pi line is not a measurement and stays muted: Jardine's exact condition,
+   restated, rather than a broken control. */
+.lib-answer {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+  min-height: 1em;
+}
+.lib-answer[data-kind='heard'] {
+  color: var(--amber);
+}
+
+/* ── section furniture (errata / blind ear / shelf / roll) ─────────────────── */
+.lib-sec {
+  max-width: 1180px;
+  margin: 0 auto 64px;
+}
+.lib-sec-h {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+.lib-sec-k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.lib-sec-t {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 19px;
+  color: var(--ink-2);
+}
+
+/* ── 3 · THE ERRATA — five slips, dry and merciless ────────────────────────── */
+.lib-errata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.lib-errata .lib-sec-h {
+  grid-column: 1 / -1;
+}
+.lib-slip {
+  border-left: 2px solid var(--red);
+  gap: 0;
+}
+/* No. V is a concession, not a correction — and concessions are not red. */
+.lib-slip[data-tone='mut'] {
+  border-left-color: var(--mut);
+}
+.lib-slip-wide {
+  grid-column: 1 / -1;
+}
+.lib-slip-h {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.lib-slip-no {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+.lib-slip[data-tone='mut'] .lib-slip-no {
+  color: var(--mut);
+}
+.lib-slip-t {
+  font-family: var(--display);
+  font-size: 21px;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.lib-lab {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  margin-bottom: 10px;
+}
+.lib-says {
+  margin-bottom: 18px;
+}
+.lib-says .lib-prose,
+.lib-says .lib-cite {
+  max-width: 44ch;
+}
+.lib-garden-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.lib-garden-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+/* A figure measured by the Pi. Never committed, always computed at render. */
+.lib-fig {
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 500;
+  color: var(--amber);
+  line-height: 1;
+}
+.lib-fig-zero {
+  color: var(--mut);
+}
+.lib-fig-l {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut);
+  line-height: 1.7;
+}
+.lib-close {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-2);
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink-2);
+}
+.lib-slip[data-tone='mut'] .lib-close {
+  color: var(--mut);
+}
+.lib-wall {
+  margin-top: 16px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  text-align: center;
+}
+
+/* THE VITRINE — three plates hung at Jardine's OWN relative sizes, each beside
+   the museum's own plate of the same bird at full museum size. */
+.lib-vitrine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 34px;
+  margin-top: 8px;
+}
+.lib-spread {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+}
+/* THE DIPTYCH FRAME RULE — Jardine's engraving is PAPER: 1px --line border,
+   --card ground, a 10px --bg2 mount, filter:none, NO glow. The only rectangular
+   hard-edged image anywhere in this museum. Its width is Jardine's own relative
+   scale, which is the entire argument of this slip. */
+.lib-mount {
+  width: calc(var(--scale, 1) * 300px);
+  max-width: 100%;
+  margin: 0;
+}
+.lib-mat {
+  display: block;
+  padding: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 0;
+}
+.lib-mat-empty {
+  min-height: 92px;
+  background: var(--card-2);
+}
+.lib-plate {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--card);
+  filter: none;
+}
+.lib-mount-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 9px;
+}
+.lib-mount-k {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+.lib-mount-t {
+  font-family: var(--display);
+  font-size: 15px;
+  color: var(--ink-2);
+}
+
+/* The ONLY invented graphic device in the tab: one hairline gutter between the
+   centuries, labelled once. */
+.lib-gutter {
+  position: relative;
+  align-self: stretch;
+  width: 1px;
+  min-height: 120px;
+  background: var(--line);
+}
+.lib-gutter-k {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  white-space: nowrap;
+}
+
+/* The 2026 half: a CUT SPECIMEN — transparent cutout, floating, keeping
+   .acard-img's existing warm drop-glow (inherited, not redeclared). */
+.lib-modern {
+  width: 172px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.lib-cut {
+  width: 100%;
+  cursor: pointer;
+}
+.lib-cut .acard-img {
+  margin: 0;
+  min-height: 96px;
+}
+.lib-cut-sm {
+  width: 120px;
+}
+.lib-modern-n {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--ink);
+}
+/* A number measured by the Pi. */
+.lib-tally {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.lib-tally b {
+  font-family: var(--display);
+  font-size: 17px;
+  color: var(--amber);
+}
+/* An honestly, visibly inert control — flat, unclickable, unapologetic. */
+.lib-inert {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  line-height: 1.8;
+}
+.lib-modern-none {
+  justify-content: flex-end;
+}
+
+/* THE COLLISION — one binomial, two entirely different birds. */
+.lib-coll-name {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 46px;
+  text-align: center;
+  color: var(--ink);
+  margin: 6px 0 10px;
+}
+.lib-coll-rule {
+  height: 1px;
+  background: var(--line);
+  margin: 0 auto 22px;
+  max-width: 460px;
+}
+.lib-coll-cols {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 30px;
+  justify-items: center;
+  margin-bottom: 20px;
+}
+.lib-coll-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.lib-coll-col .lib-modern {
+  align-items: center;
+}
+.lib-coll-k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.lib-coll-sci {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--mut);
+}
+
+/* ── 4 · THE BLIND EAR ─────────────────────────────────────────────────────── */
+.lib-ear-play {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.lib-ear-hint {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+.lib-ear-opts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.lib-ear-opts:focus-visible {
+  outline: 1px solid var(--line);
+  outline-offset: 12px;
+}
+.lib-opt {
+  text-align: left;
+  cursor: pointer;
+  gap: 10px;
+  color: inherit;
+  font: inherit;
+}
+.lib-opt[disabled] {
+  cursor: default;
+}
+.lib-opt-no {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--mut-2);
+}
+.lib-opt-p {
+  font-family: var(--display);
+  font-size: 19px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.lib-opt-true {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+/* The reveal teaches: the right sentence keeps full ink, the two decoys fade
+   and name the bird they actually describe. No score, no streak, no badge. */
+/* THE AMBER LAW holds even here: the right answer is not a measurement and not
+   an unchanged binomial, so it earns full ink and a defined edge — never amber. */
+.lib-opt[data-state='right'] .lib-opt-p {
+  color: var(--ink);
+}
+.lib-opt[data-state='right'] {
+  border-color: var(--mut);
+}
+.lib-opt[data-state='wrong'] .lib-opt-p,
+.lib-opt[data-state='off'] .lib-opt-p {
+  color: var(--mut-2);
+}
+.lib-opt[data-state='wrong'],
+.lib-opt[data-state='off'] {
+  border-color: transparent;
+  box-shadow: none;
+}
+.lib-ear-rev {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-2);
+}
+.lib-ear-rev-t {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lib-ear-rev-n {
+  font-family: var(--display);
+  font-size: 26px;
+  color: var(--ink);
+}
+.lib-ear-rev-s {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.lib-again {
+  align-self: flex-start;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.lib-again:hover {
+  color: var(--ink-2);
+}
+
+/* Authorities mirror Rougeux's own span.scaps. */
+.lib-scaps {
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+}
+
+/* ── 5 · THE SHELF — forty spines, no images ───────────────────────────────── */
+.lib-shelf {
+  display: grid;
+  grid-template-columns: repeat(40, minmax(0, 1fr));
+  gap: 1px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.lib-spine {
+  position: relative;
+  height: 190px;
+  padding: 12px 3px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, var(--card-2), var(--card));
+  border: 1px solid var(--line);
+  cursor: default;
+  overflow: hidden;
+}
+.lib-spine:focus-visible {
+  outline: 1px solid var(--mut);
+  outline-offset: -1px;
+}
+.lib-spine-foil {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: transparent;
+}
+.lib-spine[data-lit='yes'] .lib-spine-foil {
+  background: var(--amber);
+}
+.lib-spine-t {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-family: var(--display);
+  font-size: 10px;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  color: var(--mut-2);
+  max-height: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.lib-spine[data-lit='yes'] .lib-spine-t {
+  color: var(--ink);
+}
+.lib-spine-n {
+  font-family: var(--mono);
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  color: var(--mut-2);
+}
+.lib-shelf-cap {
+  max-width: 1180px;
+  margin: 12px auto 0;
+  text-align: right;
+  min-height: 1.4em;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+/* ── 6 · THE ROLL — a plain broadsheet ledger, no card at all. Evidence should
+   look like evidence: this is deliberately the least designed thing here. ──── */
+.lib-roll {
+  width: 100%;
+  border-collapse: collapse;
+}
+.lib-roll th {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+  text-align: left;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.lib-roll td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line-2);
+  vertical-align: baseline;
+}
+.lib-roll-r {
+  cursor: pointer;
+}
+.lib-roll-r:hover td {
+  background: var(--glass);
+}
+.lib-roll-m {
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--ink);
+}
+.lib-roll-o {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+}
+/* A Latin string a man wrote by hand in 1838 that a neural net printed this
+   morning, untouched. The only rows that earn amber. */
+.lib-roll-un {
+  color: var(--amber);
+}
+/* The ~74% weak path, admitted in the UI rather than hidden. */
+.lib-roll-weak {
+  border-bottom: 1px dotted var(--mut-2);
+  cursor: help;
+}
+.lib-roll-none {
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+.lib-roll-vol,
+.lib-roll th.lib-roll-vol {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--mut);
+  width: 6em;
+}
+.lib-roll-n,
+.lib-roll th.lib-roll-n {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--ink-2);
+  width: 8em;
+}
+.lib-roll-break td {
+  padding-top: 22px;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--mut);
+  border-bottom: 1px solid var(--line);
+}
+.lib-roll-foot {
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mut-2);
+}
+
+/* The closing line beneath the ledger: what is present, signed off by an 1838
+   sentence about a bird disappearing. One quiet italic line, nothing more. */
+.lib-elegy {
+  margin: 40px auto 0;
+  max-width: 46em;
+  text-align: center;
+}
+.lib-elegy-t {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 22px;
+  line-height: 1.5;
+  color: var(--mut);
+  margin: 0 0 12px;
+}
+.lib-elegy .lib-cite {
+  justify-content: center;
+  max-width: none;
+}
+
+/* ── 7 · THE COLOPHON — the museum's own honesty label ─────────────────────── */
+.lib-colophon {
+  max-width: 780px;
+  margin: 0 auto;
+  text-align: center;
+}
+.lib-col-l {
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.9;
+  letter-spacing: 0.08em;
+  color: var(--mut-2);
+  margin-bottom: 10px;
+}
+
+/* ── THE PHONE — the single breakpoint, matching App.css's only one. Nothing
+   horizontally scrolls. ───────────────────────────────────────────────────── */
+@media (max-width: 760px) {
+  .lib {
+    --measure: 28ch;
+  }
+  .lib-desk {
+    padding: 28px 22px 22px;
+    max-width: 100%;
+  }
+  .lib-prose {
+    font-size: 26px;
+  }
+  .lib-prose-coda {
+    font-size: 21px;
+  }
+  .lib-epi {
+    font-size: 25px;
+  }
+  /* The band keeps its full width and its 44px height, unchanged: it is the
+     signature. */
+  .lib-band {
+    max-width: 100%;
+  }
+  .lib-errata,
+  .lib-coll-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* The Precedence vitrine stacks — and the RELATIVE SIZES ARE PRESERVED IN THE
+     STACK. Stacking must not throw away the size comparison that is the whole
+     argument of the slip. */
+  .lib-vitrine {
+    flex-direction: column;
+    align-items: center;
+  }
+  .lib-spread {
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+  .lib-mount {
+    width: calc(var(--scale, 1) * 100%);
+  }
+  .lib-gutter {
+    width: 100%;
+    height: 1px;
+    min-height: 0;
+    margin: 6px 0 18px;
+  }
+  .lib-gutter-k {
+    left: 0;
+    top: 4px;
+  }
+  .lib-coll-name {
+    font-size: 34px;
+  }
+  .lib-ear-opts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lib-ear-rev {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  /* Two rows of twenty rather than shrinking to forty slivers — the count is
+     the joke, so it must stay countable. */
+  .lib-shelf {
+    grid-template-columns: repeat(20, minmax(0, 1fr));
+  }
+  .lib-spine {
+    height: 150px;
+  }
+  .lib-spine-t {
+    max-height: 112px;
+  }
+  /* The Roll drops the VOL. column only. */
+  .lib-roll-vol,
+  .lib-roll th.lib-roll-vol {
+    display: none;
+  }
+  .lib-roll-break td {
+    font-size: 14px;
+  }
+}

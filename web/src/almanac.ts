@@ -25,7 +25,7 @@ const MONTHS_LONG = [
 /** Handles BOTH catalog date formats: prod 'YYYY-MM-DD HH:MM:SS' and the mock
  *  fixture's bare 'YYYY-MM-DD' — regex the leading date, never `new Date(iso)`
  *  (the space-separated prod form is not portable Date input). */
-function parseCatalogDate(iso: string | null): { y: number; m: number; d: number } | null {
+export function parseCatalogDate(iso: string | null): { y: number; m: number; d: number } | null {
   if (!iso) return null;
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return null;
