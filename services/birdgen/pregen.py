@@ -611,20 +611,30 @@ def main() -> int:  # noqa: C901  (complexity 24; pre-existing debt, see .flake8
     ap.add_argument("--ebird-region", help="eBird region code (e.g. US-CA, US-CA-085) to filter labels")
     ap.add_argument("--ebird-key", help="eBird API key (or EBIRD_API_KEY env)")
     ap.add_argument("--gemini-key", help="Gemini API key (or GEMINI_API_KEY env)")
+    # abspath, NOT resolve() -- same symlink invariant as _load_style_refs above.
+    # resolve() follows avian/scripts/pregen.py back to services/birdgen/, so
+    # parents[1] became services/ and every default below pointed at a
+    # NONEXISTENT services/assets/... The documented local command in README.md
+    # (python3 ~/BirdNET-Pi/avian/scripts/pregen.py --labels ... --force) would
+    # then read no references and write plates outside the tree the collage
+    # serves. Anchoring on the INVOKED path keeps avian/ -> avian/assets/... and
+    # leaves the birdgen service (which drives pregen through app.py, not these
+    # defaults) exactly as it was.
+    _here = Path(os.path.abspath(__file__)).parent
     ap.add_argument("--out", type=Path,
-                    default=Path(__file__).resolve().parents[1] / "assets" / "illustrations",
-                    help="Output directory (default: avian/assets/illustrations/)")
+                    default=_here.parent / "assets" / "illustrations",
+                    help="Output directory (default: <tree>/assets/illustrations/)")
     ap.add_argument("--refs", type=Path,
-                    default=Path(__file__).resolve().parents[1] / "assets" / "references",
-                    help="Reference photo cache directory (default: avian/assets/references/)")
+                    default=_here.parent / "assets" / "references",
+                    help="Reference photo cache directory (default: <tree>/assets/references/)")
     ap.add_argument("--styles", type=Path,
-                    default=Path(__file__).resolve().parents[1] / "assets" / "references" / "styles",
-                    help="Style reference directory (default: avian/assets/references/styles/)")
+                    default=_here.parent / "assets" / "references" / "styles",
+                    help="Style reference directory (default: <tree>/assets/references/styles/)")
     ap.add_argument("--prompt", type=Path,
-                    default=Path(__file__).resolve().parent / "prompt.template.md",
+                    default=_here / "prompt.template.md",
                     help="Prompt template path")
     ap.add_argument("--notes", type=Path,
-                    default=Path(__file__).resolve().parent / "species-notes.json",
+                    default=_here / "species-notes.json",
                     help="Per-species prompt addenda for difficult cases (e.g. similar-species drift)")
     ap.add_argument("--poses", nargs="+", type=int, default=[1, 2],
                     choices=list(POSES.keys()),

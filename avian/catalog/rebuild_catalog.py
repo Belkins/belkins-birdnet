@@ -30,10 +30,16 @@ import os
 import re
 import sqlite3
 import sys
+import time
 import urllib.parse
 import urllib.request
 
 # ---- locked constants ------------------------------------------------------
+
+# Hard cap on the manifest body. birdgen's is ~6 KB for ~290 slugs; anything
+# near this is a wrong endpoint or a hostile/broken response, and reading it
+# unbounded into memory on a Pi is how a nightly job turns into an OOM.
+MANIFEST_MAX_BYTES = 4 * 1024 * 1024
 
 # The catalog's own confident-DETECTION bar for derived stats. Independent of
 # the paint gate: the forwarder/birdgen pair moved to 0.70 in 987d9da, so this
@@ -207,10 +213,28 @@ def fetch_manifest_slugs(manifest_url, timeout):
     """
     if not manifest_url:
         return set(), True
+    # `timeout` is urllib's PER-SOCKET-OPERATION timeout, not a total deadline: a
+    # server that trickles bytes just inside the window keeps the call alive
+    # indefinitely. Combined with a oneshot unit, that hangs the whole nightly
+    # rebuild in 'activating' forever -- never failed, never retried, catalog
+    # frozen. So bound the WALL CLOCK and the BYTES too.
+    budget = max(timeout * 4.0, timeout + 10.0)
+    deadline = time.monotonic() + budget
     try:
         with urllib.request.urlopen(manifest_url, timeout=timeout) as resp:
-            payload = resp.read()
-        data = json.loads(payload.decode("utf-8"))
+            chunks, total = [], 0
+            while True:
+                if time.monotonic() > deadline:
+                    raise TimeoutError(
+                        "manifest exceeded its %.0fs wall-clock budget (slow trickle)" % budget)
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MANIFEST_MAX_BYTES:
+                    raise ValueError("manifest exceeded %d bytes" % MANIFEST_MAX_BYTES)
+                chunks.append(chunk)
+        data = json.loads(b"".join(chunks).decode("utf-8"))
     except Exception as exc:  # noqa: BLE001 -- intentional network guard
         sys.stderr.write("catalog: manifest UNANSWERED (%s): %s\n" % (manifest_url, exc))
         return set(), False
@@ -221,7 +245,20 @@ def fetch_manifest_slugs(manifest_url, timeout):
             % (manifest_url, type(data).__name__)
         )
         return set(), False
-    return set(s for s in slugs if isinstance(s, str) and s), True
+    clean = set(s for s in slugs if isinstance(s, str) and s)
+    if not clean:
+        # A reachable manifest that lists NOTHING is not an answer of "no art
+        # anywhere" -- birdgen ships ~290 slugs, so an empty list means the asset
+        # volume failed to attach or manifest.json is missing from the image.
+        # Treating it as answered published a confident art_status='none' for
+        # every autogen species: byte-for-byte the incident this file exists to
+        # prevent. UNANSWERED, so those species read 'unknown' instead.
+        sys.stderr.write(
+            "catalog: manifest UNANSWERED (%s): answered 200 with ZERO slugs "
+            "(birdgen ships ~290 -- treating as a fault, not as 'no art')\n" % (manifest_url,)
+        )
+        return set(), False
+    return clean, True
 
 
 # ---- aggregation -----------------------------------------------------------
@@ -676,14 +713,11 @@ def main(argv=None):
             "UNVERIFIED until this resolves.\n" % (result["manifest_url"],)
         )
         return 3
-    if args.manifest_url and result["manifest_slugs"] == 0:
-        sys.stderr.write(
-            "catalog: DEGRADED -- manifest %s answered with ZERO slugs. That is "
-            "almost never real (birdgen ships ~290); treating as a fault rather "
-            "than silently reporting every autogen species as 'none'.\n"
-            % (args.manifest_url,)
-        )
-        return 3
+    # NOTE: a zero-slug manifest is now caught INSIDE fetch_manifest_slugs and
+    # reported as unanswered, so it lands in the branch above with the species
+    # correctly labelled 'unknown'. It used to be detected only here, which meant
+    # the exit code was right but the DATA was already published saying 'none' --
+    # the exit-3 guard's message contradicted the file it had just written.
     return 0
 
 

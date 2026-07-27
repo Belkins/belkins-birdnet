@@ -5,6 +5,10 @@
 # --- Where the collage comes from -------------------------------------------
 # Default: mirror the BirdNET-Pi on your network. This Pi screenshots it.
 base_url = "http://birdnet.local"
+# Page the shooter screenshots, relative to base_url. Keep this off "/" —
+# the root 302s to /collage/ (the React museum) and the shooter drives the
+# legacy apt.js page. base_url stays bare because the API is appended to it.
+shoot_path = "/index.html"
 shoot = true
 
 # Or fetch a ready-made PNG instead of rendering here (lighter, but needs
