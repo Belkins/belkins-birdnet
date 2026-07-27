@@ -313,7 +313,7 @@ def iter_sse(resp):
 
 # ---- main loop -------------------------------------------------------------
 
-def run():
+def run():  # noqa: C901  (complexity 19; pre-existing debt, see .flake8)
     log.info(
         "forwarder starting: events=%s railway=%s conf>=%.2f illustrations=%s "
         "secret=%s",

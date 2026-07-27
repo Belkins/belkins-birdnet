@@ -1,3 +1,28 @@
 [flake8]
 max-line-length = 160
 max-complexity = 15
+
+# services/birdgen/ is canonical; avian/scripts/ holds SYMLINKS to it (see
+# services/birdgen/README.md). flake8 follows symlinks, so without this it lints
+# the same bytes twice and every finding in the shared pipeline is reported
+# double — 164 of 354 findings were one file counted twice, which both inflated
+# the debt and made a real fix look like it had changed nothing.
+# Lint the canonical copy only.
+exclude =
+    .git,
+    __pycache__,
+    node_modules,
+    web/dist,
+    venv,
+    .venv,
+    avian/scripts/pregen.py,
+    avian/scripts/verify.py,
+    avian/scripts/creamkey.py
+
+# verify.py's long lines are all inside VERIFY_PROMPT — the text SENT TO THE
+# MODEL. Re-wrapping a prompt is not a formatting change, it is a behavioural
+# one: this is the adversarial species-ID/anatomy gate, and it fails OPEN, so a
+# subtly reworded prompt degrades quality with no error anywhere. Left long on
+# purpose. Scoped to E501 in this one file so every other rule still applies.
+per-file-ignores =
+    services/birdgen/verify.py:E501

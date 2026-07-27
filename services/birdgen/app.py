@@ -175,9 +175,14 @@ STYLES_DIR: Optional[Path] = Path(_styles) if _styles else None
 # Rough per-pose Gemini image cost. Feeds the persistent spend ledger + the
 # cost-estimate log line (an ESTIMATE: count × unit cost, never a billed figure).
 COST_PER_GEN_USD = float(os.environ.get("COST_PER_GEN_USD", "0.04"))
-COST_PER_VERIFY_USD = float(os.environ.get("COST_PER_VERIFY_USD", "0.002"))  # gemini-2.5-flash verify call (image-in, ~500 tok out) — much cheaper than image-out; ESTIMATE
+# gemini-2.5-flash verify call (image-in, ~500 tok out) — much cheaper than
+# image-out. ESTIMATE, not billing.
+COST_PER_VERIFY_USD = float(os.environ.get("COST_PER_VERIFY_USD", "0.002"))
 MONTHLY_BUDGET_USD = float(os.environ.get("MONTHLY_BUDGET_USD", "20"))       # soft ceiling on ESTIMATED month spend; 0 = unlimited
-MANUAL_BUDGET_USD = float(os.environ.get("MANUAL_BUDGET_USD", "6"))           # sub-ceiling on ESTIMATED manual (viewer-repaint) spend; past it /requeue refuses source=manual per-slug and auto-gen keeps the remaining monthly budget exclusively; 0 = no manual ceiling
+# Sub-ceiling on ESTIMATED manual (viewer-repaint) spend. Past it, /requeue
+# refuses source=manual per-slug and auto-gen keeps the remaining monthly
+# budget exclusively. 0 = no manual ceiling.
+MANUAL_BUDGET_USD = float(os.environ.get("MANUAL_BUDGET_USD", "6"))
 AV_VERIFY_MAX_REJECTS = int(os.environ.get("AV_VERIFY_MAX_REJECTS", "3"))    # per-species verify-reject budget before accept-with-flag (keep < MAX_ATTEMPTS)
 LEDGER_PATH = ASSETS_DIR / "gen-ledger.json"  # persistent spend ledger on the SAME volume as PNGs + state.db
 
@@ -717,6 +722,8 @@ bucket = TokenBucket(RATE_CAPACITY, RATE_REFILL)
 # --------------------------------------------------------------------------- #
 # Generation pipeline (blocking; run in a worker thread via asyncio.to_thread)
 # --------------------------------------------------------------------------- #
+
+
 class QAReject(Exception):
     pass
 
@@ -755,7 +762,7 @@ def _resolve_style_ref(sci: str, pose: int) -> Optional[Path]:
     return None
 
 
-def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:
+def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:  # noqa: C901  (complexity 20; pre-existing debt, see .flake8)
     """Connected-components on the opaque mask. A clean cutout is one dominant
     blob (the bird); extra components are painted debris — water ripples,
     reflections, torn-paper beige fragments. Up to QA_ISLAND_SCRUB of the frame
@@ -842,7 +849,7 @@ def _qa_islands(apx: list, w: int, h: int) -> Optional[bytearray]:
     return erase
 
 
-def _qa_inspect(cut_path: str) -> Optional[str]:
+def _qa_inspect(cut_path: str) -> Optional[str]:  # noqa: C901  (complexity 18; pre-existing debt, see .flake8)
     """Deterministic, Pillow-only dirty-output gate on the keyed RGBA. Raises
     QAReject on the signatures the opaque-fraction band alone misses: leaked
     magenta ground, ragged/fuzzy alpha, ground still touching the frame on
@@ -966,7 +973,9 @@ def _qa_inspect(cut_path: str) -> Optional[str]:
 CLEAN_SOLID_T = int(os.environ.get("CLEAN_SOLID_T", "140"))       # alpha >= this = confident body/leg/tail ink
 CLEAN_HALO_FRAC = float(os.environ.get("CLEAN_HALO_FRAC", "0.010"))  # keep-halo radius as a fraction of the long edge
 CLEAN_MIN_CORE_FRAC = float(os.environ.get("CLEAN_MIN_CORE_FRAC", "0.002"))  # min solid component to keep (drops specks)
-CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.10"))  # a DETACHED solid component smaller than this fraction of the body is a defect (dangling feet / ghost leg) -> dropped
+# A DETACHED solid component smaller than this fraction of the body is a defect
+# (dangling feet / ghost leg) -> dropped.
+CLEAN_SATELLITE_MAX_FRAC = float(os.environ.get("CLEAN_SATELLITE_MAX_FRAC", "0.10"))
 # Log-only tripwire (instrument first, gate never until log-only proves it):
 # clean_alpha runs AFTER the vision gate, so nothing inspects what it removed.
 # When a cleanup drops at least this fraction of the plate's opaque pixels
@@ -1048,13 +1057,17 @@ def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
                 comp.append(i)
                 x = i % w
                 if x > 0 and core[i - 1] and not seen[i - 1]:
-                    seen[i - 1] = 1; dq.append(i - 1)
+                    seen[i - 1] = 1
+                    dq.append(i - 1)
                 if x < w - 1 and core[i + 1] and not seen[i + 1]:
-                    seen[i + 1] = 1; dq.append(i + 1)
+                    seen[i + 1] = 1
+                    dq.append(i + 1)
                 if i >= w and core[i - w] and not seen[i - w]:
-                    seen[i - w] = 1; dq.append(i - w)
+                    seen[i - w] = 1
+                    dq.append(i - w)
                 if i < n - w and core[i + w] and not seen[i + w]:
-                    seen[i + w] = 1; dq.append(i + w)
+                    seen[i + w] = 1
+                    dq.append(i + w)
             if len(comp) >= min_sz:
                 comps.append((len(comp), comp))
     if not comps:
@@ -1213,7 +1226,7 @@ LEGS_NOTE = (
 )
 
 
-def _gen_pose(slug: str, sci: str, com: str, pose: int,
+def _gen_pose(slug: str, sci: str, com: str, pose: int,  # noqa: C901  (complexity 19; pre-existing debt, see .flake8)
               pos, anti, anti_key, manual: bool = False) -> float:
     """One pose end-to-end: MIN_SPACING throttle -> gen_one(pose) -> creamkey
     cutout -> QA gate -> atomic publish. pose 1 -> <slug>.png (perched),
@@ -1683,7 +1696,7 @@ async def detected(payload: Detection, authorization: Optional[str] = Header(Non
 
 
 @app.post("/requeue")
-async def requeue(request: Request, authorization: Optional[str] = Header(None)):
+async def requeue(request: Request, authorization: Optional[str] = Header(None)):  # noqa: C901  (complexity 21; pre-existing debt, see .flake8)
     """Admin/manual regen over HTTP (v2, contract C1). Body:
         {"slugs": ["erithacus-rubecula"],  # REQUIRED, non-empty (422 otherwise)
          "poses": [1] | [2] | [1,2],       # which poses to (re)generate; default [1,2]
@@ -1788,7 +1801,7 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
 
 
 @app.post("/reclean")
-async def reclean(request: Request, authorization: Optional[str] = Header(None)):
+async def reclean(request: Request, authorization: Optional[str] = Header(None)):  # noqa: C901  (complexity 22; pre-existing debt, see .flake8)
     """Re-run the edge cleanup over ALREADY-PUBLISHED plates — no Gemini call,
     no ledger cost, the SAME art. Fixes frayed/ripped thin features and faint
     ghosts that predate the cleanup step, without a stochastic re-roll. Body:
@@ -1906,6 +1919,7 @@ async def jobs_roster(authorization: Optional[str] = Header(None)):
             "SELECT slug, state, attempts, verify_rejects, fail_reason, attest "
             "FROM species_jobs ORDER BY slug"
         ).fetchall()
+
     def _size(p: Path) -> int:
         try:  # single stat, no exists()-then-stat() TOCTOU vs a delete-first requeue
             return p.stat().st_size

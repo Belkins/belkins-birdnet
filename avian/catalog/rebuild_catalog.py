@@ -235,7 +235,7 @@ def _hour_of(time_s):
         return None
 
 
-def aggregate(con):
+def aggregate(con):  # noqa: C901  (complexity 18; pre-existing debt, see .flake8)
     """Single deterministic pass over ``detections``. Returns
     ``(species, com_counts, daily, hours, weeks, source_rows)``.
 
