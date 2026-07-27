@@ -5,9 +5,10 @@
 //   LEFT   a bordered plate with the large kachō-e cutout + a perched/flight
 //          pose toggle (birdImageUrl's pose arg); a broken image collapses to a
 //          bounded letter plate, never an unbounded circle.
-//   RIGHT  the display name, italic scientific name, 2–3 stat cards (window /
-//          all-time / first-heard), the Wikipedia blurb, and a genus · rarity
-//          meta line.
+//   RIGHT  the display name, italic scientific name, the Library's 1838 line
+//          for this bird (when Jardine gave it an account), 2–3 stat cards
+//          (window / all-time / first-heard), the Wikipedia blurb, and a
+//          genus · rarity meta line.
 //   BELOW  a full-width RECORDINGS section — a scrollable list of the species'
 //          recent detections, each row playing its own clip via recording.php.
 //
@@ -24,6 +25,14 @@ import { fetchCatalog } from '../catalog';
 import { API_BASE, ATTEST_URL } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
+import {
+  counterpointFor,
+  fetchJardine,
+  firstSentence,
+  weakSource,
+  type JardineSpecies,
+} from '../jardine';
+import { clearBird, writeRead, writeTab } from '../url';
 import { useBirdImage } from '../useBirdImage';
 import { useRepaint, type RepaintPhase } from '../repaint';
 import { downloadPlateCard } from '../export-card';
@@ -66,7 +75,7 @@ type Pose = 1 | 2;
 // ── formatting helpers (ported from the legacy modal) ─────────────────────────
 
 /** "6h ago" / "3d ago" from a BirdNET Date + Time pair. */
-function fmtRelative(d: string | null, t: string | null): string {
+export function fmtRelative(d: string | null, t: string | null): string {
   if (!d) return '—';
   const date = new Date(`${d}T${t || '00:00:00'}`);
   if (Number.isNaN(date.getTime())) return `${d} ${t || ''}`.trim();
@@ -84,6 +93,31 @@ function fmtDateLine(d: string | null, t: string | null): string {
   if (Number.isNaN(date.getTime())) return `${d} ${t || ''}`.trim();
   const day = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   return `${day} · ${t ? t.slice(0, 5) : ''}`.trim();
+}
+
+/** 24 → "XXIV". The Naturalist's Library is forty volumes and always will be,
+ *  so the table stops at XL; anything outside 1–40 falls back to the plain
+ *  figure rather than inventing a numeral. Exported so the Library tab cites
+ *  its volumes through this one converter. */
+export function volumeRoman(n: number): string {
+  if (!Number.isInteger(n) || n < 1 || n > 40) return String(n);
+  const table: Array<[number, string]> = [
+    [40, 'XL'],
+    [10, 'X'],
+    [9, 'IX'],
+    [5, 'V'],
+    [4, 'IV'],
+    [1, 'I'],
+  ];
+  let out = '';
+  let rest = n;
+  for (const [v, s] of table) {
+    while (rest >= v) {
+      out += s;
+      rest -= v;
+    }
+  }
+  return out;
 }
 
 /** Detections-per-day heuristic → a plain-language rarity band. */
@@ -182,6 +216,12 @@ function Dialog({
   const [pose, setPose] = useState<Pose>(bird.pose ?? 1);
   // Conservator's Mark state (see the /attest fetch below); null = no mark.
   const [attest, setAttest] = useState<'attested' | 'caveat' | 'unexamined' | null>(null);
+  // THE RETURN LEG — this species' account in Jardine's Naturalist's Library
+  // (1833–1843), or null when the library has none. Thirteen of the forty birds
+  // heard in this garden have no account, and four of those are corvids he wrote
+  // thousands of words about without once describing the noise they make. That
+  // is content, not a gap: the block simply renders nothing.
+  const [jardine, setJardine] = useState<JardineSpecies | null>(null);
   // Readiness of the current pose's plate (reads cutout.php's X-Av-Real): a
   // still-generating species shows the "painting" loader and auto-swaps to art;
   // re-runs on every pose flip because imgUrl changes. `imgSrc` is the display
@@ -317,6 +357,25 @@ function Dialog({
     };
   }, [bird.sci]);
 
+  // The Library row for this species. fetchJardine() is session-memoised and
+  // never throws (a missing jardine.json collapses to an empty shape), so the
+  // join is the same selector the catalog uses above — sci_name, never the slug
+  // and never the common name.
+  useEffect(() => {
+    let alive = true;
+    fetchJardine()
+      .then((doc) => {
+        if (!alive) return;
+        setJardine(doc?.species.find((r) => r.sci_name === bird.sci) ?? null);
+      })
+      .catch(() => {
+        // defensive — the Jardine line just stays absent.
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bird.sci]);
+
   // Focus the close button on open (accessible dialog entry point) and dismiss
   // on Escape. stopPropagation keeps a global frame-mode Esc from also firing.
   useEffect(() => {
@@ -440,8 +499,41 @@ function Dialog({
     setProgress(pct);
   }
 
+  // Leave the reading room open on the Library tab. The URL is App's source of
+  // truth for the tab (App.tsx's popstate handler re-reads it), so this reuses
+  // url.ts's own writers — clearBird first, or the re-read would immediately
+  // reopen this dossier on top of the tab it just went to.
+  // THE AIM. This used to clear the bird and write no replacement, so the
+  // Library fell through to "the loudest bird in the window" — and with this
+  // garden's 81% three-bird concentration that meant the Robin or the Parakeet
+  // almost regardless of which bird the reader had open. The button announced
+  // one destination and delivered another. Now it names the bird.
+  function openInLibrary(): void {
+    clearBird();
+    writeRead(bird.sci);
+    writeTab('library');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    onClose();
+  }
+
   const title = bird.com || bird.sci;
   const genus = bird.sci.split(' ')[0] || '—';
+  // The 1838 name is printed only when it is NOT the one above it — an unchanged
+  // binomial would just repeat the line it sits under. The sentence is a verbatim
+  // slice via jardine.ts's own firstSentence(), OCR artefacts and all.
+  const jardineName =
+    jardine && jardine.jardine_binomial && jardine.jardine_binomial !== bird.sci
+      ? jardine.jardine_binomial
+      : null;
+  // What the library has to say — an 1838 sentence, or the museum's own account
+  // of why there isn't one. Routed through jardine.ts's ONE branch point so this
+  // dossier and the Library's Index of Silences can never disagree about which
+  // birds are silent. Before this, a voice:null bird rendered its binomial, then
+  // "Vol. XXIV", then nothing at all — sixteen of forty-seven species, including
+  // the Blue Tit, which is 8.5% of everything this garden has ever heard.
+  const counterpoint = counterpointFor(jardine);
+  const jardineVoice =
+    counterpoint?.kind === 'voice' ? firstSentence(counterpoint.passage.text) : null;
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
   const recordings = detail?.recordings ?? [];
 
@@ -555,6 +647,50 @@ function Dialog({
           <div className="bp-right">
             <h2 className="bp-name">{title}</h2>
             <div className="bp-sci">{bird.sci}</div>
+
+            {/* ── THE RETURN LEG — the same bird, as the library had it ──── */}
+            {/* One line from 1838 under the modern name: the binomial as it was
+                printed (when it has since moved), the opening of the passage on
+                its voice (when he wrote one), and the volume it stands in. The
+                speaker is printed with every passage, always — the volume author
+                is never assumed. No row → nothing renders, and that silence is
+                the honest answer, not an empty state. */}
+            {jardine && (
+              <div className="bp-jard">
+                {jardineName && (
+                  <div className="bp-jard-name">
+                    <span
+                      className="bp-jard-bin"
+                      data-weak={weakSource(jardine) ? 'true' : undefined}
+                      title={weakSource(jardine) ?? undefined}
+                    >
+                      {jardineName}
+                    </span>
+                    {jardine.jardine_authority && (
+                      <span className="bp-jard-auth">{jardine.jardine_authority}</span>
+                    )}
+                  </div>
+                )}
+                {jardineVoice && <p className="bp-jard-voice prose-nums">{jardineVoice}</p>}
+                {counterpoint?.kind === 'silence' && (
+                  <p className="bp-jard-silence">{counterpoint.note}</p>
+                )}
+                <div className="bp-jard-cite">
+                  <span className="bp-jard-src">
+                    {jardineVoice && jardine.voice?.speaker ? `${jardine.voice.speaker} · ` : ''}
+                    Vol. {volumeRoman(jardine.volume)}
+                  </span>
+                  <button
+                    type="button"
+                    className="bp-lnk bp-lnk-b"
+                    onClick={openInLibrary}
+                    aria-label={`Open ${title} in the Library`}
+                  >
+                    in the library →
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bp-stats">
               {showWindowStat && (

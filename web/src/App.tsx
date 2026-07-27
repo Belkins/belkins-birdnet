@@ -17,16 +17,26 @@ import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 import { BirdPopup, type BirdRef } from './components/BirdPopup';
 import { CollectionWallView } from './views/CollectionWallView';
+import { LibraryView } from './views/LibraryView';
+import { LibraryFrameView } from './views/LibraryFrameView';
 import { LiveView } from './views/LiveView';
 import type { FeedRow } from './views/LiveView';
-import { readUrl, writeTab, writeBird, clearBird, writePose, writeOn } from './url';
+import {
+  readUrl,
+  writeTab,
+  writeBird,
+  clearBird,
+  writePose,
+  writeOn,
+  clearRead,
+} from './url';
 import { fetchCatalog } from './catalog';
 import { Scrubber } from './components/Scrubber';
 import { fetchDayActivity, formatDay, isoDay } from './days';
 import type { DayActivity } from './days';
 import { fetchDaySnapshot } from './snapshot';
 
-type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall';
+type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall' | 'library';
 
 const PERIODS: { label: string; hours: number }[] = [
   { label: '1H', hours: 1 },
@@ -35,7 +45,7 @@ const PERIODS: { label: string; hours: number }[] = [
   { label: '7D', hours: 168 },
   { label: 'ALL', hours: 1_000_000 },
 ];
-const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas', 'wall'];
+const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas', 'wall', 'library'];
 
 /** Active-window label for the given hours (falls back to 24H). */
 function windowLabelFor(hours: number): string {
@@ -51,7 +61,7 @@ const BOOT_URL = readUrl();
 
 /** Narrow an untrusted string (URL param / localStorage) to a Tab, else null. */
 function asTab(v: string | null): Tab | null {
-  return v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas' || v === 'wall' ? v : null;
+  return v === 'collage' || v === 'index' || v === 'stats' || v === 'atlas' || v === 'wall' || v === 'library' ? v : null;
 }
 
 /** Restore the last-viewed tab (persisted separately from the Settings blob). */
@@ -126,6 +136,9 @@ export default function App() {
 
   // URL wins over localStorage so a shared ?tab= link boots into that view.
   const [tab, setTab] = useState<Tab>(() => asTab(BOOT_URL.tab) ?? loadTab());
+  // THE AIM (?read=) — which bird the Library's desk should open on. Seeded
+  // from the boot URL and refreshed on popstate, exactly like `tab`.
+  const [aim, setAim] = useState<string | null>(() => BOOT_URL.read);
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [status, setStatus] = useState('starting');
   const [latest, setLatest] = useState('');
@@ -392,6 +405,7 @@ export default function App() {
     const onPop = () => {
       const u = readUrl();
       setTab(asTab(u.tab) ?? 'collage');
+      setAim(u.read);
       if (u.birdSlug) openFromUrl(u.birdSlug, u.pose);
       else setPopup(null);
       if (u.on !== viewDayRef.current) selectDay(u.on);
@@ -400,7 +414,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, [openFromUrl, selectDay]);
 
-  // Tab → URL (replaceState only — arrow-key/1–5 cycling never spams history);
+  // Tab → URL (replaceState only — arrow-key/1–6 cycling never spams history);
   // the first run also publishes a localStorage-restored tab so the address
   // bar is always truthful. Never while framed: a kiosk parked on its boot
   // URL keeps it verbatim (tab state is pinned to the collage there anyway).
@@ -419,13 +433,13 @@ export default function App() {
     else if (prev) clearBird();
   }, [popup]);
 
-  // Global keys App owns: 1–5 switch tabs, ←/→ cycle the window (or step
+  // Global keys App owns: 1–6 switch tabs, ←/→ cycle the window (or step
   // archive days while a past day is pinned). `F` (toggle) and `Esc` (exit)
   // stay owned by useFrameMode; the Settings drawer owns its own Esc.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key.length === 1 && e.key >= '1' && e.key <= '5') {
+      if (e.key.length === 1 && e.key >= '1' && e.key <= '6') {
         if (!framed) setTab(TABS[Number(e.key) - 1]);
         return;
       }
@@ -498,8 +512,20 @@ export default function App() {
     if (fresh.length) setFeed((f) => [...fresh, ...f].slice(0, 40));
   }, [rows, settings.windowHours, viewDay]);
 
-  // Tab is pinned to the collage while framed (the other tabs' chrome is hidden).
-  const shownTab: Tab = framed ? 'collage' : tab;
+  // The reading wall — the ONE additional surface the frame may be pointed at
+  // (owner decision 1). Opt-in is explicit: under a kiosk/e-ink boot only a
+  // literal ?tab=library selects it, so a bare ?frame=1 renders the collage
+  // rosette exactly as it does today even if this browser's localStorage last
+  // held 'library'. Unframed, toggling into frame mode from the LIBRARY tab
+  // carries the wall over — a state that could not exist before this tab did.
+  // asTab stays the ONLY gate that reads the raw ?tab= param, here as everywhere.
+  const frameLibrary =
+    framed && (FRAME_AT_BOOT ? asTab(BOOT_URL.tab) === 'library' : tab === 'library');
+  // Tab is pinned to the collage while framed (the other tabs' chrome is hidden),
+  // the reading wall excepted — and everything keyed on 'collage' below (the
+  // mast, the live dashboard, the listening pulse, the scrubber, the colophon)
+  // therefore stays silent on it without a second condition.
+  const shownTab: Tab = framed ? (frameLibrary ? 'library' : 'collage') : tab;
   // The rolling-1H window turns the collage surface into the live dashboard —
   // never while a past day is pinned (an archive has no live dashboard).
   const liveActive =
@@ -639,6 +665,23 @@ export default function App() {
           <CollectionWallView />
         </Overlay>
       )}
+      {shownTab === 'library' && !frameLibrary && (
+        <Overlay>
+          <LibraryView
+            rows={rows}
+            windowHours={settings.windowHours}
+            aim={aim}
+            onReleaseAim={() => {
+              setAim(null);
+              clearRead();
+            }}
+            onOpen={(r) => setPopup({ sci: r.sci, com: r.com, slug: r.slug, n: r.n })}
+          />
+        </Overlay>
+      )}
+      {/* The reading wall: chrome-free, no Overlay, no dossier — an ADDITIONAL
+          frame surface, never a change to what the e-ink frame shows today. */}
+      {frameLibrary && <LibraryFrameView rows={rows} windowHours={settings.windowHours} />}
 
       {/* The bottom control row: the view tabs, and — right after them — the
           time-travel ruler when there is an archive to travel. One matched

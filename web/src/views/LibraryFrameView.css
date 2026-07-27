@@ -1,0 +1,220 @@
+/* THE READING PAGE — the additional e-ink frame surface (owner decision 1).
+   A photograph of a page: no animation, no transition, no hover state, no
+   :active, no filter, no gradient, no image, no radius. Every colour resolves
+   from a token in index.css, so [data-theme='day'] inverts for free and the
+   panel can be pointed at either.
+
+   THE 1-BIT RULES this stylesheet is actually obeying:
+     · FLAT ground. The museum's .overlay is a radial gradient; a gradient is the
+       one thing a 1-bit panel cannot hold — it dithers into visible banding. So
+       the ground here is a single token, var(--bg2), edge to edge.
+     · NO HAIRLINE BELOW 1px and no sub-token greys carrying meaning. A 0.5px
+       rule or a --mut-2 caption thresholds to nothing on the panel.
+     · TYPE SIZED OFF THE VIEWPORT, not the page. The capture runs at a 600×800
+       portrait viewport at dsf=2 (frame/shoot.py) while a desk browser opens it
+       at 1440 wide; a fixed px scale is legible in exactly one of those. */
+
+.lfr {
+  position: fixed;
+  inset: 0;
+  /* Above every view overlay (30) and the wall captions (50); deliberately BELOW
+     the frame exit pill (FrameOverlay.css:9, z-index 60) so the one control that
+     gets a person out of frame mode is never covered by this surface. */
+  z-index: 55;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5vh;
+  padding: 7vh 7vw;
+  background: var(--bg2);
+  color: var(--ink);
+  text-align: center;
+  overflow: hidden;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The standing head. Present on every state, including silence — it is the
+   running head of a book, not a status line. */
+.lfr-head {
+  flex: none;
+  font-family: var(--mono);
+  font-size: clamp(8px, 1.05vw, 11px);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+/* THE PAGE. The measure lives here, in `ch` against the passage's own size, so
+   the printed rule under the type is exactly as wide as the type — the way an
+   engraved plate carries its ornament at the width of the caption. */
+.lfr-page {
+  flex: none;
+  font-family: var(--display);
+  font-size: clamp(23px, 4.4vw, 44px);
+  width: min(34ch, 94%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: left;
+}
+
+/* Jardine's own heading for the account, in his hand: Cormorant italic, quiet,
+   centred over the measure like a chapter head. */
+.lfr-title {
+  font-style: italic;
+  font-weight: 500;
+  font-size: 0.6em;
+  line-height: 1.15;
+  color: var(--mut);
+  text-align: center;
+  margin: 0 0 0.62em;
+}
+
+/* The 1838 sentence. Ragged right, real reading measure, full ink — this surface
+   is read at wall distance and thresholded to one bit, so the tab's --ink-2
+   anti-glare setting would only cost contrast here. */
+.lfr-passage {
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--ink);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+/* The 2026 hand, annotating: an OCR artefact preserved verbatim and marked, not
+   corrected (owner decision 3). Mono, small, raised — a printer's mark. */
+.lfr-sic {
+  font-family: var(--mono);
+  font-size: 0.3em;
+  letter-spacing: 0.08em;
+  vertical-align: 0.62em;
+  color: var(--mut);
+  margin-left: 0.25em;
+  white-space: nowrap;
+}
+
+/* THE PRINTED RULE UNDER THE TYPE. On the Reading Desk this band carries the
+   Pi's spectrogram; on 1-bit it carries nothing, because a spectrogram is a
+   gradient. So it is what it always was underneath: a rule. */
+.lfr-rule {
+  height: 1px;
+  width: 100%;
+  background: var(--line);
+  margin: 0.7em 0 0;
+}
+
+/* The author, in 1838's own hand — Cormorant small-caps, mirroring Rougeux's
+   span.scaps and the tab's two-hand law. */
+.lfr-by {
+  font-family: var(--display);
+  font-variant: small-caps;
+  font-weight: 500;
+  font-size: 0.4em;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  color: var(--ink-2);
+  margin-top: 0.55em;
+}
+
+/* The shelf-mark, in 2026's hand — mono, uppercased by CSS so the JSON stays
+   verbatim. */
+.lfr-cite {
+  font-family: var(--mono);
+  font-size: clamp(8px, 0.95vw, 11px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  margin-top: 7px;
+}
+
+/* THE GARDEN'S ANSWER — the whole point of the surface: a sentence from 1838 and
+   a date from this week in one photograph. --amber per the museum's amber law:
+   it marks a number MEASURED BY THE PI and nothing else. */
+.lfr-garden {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.85em;
+  min-height: 1em;
+  font-family: var(--mono);
+  font-size: clamp(9px, 1.1vw, 12px);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.lfr-sep {
+  color: var(--mut);
+}
+.lfr-heard {
+  color: var(--amber);
+}
+.lfr-unheard {
+  color: var(--mut);
+}
+
+/* Nothing true to print. One line, no apology, no empty-state illustration. */
+.lfr-silent {
+  font-family: var(--mono);
+  font-size: clamp(9px, 1.15vw, 12px);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+/* Still gathering: an invisible strut so the head and the garden line hold their
+   places and the composition does not jump when the page arrives. */
+.lfr-page-gap {
+  flex: none;
+  height: 1px;
+}
+
+/* ── 1-BIT / SPECTRA-6 PANEL ──────────────────────────────────
+   `?surface=eink` (profile.ts) already implies spectra6 / motion off / portrait.
+   The only thing left to fix is that the museum's quiet greys carry real
+   information here and a 1-bit threshold throws half of them away — so on the
+   panel every caption steps up one token. No new colour is introduced; the
+   values still come from index.css and still invert under the day theme. */
+.lfr[data-surface='eink'] .lfr-head,
+.lfr[data-surface='eink'] .lfr-cite,
+.lfr[data-surface='eink'] .lfr-title,
+.lfr[data-surface='eink'] .lfr-silent,
+.lfr[data-surface='eink'] .lfr-unheard {
+  color: var(--ink-2);
+}
+.lfr[data-surface='eink'] .lfr-sic,
+.lfr[data-surface='eink'] .lfr-sep {
+  color: var(--mut);
+}
+.lfr[data-surface='eink'] .lfr-heard {
+  /* Spectra-6 has no amber ink and 1-bit has no colour at all: the Pi's date
+     must stay legible on hierarchy alone, so it takes full ink and keeps its
+     meaning from position, not hue. */
+  color: var(--ink);
+}
+.lfr[data-surface='eink'] .lfr-rule {
+  background: var(--ink-2);
+}
+
+/* The museum's single existing breakpoint (App.css:876). The measure tightens
+   and the padding gives way; nothing shrinks below reading size and nothing
+   scrolls horizontally. */
+@media (max-width: 760px) {
+  .lfr {
+    padding: 5vh 7vw;
+    gap: 4vh;
+  }
+  .lfr-page {
+    font-size: clamp(21px, 6.4vw, 34px);
+    width: min(30ch, 100%);
+  }
+  .lfr-head,
+  .lfr-garden,
+  .lfr-silent {
+    letter-spacing: 0.16em;
+  }
+}

@@ -10,6 +10,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { JSX } from 'react';
 import { fetchCatalog, type CatalogSpecies } from '../catalog';
+import {
+  counterpointFor,
+  fetchJardine,
+  firstSentence,
+  speciesBySci,
+  type JardineSpecies,
+} from '../jardine';
 import { birdImageUrl } from '../img';
 import { BASE } from '../config';
 
@@ -59,6 +66,10 @@ export function Play(): JSX.Element {
   const [names, setNames] = useState<string[]>([]); // all common names (distractors)
   const [q, setQ] = useState<Question | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
+  // THE 1838 REVEAL. fetchJardine() is session-memoised and never throws — a
+  // missing jardine.json collapses to the empty shape, the map is empty, and
+  // every reveal renders exactly as it did before this existed.
+  const [jard, setJard] = useState<Map<string, JardineSpecies>>(new Map());
   const [score, setScore] = useState({ right: 0, total: 0 });
   const [hard, setHard] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -73,6 +84,20 @@ export function Play(): JSX.Element {
     },
     [],
   );
+
+  useEffect(() => {
+    let live = true;
+    fetchJardine()
+      .then((doc) => {
+        if (live) setJard(speciesBySci(doc));
+      })
+      .catch(() => {
+        /* the game simply keeps its own reveal */
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -171,6 +196,28 @@ export function Play(): JSX.Element {
                 {q.answer.accession != null && `No. ${String(q.answer.accession).padStart(3, '0')} · `}
                 {fieldNote(q.answer)}
               </div>
+              {/* What the library said — and for 19 of 51 species, that it said
+                  nothing. Routed through the SAME selector the Library tab and
+                  the dossier use, so the three surfaces can never disagree about
+                  which birds are silent. Absent corpus → this block never
+                  mounts and the game reads exactly as before. */}
+              {(() => {
+                const cp = counterpointFor(jard.get(q.answer.sci_name));
+                if (!cp) return null;
+                return cp.kind === 'voice' ? (
+                  <div className="pl-jard">
+                    <p className="pl-jard-t">{firstSentence(cp.passage.text)}</p>
+                    <span className="pl-jard-c">
+                      {cp.passage.speaker} · {cp.passage.volume_title}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="pl-jard">
+                    <span className="pl-jard-s">the library is silent on this one</span>
+                    <span className="pl-jard-c">{cp.note}</span>
+                  </div>
+                );
+              })()}
               <button className="pl-next" onClick={() => nextQuestion(pool, names)}>
                 next visitor →
               </button>
