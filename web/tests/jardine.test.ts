@@ -1447,3 +1447,46 @@ test('H4 the dossier actually RENDERS the silence leg', () => {
     'the dossier has no silence branch — voice:null birds render nothing again',
   );
 });
+
+test('H5 the Index never prints a bird this garden has not heard', () => {
+  // WHY — the fixture-vs-production trap, which already shipped once.
+  //
+  // This section's argument is "the book is silent and the microphone is not".
+  // A bird the microphone has never heard makes no such argument: it renders a
+  // bare `0 recorded here` next to a Listen button that 404s. That is invisible
+  // in the committed fixture and was live on the real station, because the
+  // fixture and the station are DIFFERENT sets of 47 — the fixture carries the
+  // Herring Gull and the Starling, and the station has never heard either.
+  //
+  // Asserted against a catalog deliberately missing rows, so the guard tests the
+  // RULE rather than today's data: any silent species absent from the catalog,
+  // or present with a zero tally, must not reach the page.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.deepEqual(silences(EMPTY, []), []);
+    return;
+  }
+  const j = normalize(raw);
+  const silent = j.species.filter((s) => s.voice === null && (s.note ?? '').trim());
+  assert.ok(silent.length > 2, 'too few silences to exercise the rule');
+
+  // half the silent birds heard, half not heard at all, one heard exactly zero times
+  const heard = silent.slice(0, Math.floor(silent.length / 2));
+  const zeroed = silent[silent.length - 1];
+  const catalog = [
+    ...heard.map((s, i) => ({ ...london[0], sci_name: s.sci_name, detection_count: i + 1 })),
+    { ...london[0], sci_name: zeroed.sci_name, detection_count: 0 },
+  ] as CatalogSpecies[];
+
+  const rows = silences(j, catalog);
+  assert.deepEqual(
+    rows.map((r) => r.species.sci_name).sort(),
+    heard.map((s) => s.sci_name).sort(),
+    'the Index rendered a bird the catalog does not report hearing',
+  );
+  for (const r of rows) {
+    assert.ok(r.count > 0, `${r.species.sci_name} rendered with a zero tally`);
+  }
+  // and with no catalog at all the section is empty, not a wall of zeroes
+  assert.deepEqual(silences(j, []), []);
+});

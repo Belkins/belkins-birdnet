@@ -439,6 +439,18 @@ export function silences(
   return j.species
     .filter((s) => s.voice === null && (s.note ?? '').trim() !== '')
     .map((s) => ({ species: s, count: tally.get(s.sci_name) ?? 0 }))
+    // THE GARDEN MUST HAVE AN ANSWER. This section's whole argument is "the book
+    // is silent and the microphone is not", so a bird THIS station has never
+    // heard makes no argument: it would print a bare `0 recorded here` beside a
+    // Listen button that 404s.
+    //
+    // Not hypothetical, and invisible in the fixture — which is why it shipped.
+    // The committed 47-row fixture and the LIVE station are different sets of 47:
+    // the fixture carries Herring Gull and Starling, the station has never heard
+    // either, and both are silence rows. Measured against the live catalog on
+    // 2026-07-27. Any editorial claim on this tab must be checked against
+    // production, never against the fixture that makes it look true.
+    .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count || a.species.sci_name.localeCompare(b.species.sci_name));
 }
 
