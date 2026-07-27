@@ -212,9 +212,19 @@ grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
   || fail "scripts/update_caddyfile.sh no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal and adminer to the LAN"
 grep -q 'abort @badhost' scripts/update_caddyfile.sh \
   || fail "scripts/update_caddyfile.sh lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
-for pth in '/play.php\*' '/terminal\*' '/scripts\*' '/log\*' '/By_Date\*'; do
-  grep -q "basicauth $pth" scripts/update_caddyfile.sh \
-    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php"
+#    Do NOT hand-enumerate a subset: an earlier version listed 5 of the 11 gated
+#    paths, so /stream, /Processed*, /phpsysinfo*, /stats*, /Charts* and
+#    /views.php?view=File* could all have been dropped with CI still green —
+#    a guard scoped to the paths I happened to remember. Pin the COUNT and the
+#    set that must always be present, both derived from the file itself.
+_gated=$(grep -oE 'basicauth [^[:space:]]+' scripts/update_caddyfile.sh | awk '{print $2}' | sort -u)
+_n=$(printf '%s\n' "$_gated" | grep -c .)
+[ "$_n" -ge 11 ] \
+  || fail "scripts/update_caddyfile.sh gates only $_n paths (expected >= 11) — a path was dropped from the auth variant; compare against the live Caddyfile before assuming it is intentional"
+for pth in '/play.php*' '/terminal*' '/scripts*' '/log*' '/stats*' '/stream' \
+           '/phpsysinfo*' '/Processed*' '/By_Date*' '/Charts*' '/views.php?view=File*'; do
+  printf '%s\n' "$_gated" | grep -qxF "$pth" \
+    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
 done
 [ -e scripts/adminer.php ] \
   && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
