@@ -198,6 +198,21 @@ function corpusRaw(): unknown | null {
   return JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as unknown;
 }
 
+/** Strip block and line comments so a guard asserts an INVOCATION and not a
+ *  mention. A commented-out call is exactly the regression these tests exist to
+ *  catch, so it must never satisfy one. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+}
+
+/** Every file that renders a Jardine row. A new one must be added here — which
+ *  is the point: the list is the checklist. */
+const CONSUMERS = [
+  '../src/views/LibraryView.tsx',
+  '../src/views/LibraryFrameView.tsx',
+  '../src/components/BirdPopup.tsx',
+];
+
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -1204,20 +1219,29 @@ test('G3 a malformed artefact list degrades to no marker, never to a throw', () 
   assert.deepEqual(j.species[0].sic, []);
 });
 
-test('G4 the Roll still ROUTES both rendered fields through sicNodes()', () => {
+test('G4 every surface that prints a binomial ROUTES it through sicNodes()', () => {
   // WHY: G2 proves the data is markable; nothing else proves the page marks it.
-  // The two are independent — tidy the JSX to `{j.jardine_binomial}` and G2 stays
-  // green while every [sic] silently disappears from the wall, which is the same
-  // invisible failure as never having had the field. There is no DOM in this
-  // suite by design (node --test, no bundler), so the shipped source is asserted
-  // directly, exactly as scripts/repo-guards.sh asserts its own invariants.
-  const src = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
-    .replace(/\s+/g, ' ');
-  for (const field of ['jardine_binomial', 'jardine_authority']) {
-    assert.ok(
-      src.includes(`sicNodes(j.${field}, j.sic)`),
-      `the Roll prints j.${field} without routing it through sicNodes() — its [sic] markers would vanish silently`,
-    );
+  // Tidy the JSX to `{j.jardine_binomial}` and G2 stays green while every [sic]
+  // silently disappears from the wall.
+  //
+  // THE GUARD ITSELF WAS THE BUG ONCE. It used to be a bare
+  // `src.includes("sicNodes(j.X, j.sic)")` over one whitespace-collapsed file,
+  // which is fail-open AND fragile at the same time: a commented-out call, a
+  // dead `{false && …}` branch or an unmounted component all satisfied a
+  // substring match, while a behaviour-preserving prettier reformat across two
+  // lines broke it. So: comments are STRIPPED before matching (a mention in a
+  // comment must not count as an invocation), whitespace is tolerant, and every
+  // file that reads `.jardine_binomial` is checked rather than one hard-coded
+  // path — a new surface printing the name unmarked fails here.
+  for (const file of ['../src/views/LibraryView.tsx']) {
+    const src = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'));
+    for (const field of ['jardine_binomial', 'jardine_authority']) {
+      assert.match(
+        src,
+        new RegExp(`sicNodes\\(\\s*j\\.${field}\\s*,\\s*j\\.sic\\s*,?\\s*\\)`),
+        `${file} prints j.${field} without routing it through sicNodes() — its [sic] markers would vanish`,
+      );
+    }
   }
 });
 
@@ -1258,19 +1282,61 @@ test('G5 every binomial_source in the corpus survives normalize AND is classifie
     );
   }
 
-  // half 2 — the view classifies every member of the union
-  const src = readFileSync(new URL('../src/jardine.ts', import.meta.url), 'utf8');
-  const union = /export type JardineBinomialSource =([^;]+);/.exec(src);
+  // half 2 — ONE authority classifies the union, and nobody hand-rolls it.
+  //
+  // This half used to grep a single hard-coded view for `case '<member>':`,
+  // which is the scoped-guard shape this repo keeps shipping: it stayed green
+  // while the Index of Silences printed 11 weak-sourced binomials with no
+  // marker at all, and while BirdPopup hand-rolled `=== 'synonymy'` with the
+  // tooltip inlined, so the dossier and the Roll disagreed about the same name.
+  // Now it asserts the CLASS: weakSource() handles every weak member, and no
+  // file anywhere compares binomial_source itself.
+  const lib = readFileSync(new URL('../src/jardine.ts', import.meta.url), 'utf8');
+  const union = /export type JardineBinomialSource =([^;]+);/.exec(lib);
   assert.ok(union, 'could not find the JardineBinomialSource union');
   const members = [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
   assert.ok(members.includes('em'), 'the strong path vanished from the union');
-  const view = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
-    .replace(/\s+/g, ' ');
   for (const m of members.filter((x) => x !== 'em')) {
-    assert.ok(
-      view.includes(`case '${m}':`),
+    assert.match(
+      lib,
+      new RegExp(`case '${m}':`),
       `weakSource() has no case for '${m}' — it would fall through to strong and print no verify marker`,
     );
+  }
+  for (const file of CONSUMERS) {
+    const body = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'));
+
+    // (a) nobody re-implements the rule
+    assert.ok(
+      !/binomial_source\s*===/.test(body),
+      `${file} compares binomial_source directly instead of calling weakSource() — ` +
+        `that is how the Roll, the Index of Silences and the dossier drifted apart`,
+    );
+
+    // (b) a file that PRINTS a binomial must ASK about its provenance. Removing
+    //     the marker outright leaves no hand-rolled comparison for (a) to catch,
+    //     which is exactly how 11 of the 16 silence rows shipped unmarked.
+    if (/\.jardine_binomial/.test(body)) {
+      assert.match(
+        body,
+        /weakSource\s*\(/,
+        `${file} renders a Jardine binomial but never calls weakSource() — ` +
+          `a weakly-sourced name would print as though the extraction were certain`,
+      );
+    }
+
+    // (c) PER RENDER SITE, derived from the source rather than hard-coded: for
+    //     every `sicNodes(X.jardine_binomial, X.sic)` the same X must reach
+    //     weakSource(X). Rename-proof, and a NEW section that prints a binomial
+    //     bare fails here on the day it is written.
+    for (const m of body.matchAll(/sicNodes\(\s*([A-Za-z_$][\w$]*)\.jardine_binomial/g)) {
+      const v = m[1];
+      assert.ok(
+        new RegExp(`weakSource\\(\\s*${v}\\s*\\)`).test(body),
+        `${file} prints ${v}.jardine_binomial but never calls weakSource(${v}) — ` +
+          `that row would carry no verify marker while the Roll marks the same name`,
+      );
+    }
   }
 });
 

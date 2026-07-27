@@ -370,6 +370,32 @@ export function sealLine(c: JardineColophon | null): string {
     : 'the acceptance pass is unsigned — no human has yet signed for this text';
 }
 
+/** THE WEAK-PATH RULE — the ONE authority, exported because it had three
+ *  implementations and they disagreed.
+ *
+ *  Two of the three discriminators are weak and BOTH must wear the verify
+ *  marker: `synonymy` reads the binomial off a synonymy line, `scaps` off a
+ *  small-caps run opening a narrative paragraph. `em` is the strong path.
+ *  Returns the tooltip when the row is weak and null when it is strong, so a
+ *  marker can never appear without its explanation.
+ *
+ *  IT LIVES HERE, NOT IN A VIEW. It was previously a private function in
+ *  LibraryView, which meant the Roll classified both weak paths while the
+ *  Index of Silences printed no marker at all (11 of its 16 rows are weak) and
+ *  BirdPopup hand-rolled `=== 'synonymy'` with the tooltip inlined, so the
+ *  dossier and the Roll gave contradictory provenance for the same binomial.
+ *  Every consumer must call THIS — a copy is how the three drifted apart. */
+export function weakSource(s: JardineSpecies): string | null {
+  switch (s.binomial_source) {
+    case 'synonymy':
+      return 'read from the synonymy line; verify';
+    case 'scaps':
+      return 'read from a small-caps opening line; verify';
+    default:
+      return null;
+  }
+}
+
 /** What the library has to say about a bird: either an 1838 sentence, or the
  *  museum's own account of why there isn't one. */
 export type Counterpoint =

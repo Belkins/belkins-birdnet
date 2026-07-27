@@ -29,6 +29,7 @@ import {
   counterpointFor,
   fetchJardine,
   firstSentence,
+  weakSource,
   type JardineSpecies,
 } from '../jardine';
 import { clearBird, writeTab } from '../url';
@@ -654,12 +655,8 @@ function Dialog({
                   <div className="bp-jard-name">
                     <span
                       className="bp-jard-bin"
-                      data-weak={jardine.binomial_source === 'synonymy' ? 'true' : undefined}
-                      title={
-                        jardine.binomial_source === 'synonymy'
-                          ? 'read from the synonymy line; verify'
-                          : undefined
-                      }
+                      data-weak={weakSource(jardine) ? 'true' : undefined}
+                      title={weakSource(jardine) ?? undefined}
                     >
                       {jardineName}
                     </span>

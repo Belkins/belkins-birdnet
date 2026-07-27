@@ -39,6 +39,7 @@ import {
   sealLine,
   silences,
   speciesBySci,
+  weakSource,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -141,23 +142,6 @@ function sicNodes(text: string, sic: JardineSic[]): ReactNode {
   return nodes;
 }
 
-/** THE WEAK-PATH RULE, single-sourced. Two of the three discriminators are
- *  weak and BOTH must wear the verify marker: `synonymy` reads the binomial off
- *  a synonymy line, `scaps` off a small-caps run opening a narrative paragraph.
- *  Returns the tooltip when the row is weak, null when it is strong — so the
- *  marker and its explanation can never drift apart. Adding a source to the
- *  union without adding it here is caught by the G5 test. */
-function weakSource(j: JardineSpecies): string | null {
-  switch (j.binomial_source) {
-    case 'synonymy':
-      return 'read from the synonymy line; verify';
-    case 'scaps':
-      return 'read from a small-caps opening line; verify';
-    default:
-      return null;
-  }
-}
-
 /** THE INDEX OF SILENCES — the birds Jardine described without ever describing
  *  their sound, and the Pi playing the very thing the book failed to write down.
  *
@@ -193,7 +177,15 @@ function SilenceIndex({
           <li className="lib-sil-row" key={species.sci_name}>
             <div className="lib-sil-head">
               <span className="lib-sil-com">{comFor(species.sci_name)}</span>
-              <span className="lib-sil-bin">{sicNodes(species.jardine_binomial, species.sic)}</span>
+              {/* the SAME provenance marker the Roll prints. 11 of these 16
+                  rows are weak-sourced; printing them bare stated a confidence
+                  the extraction never had. */}
+              <span
+                className={weakSource(species) ? 'lib-sil-bin lib-roll-weak' : 'lib-sil-bin'}
+                title={weakSource(species) ?? undefined}
+              >
+                {sicNodes(species.jardine_binomial, species.sic)}
+              </span>
               <span className="lib-sil-n prose-nums">
                 {count.toLocaleString()} <span className="lib-sil-u">recorded here</span>
               </span>
