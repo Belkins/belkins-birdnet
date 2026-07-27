@@ -1,1 +1,0 @@
-import{_ as e,d as t,i as n,p as r,u as i}from"./catalog-DsaclM48.js";var a=new Set(n.filter(e=>e.hasAsset).map(e=>i(e.sci)));function o(n,i,o=1){return e?a.has(n)?`${r}mock/${n}.png`:null:`${t}/cutout.php?sci=${encodeURIComponent(i)}&pose=${o}`}export{o as t};

@@ -100,6 +100,12 @@ const silences = jardineMod.silences as (
   c: CatalogSpecies[],
 ) => Array<{ species: JardineSpecies; count: number }>;
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
+const fetchAccounts = jardineMod.fetchAccounts as () => Promise<Record<string, JardinePassage[]>>;
+const ACCOUNTS_PATH = new URL('../public/jardine-accounts.json', import.meta.url);
+function accountsRaw(): unknown | null {
+  if (!existsSync(ACCOUNTS_PATH)) return null;
+  return JSON.parse(readFileSync(ACCOUNTS_PATH, 'utf8')) as unknown;
+}
 
 // ── THE READING DESK selector ────────────────────────────────────────────────
 // The desk's two-tier pick is the tab's signature and the only job the shared
@@ -1695,5 +1701,118 @@ test('I6 every CSS variable the Library uses is actually defined somewhere', () 
     [],
     'these custom properties are used but defined nowhere, so they silently fall back:\n  ' +
       bad.join('\n  '),
+  );
+});
+
+// ═══ J · THE FULL ACCOUNT ══════════════════════════════════════════════════
+
+test('J1 every passage in the accounts file clears the same walls as the curated one', () => {
+  // WHY: this file is 3.6x the curated payload and nobody reads it line by line.
+  // It carries the SAME risk the curated file does — a flattened quotation puts
+  // a stranger's sentence under a named dead man — and it must clear the same
+  // walls: no quotation, no blank speaker, and a volume that is actually on the
+  // shelf. A generator is not a guarantee; the shipped bytes are.
+  const raw = accountsRaw();
+  if (raw === null) return; // optional by contract: absent → no reading affordance
+  const acc = raw as Record<string, unknown>;
+  const curated = corpusRaw();
+  if (curated === null) return;
+  const j = normalize(curated);
+  const known = new Set(j.species.map((s) => s.sci_name));
+  const vols = new Set(j.volumes.map((v) => v.n));
+  let n = 0;
+  for (const [sci, rows] of Object.entries(acc)) {
+    assert.ok(known.has(sci), `${sci} is in the accounts file but not in the curated corpus`);
+    assert.ok(Array.isArray(rows) && rows.length > 0, `${sci} has no passages`);
+    for (const p of rows as Array<Record<string, unknown>>) {
+      n++;
+      assert.equal(p.is_quotation, false, `${sci}: a QUOTATION reached the accounts file`);
+      assert.ok(
+        typeof p.speaker === 'string' && p.speaker.trim(),
+        `${sci}: a passage with no speaker reached the accounts file`,
+      );
+      assert.ok(typeof p.text === 'string' && p.text.trim(), `${sci}: an empty passage`);
+      assert.ok(vols.has(p.volume as number), `${sci}: cites volume ${p.volume}, not on the shelf`);
+    }
+  }
+  assert.ok(n > 100, `expected the full reservoir, found ${n} passages`);
+});
+
+test('J2 the full account CONTAINS the curated reading, never contradicts it', () => {
+  // WHY — the subtle one. Two files now describe the same bird. If the curated
+  // voice is not verbatim inside its own account, the tab shows one sentence on
+  // the desk and a different set of sentences behind "the whole account", and a
+  // reader who notices cannot tell which is the library and which is the museum
+  // editing it. They must be the same text, selected differently.
+  const raw = accountsRaw();
+  const curated = corpusRaw();
+  if (raw === null || curated === null) return;
+  const acc = raw as Record<string, Array<{ text: string }>>;
+  const j = normalize(curated);
+  // The curator marks an EXCERPT with a leading and/or trailing ellipsis — "… When
+  // roused from this perch, … whistle. …" — an honest convention that says "this
+  // is a slice of a paragraph, not the paragraph". So the invariant is not
+  // equality but CONTAINMENT: strip the marks and what remains must appear
+  // verbatim inside the account. That is the stronger assertion anyway — it
+  // proves the curated reading was cut from this prose rather than paraphrased
+  // from it, which equality alone would not distinguish from a lucky match.
+  const core = (t: string): string => t.trim().replace(/^…\s*/, '').replace(/\s*…$/, '').trim();
+  let checked = 0;
+  for (const s of j.species) {
+    const rows = acc[s.sci_name];
+    if (!rows) continue;
+    for (const f of ['voice', 'coda'] as const) {
+      const p = s[f];
+      if (!p) continue;
+      checked++;
+      const needle = core(p.text);
+      assert.ok(needle.length > 20, `${s.sci_name}.${f} is too short to verify`);
+      assert.ok(
+        rows.some((r) => r.text.includes(needle)),
+        `${s.sci_name}.${f} does not appear verbatim in its own full account — the desk and ` +
+          `the reading room would show different text for the same bird`,
+      );
+    }
+  }
+  assert.ok(checked > 20, `expected to check the curated readings, checked ${checked}`);
+});
+
+test('J3 a missing or malformed accounts file degrades to no reading room', async () => {
+  // WHY: same contract as every other reader on this tab. The affordance is
+  // gated on the fetch resolving to something, so a 404, a non-object body, or
+  // a body of empty arrays must all collapse to {} and simply remove the
+  // feature — never a throw, never an empty dialog.
+  const realFetch = globalThis.fetch;
+  try {
+    for (const body of ['not json', '[]', '{"x":"y"}', '{"Turdus merula":[]}', 'null']) {
+      globalThis.fetch = (async () =>
+        new Response(body, { status: 200 })) as unknown as typeof fetch;
+      const out = await fetchAccounts();
+      assert.deepEqual(out, {}, `body ${body} should collapse to {}`);
+    }
+    globalThis.fetch = (async () => new Response('', { status: 404 })) as unknown as typeof fetch;
+    assert.deepEqual(await fetchAccounts(), {}, 'a 404 should collapse to {}');
+    globalThis.fetch = (async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+    assert.deepEqual(await fetchAccounts(), {}, 'a network failure should collapse to {}');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('J4 the accounts file is loaded LAZILY, never on first paint', () => {
+  // WHY: it is ~277 KB against the curated file's ~80 KB. The whole reason it is
+  // a second file is that the Library's first paint must be unchanged by this
+  // feature existing. If fetchAccounts() is ever called from an unconditional
+  // mount effect it silently becomes a 3.6x page-weight regression that no test
+  // would otherwise notice.
+  const src = readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')
+    .replace(/\s+/g, ' ');
+  assert.ok(src.includes('fetchAccounts()'), 'the reading room no longer loads its accounts');
+  assert.match(
+    src,
+    /if \(openSci === null \|\| accounts !== null\) return;/,
+    'the accounts fetch is not gated on a reader actually opening an account',
   );
 });

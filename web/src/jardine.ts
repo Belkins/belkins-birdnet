@@ -23,7 +23,7 @@
 
 import { parseCatalogDate } from './almanac';
 import type { CatalogSpecies } from './catalog';
-import { BASE, JARDINE_URL } from './config';
+import { BASE, JARDINE_ACCOUNTS_URL, JARDINE_URL } from './config';
 import type { RosterRow } from './types';
 
 export type JardineDivision = 'birds' | 'mammals' | 'insects' | 'fish';
@@ -615,6 +615,48 @@ export function pickDeskSpecies(a: DeskArgs): DeskPick | null {
 let jardinePromise: Promise<Jardine> | null = null;
 
 /** The corpus. Never throws — see the file header. */
+/** sci_name -> every verified passage of that bird's account, in printed order. */
+export type JardineAccounts = Record<string, JardinePassage[]>;
+
+let accountsPromise: Promise<JardineAccounts> | null = null;
+
+/** THE FULL ACCOUNT, lazily. Same contract as fetchJardine(): session-memoised,
+ *  never throws, and a 404 / empty body / malformed payload collapses to {} so
+ *  the reading affordance simply never appears. The rows go through the SAME
+ *  asPassage() the curated file uses, so the speaker wall — a blank speaker is
+ *  DROPPED, never defaulted to the volume author — holds here too, without a
+ *  second parser that could drift from it. */
+export function fetchAccounts(): Promise<JardineAccounts> {
+  if (!accountsPromise) {
+    accountsPromise = (async (): Promise<JardineAccounts> => {
+      try {
+        const res = await fetch(JARDINE_ACCOUNTS_URL, { cache: 'no-store' });
+        if (!res.ok) {
+          accountsPromise = null;
+          return {};
+        }
+        const raw = (await res.json()) as unknown;
+        if (!isRecord(raw)) {
+          accountsPromise = null;
+          return {};
+        }
+        const out: JardineAccounts = {};
+        for (const [sci, rows] of Object.entries(raw)) {
+          if (!Array.isArray(rows)) continue;
+          const ps = rows.map(asPassage).filter((p): p is JardinePassage => p !== null);
+          if (ps.length > 0) out[sci] = ps;
+        }
+        if (Object.keys(out).length === 0) accountsPromise = null;
+        return out;
+      } catch {
+        accountsPromise = null;
+        return {};
+      }
+    })();
+  }
+  return accountsPromise;
+}
+
 export function fetchJardine(): Promise<Jardine> {
   if (!jardinePromise) {
     jardinePromise = (async (): Promise<Jardine> => {

@@ -38,6 +38,15 @@ export const DERIVED_URL: string = env.VITE_DERIVED_URL ?? `${BASE}derived.json`
  *  silence rather than an error. Overridable via VITE_JARDINE_URL. */
 export const JARDINE_URL: string = env.VITE_JARDINE_URL ?? `${BASE}jardine.json`;
 
+/** THE FULL ACCOUNTS — every passage the extraction verified for each of this
+ *  garden's birds, not just the one or two the curator chose by ear. A separate
+ *  file on purpose: it is ~3.6x the curated payload and is LAZY-LOADED on the
+ *  first reader who opens an account, so the Library's first paint is byte for
+ *  byte what it was before this existed. Absent → no reading affordance ever
+ *  renders. Overridable via VITE_JARDINE_ACCOUNTS_URL. */
+export const JARDINE_ACCOUNTS_URL: string =
+  env.VITE_JARDINE_ACCOUNTS_URL ?? `${BASE}jardine-accounts.json`;
+
 /** Conservator's Mark reader (birdgen's public, CORS-open /attest/<slug>).
  *  Quality metadata only — no art, no queue control — so the popup fetches it
  *  straight from the browser. Every reader degrades to silence: a 404 means a
