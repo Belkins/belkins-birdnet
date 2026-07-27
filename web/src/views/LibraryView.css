@@ -977,7 +977,7 @@
 }
 .lib-sil-row {
   padding: 1.1rem 0;
-  border-bottom: 1px solid var(--rule, rgba(255, 255, 255, 0.08));
+  border-bottom: 1px solid var(--line);
 }
 .lib-sil-row:last-child {
   border-bottom: 0;
@@ -1026,7 +1026,7 @@
 .lib-sil-coda {
   margin-top: 0.7rem;
   padding-left: 0.9rem;
-  border-left: 1px solid var(--rule, rgba(255, 255, 255, 0.08));
+  border-left: 1px solid var(--line);
 }
 .lib-sil-lab {
   display: block;
