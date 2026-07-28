@@ -103,6 +103,7 @@ const silences = jardineMod.silences as (
 ) => Array<{ species: JardineSpecies; count: number }>;
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
 const weakSource = jardineMod.weakSource as (s: JardineSpecies) => string | null;
+const heardHere = jardineMod.heardHere as (c: CatalogSpecies) => boolean;
 type SicRow = { find: string; note: string; offset: number | null };
 const sicSpans = jardineMod.sicSpans as (
   t: string,
@@ -2086,4 +2087,85 @@ test('N3 no fabricated asset ships to a public path on the wall', () => {
   // and the sources must still be present, because dev and the suite need them
   assert.ok(existsSync(new URL('../public/dev/species-london.json', import.meta.url)),
     'the fixture was MOVED rather than excluded — the test suite reads it directly');
+});
+
+test('O1 the wall’s garden line comes from the same authority that picks the page', () => {
+  // WHY — the fabricated absence, third occurrence, and the second time a FIX
+  // for it shipped with a comment saying it was fixed.
+  //
+  // The pool asks heardHere() (a real tally counts even with no parseable
+  // stamp). The footer used to re-derive the answer from heardOnLabel(
+  // last_detected) alone — so a bird the Pi HAS recorded, whose stamp is missing
+  // or malformed, was selected INTO the heard pool and then printed as "not yet
+  // heard in this garden". Fixing the selection and leaving the label is exactly
+  // how it survived. The two must not be able to disagree.
+  //
+  // Asserted at source level because the module has no DOM in this suite; the
+  // real defence is that `garden` is derived from heardHere() at the one place
+  // the page is built.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryFrameView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+
+  assert.match(src, /garden: !known \? 'unheard' : on \? 'dated' : 'undated'/,
+    'the garden state is no longer derived from heardHere() at the point the page is built');
+  assert.match(src, /const known = c \? heardHere\(c\) : false/,
+    'the page no longer asks the shared authority');
+  assert.ok(
+    !/page\.heardOn \?/.test(src),
+    'the footer branches on the DATE again — that is the fabricated absence returning',
+  );
+  assert.match(src, /page\.garden === 'dated'/, 'the footer no longer reads the garden state');
+  // and the three states must each have distinct copy, or the distinction is
+  // decorative: a recorded bird with no stamp must not read as never-heard
+  assert.match(src, /'undated'[\s\S]{0,200}heard in this garden/,
+    'the undated state does not say the bird WAS heard');
+  assert.match(src, /not yet heard in this garden/, 'the genuine-absence copy vanished');
+});
+
+test('O2 heardHere is true on a tally alone — the predicate the wall depends on', () => {
+  // WHY: O1 pins the wiring; this pins the semantics underneath it. If
+  // heardHere() ever narrows to last_detected, O1 stays green while the wall
+  // silently returns to fabricating absences — the guard and the thing it
+  // guards must both be held.
+  const row = (over: Partial<CatalogSpecies>): CatalogSpecies =>
+    ({ ...london[0], ...over }) as CatalogSpecies;
+  assert.equal(heardHere(row({ last_detected: '2026-07-27 06:00:00', detection_count: 0 })), true,
+    'a parseable stamp must count as heard');
+  assert.equal(heardHere(row({ last_detected: '', detection_count: 310 })), true,
+    'A REAL TALLY WITH NO STAMP MUST COUNT AS HEARD — this is the bug');
+  assert.equal(heardHere(row({ last_detected: 'not a date', detection_count: 12 })), true,
+    'an unparseable stamp with a real tally must still count as heard');
+  assert.equal(heardHere(row({ last_detected: '', detection_count: 0 })), false,
+    'no stamp and no tally is the only genuine absence');
+});
+
+test('O3 the ledger does not count vignettes as plates', () => {
+  // WHY: the masthead ledger said "N have a plate" using `plate_ref !== null`,
+  // which counts the two VIGNETTES — and Erratum III, three sections further
+  // down the same page, argues that the Robin was DENIED a plate. The tab
+  // contradicted itself on one screen, in favour of the less flattering reading
+  // of its own corpus.
+  //
+  // The data is right and stays untouched: plate_is_vignette is the corpus's
+  // honest record of what the 1838 book actually gave each bird. Only the
+  // predicate was wrong.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const vignettes = j.species.filter((s) => s.plate_ref !== null && s.plate_is_vignette);
+  assert.ok(vignettes.length > 0, 'no vignettes in the corpus — this guard is vacuous');
+  // the Robin is the exhibit Erratum III is built on
+  assert.ok(
+    vignettes.some((s) => s.sci_name === 'Erithacus rubecula'),
+    'the Robin is no longer a vignette — re-check Erratum III before changing this',
+  );
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    src,
+    /plate_ref !== null && !s\.plate_is_vignette/,
+    'the ledger counts vignettes as plates again — it now contradicts Erratum III',
+  );
 });
