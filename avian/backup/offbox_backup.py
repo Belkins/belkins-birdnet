@@ -48,6 +48,7 @@ an unset AV_RAILWAY_BASE because it then has nothing at all to do. Here an unset
 AV_RAILWAY_BASE still leaves a real archive on the mount, so it is DEGRADED (3),
 not REFUSED (2). Exit 2 is reserved for "nothing was written this run".
 """
+import datetime
 import hashlib
 import json
 import os
@@ -75,6 +76,14 @@ STATE = os.path.expanduser(os.environ.get("BACKUP_STATE", "~/.christina/backup.s
 TIMEOUT = float(os.environ.get("CHRISTINA_BACKUP_TIMEOUT", "20"))
 BUDGET = float(os.environ.get("CHRISTINA_BACKUP_BUDGET", "1200"))
 REALERT = int(os.environ.get("CHRISTINA_BACKUP_REALERT", "7"))
+# nightly.sh rewrites phenology.json at 03:30; this job runs at 04:30. 72h is
+# THREE missed nights, so one skipped night (a reboot, a Persistent=true
+# catch-up) is not an alert -- but a stopped ledger is caught inside a week.
+PHENOLOGY_MAX_AGE_H = float(os.environ.get("CHRISTINA_PHENOLOGY_MAX_AGE_H", "72"))
+# Days into a NEW calendar year before a current_year still naming the OLD year
+# is evidence the source stopped, rather than a station that has simply not
+# heard anything yet this January.
+PHENOLOGY_YEAR_GRACE_D = int(os.environ.get("CHRISTINA_PHENOLOGY_YEAR_GRACE_D", "45"))
 ALLOW_SAME_DEV = os.environ.get("CHRISTINA_BACKUP_ALLOW_SAME_DEVICE", "") not in ("", "0", "false", "False")
 
 TITLE_FAIL = "Christina backup FAILED"
@@ -249,6 +258,107 @@ def copy_optional(src, out, label, prev_entries):
     elif entries == 0 and prev_entries:
         deg = "%s parsed to ZERO entries but the previous run archived %d" % (label, prev_entries)
     return {"bytes": out.stat().st_size, "sha256": sha256_of(out), "entries": entries}, deg, None
+
+
+def _phenology_signals(path):
+    """-> (built_at|None, current_year|None, open_year_detections|None).
+
+    Reads the envelope phenology.py:436-452 writes. Any field it cannot PROVE
+    comes back None so the caller degrades on unknown -- never on a default that
+    happens to read as healthy.
+    """
+    try:
+        doc = json.loads(path.read_text())
+    except ValueError:
+        return None, None, None
+    if not isinstance(doc, dict):
+        return None, None, None
+    built = doc.get("built_at")
+    year = doc.get("current_year")
+    if not isinstance(built, str):
+        built = None
+    if not isinstance(year, int):
+        year = None
+    total = None
+    entries = doc.get("entries")
+    if year is not None and isinstance(entries, list):
+        total = 0
+        for e in entries:
+            if isinstance(e, dict) and e.get("year") == year:
+                n = e.get("detections")
+                total += n if isinstance(n, int) else 0
+    return built, year, total
+
+
+def check_phenology(src, phen_meta, state, now):
+    """The one archived file that can FREEZE while staying perfectly valid.
+
+    copy_optional catches absent-after-present and an unparseable envelope. It
+    cannot catch a ledger phenology.py stopped rewriting: the entry COUNT is
+    constant the moment the species axis saturates, so a frozen ledger and a
+    healthy one are byte-indistinguishable by count. nightly.sh:66-69 does emit
+    exit 5 -- but it is the LOWEST-priority branch (a non-zero rc_cat or rc_der
+    returns first at lines 50-61) and NOTHING watches catalog.service: no unit in
+    this repo carries OnFailure=. This nightly job is the only thing that looks at
+    the file at all, so the freeze check belongs here.
+
+    TWO independent keys, because each is blind to the other's failure:
+      * built_at AGE -- phenology.py stopped writing. Covers exit 5 AND the
+        silent exit-0 skip at phenology.py:507-511 (birds.db not where it looks),
+        which produces a green unit and a frozen file.
+      * CURRENT-YEAR PROGRESS -- phenology.py runs, built_at advances, but the
+        open year is being recomputed from a stale or wrong source. Frozen CLOSED
+        years are the freeze rule working as designed and are never a signal;
+        only the open year is.
+
+    Absent never reaches here (phen_meta is None), inheriting copy_optional's
+    "nothing pinned yet on this station is not a fault" exemption -- a fresh
+    station must not go red on day one and get the ntfy topic muted by day three.
+    """
+    if phen_meta is None:
+        return []
+    out = []
+    built, year, open_det = _phenology_signals(src)
+    phen_meta["built_at"] = built
+    phen_meta["current_year"] = year
+    phen_meta["open_detections"] = open_det
+
+    ts = None
+    if built is None:
+        out.append("phenology.json carries no usable built_at -- its freshness CANNOT be proven")
+    else:
+        try:
+            ts = datetime.datetime.fromisoformat(built)
+        except ValueError:
+            out.append("phenology.json built_at %r is not an ISO timestamp -- freshness CANNOT be proven" % built)
+    if ts is not None:
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=datetime.timezone.utc)
+        age_h = (now - ts).total_seconds() / 3600.0
+        if age_h > PHENOLOGY_MAX_AGE_H:
+            out.append(
+                "phenology.json is FROZEN: built_at %s is %.0fh old (limit %.0fh). nightly.sh's "
+                "phenology step is not rewriting it -- every night it stays frozen is a night of "
+                "history no future run can recover" % (built, age_h, PHENOLOGY_MAX_AGE_H))
+
+    prev_year = state.get("phenology_current_year")
+    prev_open = state.get("phenology_open_detections")
+    if year is None:
+        out.append("phenology.json carries no current_year -- the ledger cannot say which year is still open")
+        return out
+    if prev_year is not None and year < prev_year:
+        out.append("phenology.json current_year went BACKWARDS %d -> %d -- the open year is being "
+                   "rebuilt from a stale or wrong birds.db" % (prev_year, year))
+    elif year < now.year and (now - datetime.datetime(now.year, 1, 1, tzinfo=datetime.timezone.utc)).days > PHENOLOGY_YEAR_GRACE_D:
+        out.append("phenology.json current_year is still %d, %d days into %d -- the open year never "
+                   "advanced; the ledger is tracking data that stopped"
+                   % (year, (now - datetime.datetime(now.year, 1, 1, tzinfo=datetime.timezone.utc)).days, now.year))
+    elif (open_det is not None and prev_open is not None and prev_year == year
+          and open_det < prev_open):
+        out.append("phenology.json open-year (%d) detections DROPPED %d -> %d -- the open year is "
+                   "being recomputed from fewer rows than the last known-good run"
+                   % (year, prev_open, open_det))
+    return out
 
 
 def check_db(db_meta, state):
@@ -448,11 +558,15 @@ def remember(state, db_meta, led_meta, phen_meta, expected, got):
         state["ledger_entries"] = led_meta["entries"]
     if phen_meta and phen_meta.get("entries") is not None:
         state["phenology_entries"] = phen_meta["entries"]
+    if phen_meta and phen_meta.get("current_year") is not None:
+        state["phenology_current_year"] = phen_meta["current_year"]
+    if phen_meta and phen_meta.get("open_detections") is not None:
+        state["phenology_open_detections"] = phen_meta["open_detections"]
     if expected > 0 and got >= expected:
         state["expected"] = expected
 
 
-def _capture_local(stage, degraded, notes, state):
+def _capture_local(stage, degraded, notes, state, now):
     """-> (db_meta, led_meta, phen_meta). Raises CaptureError/OSError on exit-4 faults."""
     db_meta = snapshot_db(DB_PATH, stage / "birds.db")
     led_meta, led_deg, led_note = copy_optional(LEDGER, stage / "accessions.json",
@@ -461,6 +575,7 @@ def _capture_local(stage, degraded, notes, state):
                                                    "phenology.json", state.get("phenology_entries"))
     degraded.extend([m for m in (led_deg, phen_deg) if m])
     notes.extend([m for m in (led_note, phen_note) if m])
+    degraded.extend(check_phenology(stage / "phenology.json", phen_meta, state, now))
     degraded.extend(check_db(db_meta, state))
     return db_meta, led_meta, phen_meta
 
@@ -473,6 +588,9 @@ def _fault(state, msg, err):
 
 
 def _run(stamp, state):
+    # The run's own clock, taken from the stamp so a test can pin it.
+    now = datetime.datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(
+        tzinfo=datetime.timezone.utc)
     try:
         dest = resolve_dest()
     except ConfigError as e:
@@ -486,7 +604,7 @@ def _run(stamp, state):
     try:
         (stage / "plates").mkdir(parents=True, exist_ok=True)
         try:
-            db_meta, led_meta, phen_meta = _capture_local(stage, degraded, notes, state)
+            db_meta, led_meta, phen_meta = _capture_local(stage, degraded, notes, state, now)
         except Exception as e:
             return _fault(state, "BACKUP FAILED -- birds.db/ledgers not captured this run", e)
         plates, expected, got = collect_plates(stage / "plates", degraded, state)
