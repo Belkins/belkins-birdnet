@@ -2061,3 +2061,29 @@ test('N2 the human acceptance documents survived with it', () => {
     assert.ok(gunzipSync(readFileSync(p)).length > 1000, `${f} is present but empty`);
   }
 });
+
+test('N3 no fabricated asset ships to a public path on the wall', () => {
+  // WHY: Vite copies public/ wholesale, so the deployed bundle carried
+  // public/dev/species-london.json — a SYNTHETIC 47-row fixture — and 15
+  // Nearctic mock PNGs of birds this London garden has never heard, to
+  // /collage/dev/ and /collage/mock/, on a museum whose entire claim is that
+  // nothing on it is invented. Nothing links them, which is exactly why they
+  // survived: no page was wrong, the wall was simply serving inventions at a
+  // public URL to anyone who guessed it.
+  //
+  // The first fix silently did nothing — a generateBundle hook cannot see
+  // publicDir, which Vite copies outside the rollup bundle, so it ran, found
+  // nothing and reported success. This asserts the OUTCOME on disk, not the
+  // presence of a plugin, for exactly that reason.
+  const dist = new URL('../dist/', import.meta.url);
+  if (!existsSync(dist)) return; // no build in the tree — nothing to assert
+  for (const dir of ['dev', 'mock']) {
+    assert.ok(
+      !existsSync(new URL(dir + '/', dist)),
+      `dist/${dir}/ shipped to the wall — that is fabricated content at a public URL`,
+    );
+  }
+  // and the sources must still be present, because dev and the suite need them
+  assert.ok(existsSync(new URL('../public/dev/species-london.json', import.meta.url)),
+    'the fixture was MOVED rather than excluded — the test suite reads it directly');
+});
