@@ -2,7 +2,7 @@
 //
 // It exists because three surfaces printed the same string three different ways
 // and drifted: the Roll marked weak provenance and preserved [sic]; the Index of
-// Silences marked neither, so eleven of its sixteen rows stated a confidence the
+// Silences marked neither, so many of its rows stated a confidence the
 // extraction never had; and the dossier hand-rolled `=== 'synonymy'` with the
 // tooltip inlined, so it disagreed with the Roll about the same name. Each was
 // fixed separately, and each fix was a guard bolted onto a duplication.

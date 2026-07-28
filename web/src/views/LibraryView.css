@@ -801,11 +801,6 @@
 .lib-roll-un {
   color: var(--amber);
 }
-/* The ~74% weak path, admitted in the UI rather than hidden. */
-.lib-roll-weak {
-  border-bottom: 1px dotted var(--mut-2);
-  cursor: help;
-}
 .lib-roll-none {
   font-family: var(--mono);
   font-style: normal;

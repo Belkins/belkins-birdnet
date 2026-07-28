@@ -469,7 +469,7 @@ export function sicSpans(text: string, sic: JardineSic[]): SicSpan[] {
  *
  *  IT LIVES HERE, NOT IN A VIEW. It was previously a private function in
  *  LibraryView, which meant the Roll classified both weak paths while the
- *  Index of Silences printed no marker at all (11 of its 16 rows are weak) and
+ *  Index of Silences printed no marker at all (most of its rows are weak) and
  *  BirdPopup hand-rolled `=== 'synonymy'` with the tooltip inlined, so the
  *  dossier and the Roll gave contradictory provenance for the same binomial.
  *  Every consumer must call THIS — a copy is how the three drifted apart. */

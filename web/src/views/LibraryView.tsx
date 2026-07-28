@@ -202,9 +202,11 @@ function SilenceIndex({
           <li className="lib-sil-row" key={species.sci_name}>
             <div className="lib-sil-head">
               <span className="lib-sil-com">{comFor(species.sci_name)}</span>
-              {/* the SAME provenance marker the Roll prints. 11 of these 16
+              {/* the SAME provenance marker the Roll prints. Most of these
                   rows are weak-sourced; printing them bare stated a confidence
-                  the extraction never had. */}
+                  the extraction never had. (Deliberately no count here — the
+                  figure differs between the fixture and the live station, and a
+                  number in a comment is a number nothing can keep true.) */}
               <JardineName species={species} className="lib-sil-bin" />
               <span className="lib-sil-n prose-nums">
                 {count.toLocaleString()} <span className="lib-sil-u">recorded here</span>

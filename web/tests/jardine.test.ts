@@ -29,6 +29,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
+import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
@@ -2002,4 +2004,60 @@ test('M3 the Blind Ear claims its own number keys', () => {
     /n < 1 \|\| n > round\.options\.length/,
     'the quiz swallows keys outside its own options — 4/5/6 must still switch tabs',
   );
+});
+
+// ═══ N · THE PROVENANCE CHAIN ══════════════════════════════════════════════
+
+test('N1 the sha256 printed on the wall is checkable from this repo alone', () => {
+  // WHY: the colophon prints a corpus_sha256 and the Roll slices it onto the
+  // wall. Until this test existed, the bytes that hash to it lived in exactly
+  // ONE place — a session scratchpad under /private/tmp that gets swept — and
+  // the HTML cache that could re-derive them is deliberately uncommitted and
+  // already gone. The museum's central provenance claim was one `rm -rf /tmp`
+  // from being permanently unfalsifiable, and re-fetching c82.net would NOT
+  // restore it: a fresh fetch returns today's bytes, and a pin taken over those
+  // is a different pin wearing this one's costume.
+  //
+  // Now the evidence is committed, gzipped, and this re-hashes it every run. If
+  // the corpus and the colophon ever disagree, the wall is lying about its own
+  // source and the suite says so.
+  const gz = new URL('../../tools/jardine/corpus/corpus.txt.gz', import.meta.url);
+  if (!existsSync(gz)) {
+    assert.fail('the committed corpus is gone — the sha256 on the wall is now unverifiable');
+  }
+  const bytes = gunzipSync(readFileSync(gz));
+  const actual = createHash('sha256').update(bytes).digest('hex');
+
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const pinned = normalize(raw).colophon?.corpus_sha256 ?? '';
+  assert.equal(
+    actual,
+    pinned,
+    'the committed corpus does not hash to the sha256 the colophon prints on the wall',
+  );
+
+  // and the standalone .sha256 file must agree with both — three copies of one
+  // claim, which is only safe while something checks they still match
+  const stated = gunzipSync(readFileSync(new URL('../../tools/jardine/corpus/corpus.sha256.gz', import.meta.url)))
+    .toString('utf8')
+    .trim()
+    .split(/\s+/)[0];
+  assert.equal(stated, actual, 'corpus.sha256 disagrees with the corpus it names');
+
+  // the character count the README pins, re-derived rather than trusted
+  assert.equal(bytes.toString('utf8').length, 2249715, 'the corpus is not the pinned length');
+});
+
+test('N2 the human acceptance documents survived with it', () => {
+  // WHY: verify.tsv is the file a human must READ to sign the colophon, and
+  // passages.tsv carries the attribution_lead and footnote_text for the ten
+  // quotations awaiting a speaker. Both lived only in the scratchpad. Without
+  // them the colophon can never honestly be signed and the ten names can never
+  // be confirmed — the two open editorial items on this project both die.
+  for (const f of ['verify.tsv', 'passages.tsv', 'report.json', 'dropped.tsv', 'depth-audit.tsv']) {
+    const p = new URL(`../../tools/jardine/corpus/${f}.gz`, import.meta.url);
+    assert.ok(existsSync(p), `${f} is missing — an audit document the corpus cannot be signed without`);
+    assert.ok(gunzipSync(readFileSync(p)).length > 1000, `${f} is present but empty`);
+  }
 });
