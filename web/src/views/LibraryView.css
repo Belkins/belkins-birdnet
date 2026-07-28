@@ -1149,3 +1149,18 @@
     padding: 1.1rem 1rem 1.5rem;
   }
 }
+
+/* The withheld-passage marker. The museum saying what it refused to print, in
+   the 2026 hand — never Cormorant (that is Jardine's), never amber (that is a
+   number the Pi measured). Indented under the prose it interrupts. */
+.lib-acct-elided {
+  margin: 0.5rem 0 1.1rem;
+  padding-left: 0.9rem;
+  border-left: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  color: var(--mut);
+}

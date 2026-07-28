@@ -63,7 +63,7 @@ def ship_sic(raw):
             for a in (raw or []) if a.get('precision') == 'high']
 
 
-def passage(p):
+def passage(p, elided_after=0):
     assert p['shippable'], p['passage_id'] + ' is not shippable'
     assert not p['is_quotation'], p['passage_id'] + ' is a QUOTATION'
     assert p['speaker'].strip(), p['passage_id'] + ' has a blank speaker'
@@ -72,6 +72,10 @@ def passage(p):
         'is_quotation': False, 'volume': p['volume'],
         'volume_title': p['volume_title'], 'volume_author': p['volume_author'],
         'source_url': p['source_url'], 'sic': ship_sic(p.get('sic')),
+        # HOW MANY PASSAGES WERE REFUSED AFTER THIS ONE. Uniform on every row,
+        # zeros included: the header above forbids shape optimisation, and an
+        # absent field would be indistinguishable from a zero.
+        'elided_after': elided_after,
     }
 
 
@@ -98,11 +102,32 @@ def main():
         if not names:
             continue
         sci = names[0]
-        ps = [p for p in a['passages'] if p['shippable'] and not p['is_quotation']]
-        if not ps:
+        # WALK THE WHOLE ACCOUNT IN PRINTED ORDER and count what is refused
+        # between the passages that ship, instead of silently closing the gap.
+        #
+        # Without this the reading room prints 'N passages, as printed' over
+        # prose that stops mid-clause — 'Mr Hewitson relates his knowledge of
+        # one which' — because Jardine's lead-in introduces a quotation the
+        # protocol will not publish. Six of the 211 shipped rows end with no
+        # sentence punctuation at all for exactly this reason.
+        #
+        # NOTE the real mechanism, which is not the obvious one: all 15 refused
+        # passages in these 51 accounts carry shippable=False (their speaker is
+        # 'probable', never certain), so the `not is_quotation` clause is
+        # REDUNDANT here and deleting it would restore nothing. The refusal is
+        # correct and stays; what was missing was any record that it happened.
+        rows = []
+        for p in a['passages']:
+            if p['shippable'] and not p['is_quotation']:
+                rows.append(passage(p, 0))
+            elif rows:
+                # a refusal AFTER something shipped attaches to that row; a
+                # refusal before the first shipped passage has nothing to hang
+                # on and is simply the account opening mid-conversation.
+                rows[-1]['elided_after'] += 1
+        if not rows:
             skipped.append(sci)
             continue
-        rows = [passage(p) for p in ps]
         for r in rows:
             assert r['volume'] in vols, '%s cites volume %s, absent from the shelf' % (sci, r['volume'])
         out[sci] = rows

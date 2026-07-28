@@ -156,7 +156,26 @@ function FullAccount({
         </div>
         <div className="lib-acct-body">
           {passages.map((p, i) => (
-            <Prose p={p} key={i} />
+            <div key={i}>
+              <Prose p={p} />
+              {/* WHAT THE MUSEUM REFUSED TO PRINT. Jardine's next sentences here
+                  are a quotation whose speaker the extraction could only call
+                  'probable' — and a probable name set in Cormorant under a real
+                  person is this project's one unrecoverable failure. So the
+                  passage is withheld and the GAP is declared, because the prose
+                  before it runs straight into the quotation and stops
+                  mid-clause. It names nobody, deliberately: Jardine's lead-in
+                  says "Mr Hewitson", and repeating that would treat the very
+                  signal the protocol rejects as if it were proof.
+                  2026 apparatus — mono, --mut, never Cormorant, never amber. */}
+              {p.elided_after > 0 && (
+                <p className="lib-acct-elided">
+                  {p.elided_after === 1
+                    ? 'one passage withheld here — a quotation whose speaker this extraction could not prove'
+                    : `${p.elided_after} passages withheld here — quotations whose speakers this extraction could not prove`}
+                </p>
+              )}
+            </div>
           ))}
           {passages.length > 0 && <Attribution p={passages[0]} />}
         </div>

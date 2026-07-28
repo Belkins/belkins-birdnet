@@ -63,6 +63,15 @@ export interface JardinePassage {
   /** Volume page only — c82 has one id across 141 headings, so no per-passage anchor exists. */
   source_url: string;
   sic: JardineSic[];
+  /** How many passages the extraction REFUSED immediately after this one.
+   *  Almost always 0. Non-zero means Jardine's next sentences were a quotation
+   *  the protocol would not publish — its speaker is only 'probable', and a
+   *  probable name in 30px Cormorant under a real person is the one
+   *  unrecoverable failure here. The refusal is correct; printing the prose as
+   *  though nothing were missing is not, because Jardine's own lead-in runs
+   *  into it ("Mr Hewitson relates his knowledge of one which") and the passage
+   *  then stops mid-clause. */
+  elided_after: number;
   /** The account heading this sentence was lifted from, VERBATIM ("The Common
    *  Crane"). Null on every passage that is already rendered beside its own
    *  bird — it exists for the Roll's closer, which is the one passage on the
@@ -235,6 +244,11 @@ function asPassage(v: unknown): JardinePassage | null {
     volume_author: asString(v.volume_author),
     source_url: asString(v.source_url),
     sic: asSic(v.sic),
+    // a malformed or absent count is 0 — never a marker the data cannot justify
+    elided_after:
+      typeof v.elided_after === 'number' && Number.isInteger(v.elided_after) && v.elided_after > 0
+        ? v.elided_after
+        : 0,
     subject: asNullableString(v.subject),
   };
 }

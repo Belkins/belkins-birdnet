@@ -2169,3 +2169,95 @@ test('O3 the ledger does not count vignettes as plates', () => {
     'the ledger counts vignettes as plates again — it now contradicts Erratum III',
   );
 });
+
+test('P1 every refused quotation is declared by the passage before it', () => {
+  // WHY — my own bug from the commit that built the reading room. The builder
+  // ships only what the protocol allows, which is right: 15 passages across 10
+  // accounts are quotations whose speaker is only 'probable', and a probable
+  // name in Cormorant under a real person is this project's one unrecoverable
+  // failure. What was missing is that NOTHING RECORDED THE REFUSAL — so
+  // Jardine's prose ran into the quotation and stopped mid-clause ("Mr Hewitson
+  // relates his knowledge of one which") under a header reading "N passages, as
+  // printed".
+  //
+  // Checked against the COMMITTED CORPUS, not inferred from punctuation. An
+  // earlier version of this test flagged eight more passages ending in ':—' and
+  // was WRONG to: those introduce a taxonomic characterisation that the
+  // EXTRACTOR drops as `generic_characters`/`genus_paragraph` during
+  // segmentation — a deliberate editorial exclusion of non-prose, not a
+  // withholding for want of a speaker. Calling those 'withheld' would be its own
+  // small lie, so this asserts only the class elided_after actually describes.
+  const raw = accountsRaw();
+  if (raw === null) return;
+  const acc = raw as Record<string, Array<{ text: string; elided_after?: number }>>;
+
+  const corpusGz = new URL('../../tools/jardine/corpus/corpus.json.gz', import.meta.url);
+  if (!existsSync(corpusGz)) return;
+  const corpus = JSON.parse(gunzipSync(readFileSync(corpusGz)).toString('utf8')) as unknown;
+  const accountsOf = (o: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(o)) o.forEach((x) => accountsOf(x, out));
+    else if (o && typeof o === 'object') {
+      for (const [k, v] of Object.entries(o)) {
+        if (k === 'accounts' && Array.isArray(v)) out.push(...(v as Array<Record<string, unknown>>));
+        else accountsOf(v, out);
+      }
+    }
+    return out;
+  };
+  const byTitle = new Map<string, Record<string, unknown>>();
+  for (const a of accountsOf(corpus)) byTitle.set(String(a.jardine_title), a);
+
+  const j = normalize(corpusRaw());
+  let checked = 0;
+  const wrong: string[] = [];
+  for (const sp of j.species) {
+    const rows = acc[sp.sci_name];
+    const a = byTitle.get(sp.jardine_title);
+    if (!rows || !a) continue;
+    // walk the source account and count refusals between shipped passages
+    let idx = -1;
+    let expected = 0;
+    for (const p of a.passages as Array<Record<string, unknown>>) {
+      if (p.shippable === true && p.is_quotation === false) {
+        if (idx >= 0 && (rows[idx].elided_after ?? 0) !== expected) {
+          wrong.push(`${sp.sci_name} row ${idx}: says ${rows[idx].elided_after ?? 0}, source refused ${expected}`);
+        }
+        idx++;
+        expected = 0;
+      } else if (idx >= 0) {
+        expected++;
+        checked++;
+      }
+    }
+    if (idx >= 0 && (rows[idx].elided_after ?? 0) !== expected) {
+      wrong.push(`${sp.sci_name} row ${idx}: says ${rows[idx].elided_after ?? 0}, source refused ${expected}`);
+    }
+  }
+  assert.deepEqual(wrong, [], 'the reading room miscounts what it withheld:\n  ' + wrong.join('\n  '));
+  assert.ok(checked >= 15, `expected the known refusals, walked ${checked}`);
+});
+
+test('P2 the withheld marker names nobody, and is never dressed as 1838', () => {
+  // WHY: the whole reason those passages are withheld is that the extraction
+  // could not PROVE who was speaking. Jardine's lead-in says "Mr Hewitson" and
+  // the corpus carries speaker_candidate values — using either would treat the
+  // exact signal the protocol rejects as though it were evidence, which is
+  // worse than the gap. And the marker is the museum talking about the book, so
+  // it takes the 2026 hand: Cormorant is Jardine's, amber is a Pi measurement.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const marker = /elided_after > 0 && \([\s\S]{0,600}?\)\}/.exec(src)?.[0] ?? '';
+  assert.ok(marker, 'the withheld marker is no longer rendered');
+  for (const name of ['Hewitson', 'Thompson', 'Selby', 'Yarrell', 'Laing', 'Macgillivray']) {
+    assert.ok(!marker.includes(name), `the marker names ${name} — a candidate, never a proven speaker`);
+  }
+  assert.ok(!/speaker_candidate/.test(src), 'the view reads speaker_candidate — that field is not evidence');
+  // the class must be the mono apparatus register, not the prose one
+  assert.match(marker, /lib-acct-elided/, 'the marker lost its own class');
+  const css = readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8');
+  const rule = /\.lib-acct-elided \{[^}]*\}/.exec(css)?.[0] ?? '';
+  assert.match(rule, /var\(--mono\)/, 'the marker is not in the 2026 hand');
+  assert.ok(!/--amber/.test(rule), 'the marker uses amber — that is reserved for a measured number');
+  assert.ok(!/--display/.test(rule), 'the marker is set in Cormorant — that hand belongs to 1838');
+});
