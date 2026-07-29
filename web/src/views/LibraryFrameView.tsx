@@ -68,6 +68,13 @@ interface Page {
   com: string | null;
   /** "24 July 2026", or null when nothing carries a usable stamp. */
   heardOn: string | null;
+  /** What this garden can HONESTLY say about the bird:
+   *   'dated'   — recorded, and the catalog carries a readable stamp
+   *   'undated' — recorded, but no parseable last_detected
+   *   'unheard' — genuinely never recorded here
+   *  Derived from the same heardHere() that selects the pool, so the footer can
+   *  never contradict the selection. */
+  garden: 'dated' | 'undated' | 'unheard';
 }
 
 function hasText(p: JardinePassage | null): p is JardinePassage {
@@ -108,12 +115,21 @@ function choosePage(
     const c = byName.get(s.sci_name);
     const on = heardOnLabel(c ? c.last_detected : null);
     const com = c ? c.com_name || c.sci_name : (liveName.get(s.sci_name) ?? null);
-    const page: Page = { passage: s.voice, title: s.jardine_title || null, com, heardOn: on };
-    // THE SHARED AUTHORITY, not a local last_detected test. The frame used to
-    // ask only whether a timestamp parsed, so a species with a real tally and a
-    // missing stamp printed "not yet heard in this garden" about a bird the Pi
-    // HAS recorded — a fabricated absence, on the one surface hanging on a wall.
-    if (c && heardHere(c)) heard.push(page);
+    // THREE STATES, because two cannot express what is true. The POOL asks the
+    // shared heardHere() — a real tally counts even with no parseable stamp —
+    // but the FOOTER used to re-derive the answer from the date alone, so a bird
+    // the Pi HAS recorded printed "not yet heard in this garden". Fixing the
+    // pool and leaving the label is why that fabricated absence survived a fix
+    // that said it was fixed. The label must come from the same authority.
+    const known = c ? heardHere(c) : false;
+    const page: Page = {
+      passage: s.voice,
+      title: s.jardine_title || null,
+      com,
+      heardOn: on,
+      garden: !known ? 'unheard' : on ? 'dated' : 'undated',
+    };
+    if (known) heard.push(page);
     else unheard.push(page);
   }
 
@@ -121,7 +137,9 @@ function choosePage(
   if (pool.length > 0) return pool[((doy % pool.length) + pool.length) % pool.length];
 
   if (hasText(doc.epigraph)) {
-    return { passage: doc.epigraph, title: null, com: null, heardOn: null };
+    // the epigraph stands alone — it is about no particular bird, so the
+    // garden line has nothing to say and the footer stays empty.
+    return { passage: doc.epigraph, title: null, com: null, heardOn: null, garden: 'unheard' };
   }
   return null;
 }
@@ -270,8 +288,12 @@ export function LibraryFrameView(props: {
             <span className="lfr-sep" aria-hidden="true">
               ·
             </span>
-            {page.heardOn ? (
+            {page.garden === 'dated' ? (
               <span className="lfr-heard">last heard {page.heardOn}</span>
+            ) : page.garden === 'undated' ? (
+              // recorded here, but the catalog carries no readable stamp. Saying
+              // "not yet heard" would be false; inventing a date would be worse.
+              <span className="lfr-heard">heard in this garden</span>
             ) : (
               <span className="lfr-unheard">not yet heard in this garden</span>
             )}

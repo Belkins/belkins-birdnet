@@ -278,11 +278,13 @@ all 6 forbidden segmentations **and** that widening the net renumbered nothing
 files already cite is stable.
 
 > **`binomial_source` vs. `account_source`.** The data contract's
-> `binomial_source` enum is `'em' | 'synonymy'` only. These three rows report
-> `scaps_paragraph`, which that enum cannot express; the crosswalk carries
-> `'synonymy'` (its in-contract "weak path, verify" placeholder) with the real
-> value in `binomial_source_actual`. Reconciling the enum needs an owner
-> decision and has **not** been taken.
+> **RECONCILED 2026-07-28.** `web/src/jardine.ts` now types `binomial_source` as
+> `'em' | 'synonymy' | 'scaps' | 'scaps_paragraph'`, and `weakSource()` has a case
+> for BOTH small-caps spellings. That matters because this file writes
+> `scaps_paragraph` (line 974) while the committed `jardine.json` carries `scaps`:
+> accepting only one means the next re-run emits a token `asEnum()` rejects, which
+> nulls it and puts the corpus's most weakly-sourced binomial back to printing as
+> though the extraction were certain. Do not re-narrow the enum.
 
 **718 accounts** — 637 via `synonymy`, 78 via `plate_title_binomial`,
 3 via `scaps_paragraph`.
@@ -407,7 +409,7 @@ Low-precision: `interior_capital_wide` 620 (mostly *India*, *Islands*,
   correct). Any programmatic binomial join files the wrong page under the right
   bird with total confidence.
 * **This extractor writes no `web/public/jardine.json`.** It produces the raw
-  corpus; the curator selects ~28 voice passages from it by *ear quality*, not
+  corpus; the curator selects the voice passages from it by *ear quality* (32 as shipped), not
   by detection count. Measured, and the reason the selection cannot be
   automated: this garden's top three birds are this library's three worst
   subjects.

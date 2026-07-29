@@ -42,6 +42,7 @@ import {
   pickDeskSpecies,
   sealLine,
   silences,
+  closingHolds,
   sicSpans,
   speciesBySci,
   volumeRoman,
@@ -156,7 +157,26 @@ function FullAccount({
         </div>
         <div className="lib-acct-body">
           {passages.map((p, i) => (
-            <Prose p={p} key={i} />
+            <div key={i}>
+              <Prose p={p} />
+              {/* WHAT THE MUSEUM REFUSED TO PRINT. Jardine's next sentences here
+                  are a quotation whose speaker the extraction could only call
+                  'probable' — and a probable name set in Cormorant under a real
+                  person is this project's one unrecoverable failure. So the
+                  passage is withheld and the GAP is declared, because the prose
+                  before it runs straight into the quotation and stops
+                  mid-clause. It names nobody, deliberately: Jardine's lead-in
+                  says "Mr Hewitson", and repeating that would treat the very
+                  signal the protocol rejects as if it were proof.
+                  2026 apparatus — mono, --mut, never Cormorant, never amber. */}
+              {p.elided_after > 0 && (
+                <p className="lib-acct-elided">
+                  {p.elided_after === 1
+                    ? 'one passage withheld here — a quotation whose speaker this extraction could not prove'
+                    : `${p.elided_after} passages withheld here — quotations whose speakers this extraction could not prove`}
+                </p>
+              )}
+            </div>
           ))}
           {passages.length > 0 && <Attribution p={passages[0]} />}
         </div>
@@ -202,9 +222,11 @@ function SilenceIndex({
           <li className="lib-sil-row" key={species.sci_name}>
             <div className="lib-sil-head">
               <span className="lib-sil-com">{comFor(species.sci_name)}</span>
-              {/* the SAME provenance marker the Roll prints. 11 of these 16
+              {/* the SAME provenance marker the Roll prints. Most of these
                   rows are weak-sourced; printing them bare stated a confidence
-                  the extraction never had. */}
+                  the extraction never had. (Deliberately no count here — the
+                  figure differs between the fixture and the live station, and a
+                  number in a comment is a number nothing can keep true.) */}
               <JardineName species={species} className="lib-sil-bin" />
               <span className="lib-sil-n prose-nums">
                 {count.toLocaleString()} <span className="lib-sil-u">recorded here</span>
@@ -671,8 +693,13 @@ function ErratumSlip({
             );
           })}
         </div>
-        <div className="lib-wall">Precedence, as printed. Tallies, as heard.</div>
-        {e.closing && <div className="lib-close">{e.closing}</div>}
+        {/* The closing line comes from the DATA. It used to be preceded by a
+            hardcoded copy of itself — byte-identical for Erratum No. I, the
+            tab's first and widest slip, which therefore printed one sentence
+            twice. Pure deletion; every slip already carries its own closing. */}
+        {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
       </article>
     );
   }
@@ -723,7 +750,9 @@ function ErratumSlip({
           })}
         </div>
         {says}
-        {e.closing && <div className="lib-close">{e.closing}</div>}
+        {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
       </article>
     );
   }
@@ -759,7 +788,9 @@ function ErratumSlip({
           })}
         </div>
       </div>
-      {e.closing && <div className="lib-close">{e.closing}</div>}
+      {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
     </article>
   );
 }
@@ -1057,7 +1088,10 @@ export function LibraryView({
   const volumes = jardine?.volumes ?? [];
   const ornithology = volumes.filter((v) => v.division === 'birds').length;
   const withPage = (jardine?.species ?? []).filter((s) => byCatalog.has(s.sci_name));
-  const withPlate = withPage.filter((s) => s.plate_ref !== null).length;
+  // BOTH fields, not either: plate_ref !== null counts the two VIGNETTES as
+  // plates, and Erratum III three sections below argues the Robin was denied a
+  // plate — so the ledger was contradicting the erratum on the same screen.
+  const withPlate = withPage.filter((s) => s.plate_ref !== null && !s.plate_is_vignette).length;
   const heardCount = catalog?.length ?? 0;
 
   // THE ROLL — a left join of the garden onto the library. Sorted by drift class
@@ -1348,7 +1382,8 @@ export function LibraryView({
                 </tbody>
               </table>
               <div className="lib-roll-foot">
-                {roll.length - silentCount} of {roll.length} have an account · {silentCount} do not
+                {roll.length - silentCount} of {roll.length} have an account ·{' '}
+                {silentCount} {silentCount === 1 ? 'does' : 'do'} not
               </div>
 
               {/* The closing line: a ledger of what is present, signed off by an
@@ -1393,7 +1428,8 @@ export function LibraryView({
               <div className="lib-col-l">
                 text extracted once on {colophon.extracted_at} from {colophon.volumes_fetched}{' '}
                 volume pages · sha256 {colophon.corpus_sha256.slice(0, 12)} · {sealLine(colophon)} ·
-                nothing on this page is fetched or generated at runtime
+                every sentence here is served verbatim from that extraction · none is written,
+                paraphrased or generated by a model
               </div>
             )}
             <div className="lib-col-l">

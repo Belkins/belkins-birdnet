@@ -38,6 +38,9 @@ export type JardineDrift = 'unchanged' | 'spelling' | 'genus' | 'family' | 'coll
 export type JardineBinomialSource = 'em' | 'synonymy' | 'scaps' | 'scaps_paragraph';
 export type JardineErratumKind = 'precedence' | 'slip' | 'collision';
 export type JardineSubjectRole = 'garden' | 'library' | 'absent';
+/** 'all_absent'     — holds while NONE of the subjects has been recorded here.
+ *  'subject_is_top' — holds while a subject is the most-recorded species. */
+export type JardineClosingRequires = 'all_absent' | 'subject_is_top';
 
 /** One OCR artefact preserved verbatim, with the note the [sic] marker carries. */
 export interface JardineSic {
@@ -63,6 +66,15 @@ export interface JardinePassage {
   /** Volume page only — c82 has one id across 141 headings, so no per-passage anchor exists. */
   source_url: string;
   sic: JardineSic[];
+  /** How many passages the extraction REFUSED immediately after this one.
+   *  Almost always 0. Non-zero means Jardine's next sentences were a quotation
+   *  the protocol would not publish — its speaker is only 'probable', and a
+   *  probable name in 30px Cormorant under a real person is the one
+   *  unrecoverable failure here. The refusal is correct; printing the prose as
+   *  though nothing were missing is not, because Jardine's own lead-in runs
+   *  into it ("Mr Hewitson relates his knowledge of one which") and the passage
+   *  then stops mid-clause. */
+  elided_after: number;
   /** The account heading this sentence was lifted from, VERBATIM ("The Common
    *  Crane"). Null on every passage that is already rendered beside its own
    *  bird — it exists for the Roll's closer, which is the one passage on the
@@ -131,6 +143,13 @@ export interface JardineErratum {
   headline: string;
   quote: JardinePassage | null;
   closing: string | null;
+  /** What the closing SENTENCE depends on to stay true, or null when it is a
+   *  timeless remark about the book. Two of the five make live claims about the
+   *  garden — "Agreed." concedes that a bird is absent, and one asserts which
+   *  bird is most-recorded — and both used to print unconditionally, so the day
+   *  the data moved the museum would have gone on asserting them. The card's
+   *  tone already flipped; the sentence did not. */
+  closing_requires: JardineClosingRequires | null;
   subjects: JardineErratumSubject[];
 }
 
@@ -204,6 +223,7 @@ const DRIFTS: readonly JardineDrift[] = ['unchanged', 'spelling', 'genus', 'fami
 const SOURCES: readonly JardineBinomialSource[] = ['em', 'synonymy', 'scaps', 'scaps_paragraph'];
 const KINDS: readonly JardineErratumKind[] = ['precedence', 'slip', 'collision'];
 const ROLES: readonly JardineSubjectRole[] = ['garden', 'library', 'absent'];
+const REQUIRES: readonly JardineClosingRequires[] = ['all_absent', 'subject_is_top'];
 
 function asSic(v: unknown): JardineSic[] {
   if (!Array.isArray(v)) return [];
@@ -235,6 +255,11 @@ function asPassage(v: unknown): JardinePassage | null {
     volume_author: asString(v.volume_author),
     source_url: asString(v.source_url),
     sic: asSic(v.sic),
+    // a malformed or absent count is 0 — never a marker the data cannot justify
+    elided_after:
+      typeof v.elided_after === 'number' && Number.isInteger(v.elided_after) && v.elided_after > 0
+        ? v.elided_after
+        : 0,
     subject: asNullableString(v.subject),
   };
 }
@@ -327,6 +352,7 @@ function asErrata(v: unknown): JardineErratum[] {
       headline,
       quote: asPassage(item.quote),
       closing: asNullableString(item.closing),
+      closing_requires: asEnum(item.closing_requires, REQUIRES),
       subjects: asSubjects(item.subjects),
     });
   }
@@ -469,7 +495,7 @@ export function sicSpans(text: string, sic: JardineSic[]): SicSpan[] {
  *
  *  IT LIVES HERE, NOT IN A VIEW. It was previously a private function in
  *  LibraryView, which meant the Roll classified both weak paths while the
- *  Index of Silences printed no marker at all (11 of its 16 rows are weak) and
+ *  Index of Silences printed no marker at all (most of its rows are weak) and
  *  BirdPopup hand-rolled `=== 'synonymy'` with the tooltip inlined, so the
  *  dossier and the Roll gave contradictory provenance for the same binomial.
  *  Every consumer must call THIS — a copy is how the three drifted apart. */
@@ -547,6 +573,39 @@ export function silences(
     // production, never against the fixture that makes it look true.
     .filter((r) => r.count > 0)
     .sort((a, b) => b.count - a.count || a.species.sci_name.localeCompare(b.species.sci_name));
+}
+
+/** Does this erratum's closing SENTENCE still hold?
+ *
+ *  A closing with no declared contingency is a remark about the book and always
+ *  holds. The two that make claims about the garden are checked against the
+ *  catalog every render — never committed, never cached — so the museum stops
+ *  saying them the moment they stop being true rather than the moment somebody
+ *  notices.
+ *
+ *  An EMPTY catalog holds nothing: with no ledger to check against, an unproven
+ *  claim is not a true one. That is the same rule the errata's own garden facts
+ *  follow, and the opposite of what this project has shipped three times. */
+export function closingHolds(
+  e: JardineErratum,
+  byCatalog: Map<string, CatalogSpecies>,
+): boolean {
+  if (e.closing_requires === null) return true;
+  if (byCatalog.size === 0) return false;
+  const subjects = new Set(e.subjects.map((s) => s.sci_name));
+  if (e.closing_requires === 'all_absent') {
+    for (const sci of subjects) {
+      const c = byCatalog.get(sci);
+      if (c && heardHere(c)) return false;
+    }
+    return true;
+  }
+  // 'subject_is_top' — a subject must be the single most-recorded species here
+  let top: CatalogSpecies | null = null;
+  for (const c of byCatalog.values()) {
+    if (top === null || (c.detection_count || 0) > (top.detection_count || 0)) top = c;
+  }
+  return top !== null && subjects.has(top.sci_name);
 }
 
 export function jardineImageUrl(image: string | null): string | null {

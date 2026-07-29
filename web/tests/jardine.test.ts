@@ -29,10 +29,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
+import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
-import type { Jardine, JardinePassage, JardineSpecies } from '../src/jardine.ts';
+import type { Jardine, JardineErratum, JardinePassage, JardineSpecies } from '../src/jardine.ts';
 
 // ── the two-line bundler shim ────────────────────────────────────────────────
 // Vite resolves extensionless relative specifiers ('./config'); Node does not.
@@ -101,6 +103,8 @@ const silences = jardineMod.silences as (
 ) => Array<{ species: JardineSpecies; count: number }>;
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
 const weakSource = jardineMod.weakSource as (s: JardineSpecies) => string | null;
+const heardHere = jardineMod.heardHere as (c: CatalogSpecies) => boolean;
+const closingHolds = jardineMod.closingHolds as (e: JardineErratum, m: Map<string, CatalogSpecies>) => boolean;
 type SicRow = { find: string; note: string; offset: number | null };
 const sicSpans = jardineMod.sicSpans as (
   t: string,
@@ -2002,4 +2006,360 @@ test('M3 the Blind Ear claims its own number keys', () => {
     /n < 1 \|\| n > round\.options\.length/,
     'the quiz swallows keys outside its own options — 4/5/6 must still switch tabs',
   );
+});
+
+// ═══ N · THE PROVENANCE CHAIN ══════════════════════════════════════════════
+
+test('N1 the sha256 printed on the wall is checkable from this repo alone', () => {
+  // WHY: the colophon prints a corpus_sha256 and the Roll slices it onto the
+  // wall. Until this test existed, the bytes that hash to it lived in exactly
+  // ONE place — a session scratchpad under /private/tmp that gets swept — and
+  // the HTML cache that could re-derive them is deliberately uncommitted and
+  // already gone. The museum's central provenance claim was one `rm -rf /tmp`
+  // from being permanently unfalsifiable, and re-fetching c82.net would NOT
+  // restore it: a fresh fetch returns today's bytes, and a pin taken over those
+  // is a different pin wearing this one's costume.
+  //
+  // Now the evidence is committed, gzipped, and this re-hashes it every run. If
+  // the corpus and the colophon ever disagree, the wall is lying about its own
+  // source and the suite says so.
+  const gz = new URL('../../tools/jardine/corpus/corpus.txt.gz', import.meta.url);
+  if (!existsSync(gz)) {
+    assert.fail('the committed corpus is gone — the sha256 on the wall is now unverifiable');
+  }
+  const bytes = gunzipSync(readFileSync(gz));
+  const actual = createHash('sha256').update(bytes).digest('hex');
+
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const pinned = normalize(raw).colophon?.corpus_sha256 ?? '';
+  assert.equal(
+    actual,
+    pinned,
+    'the committed corpus does not hash to the sha256 the colophon prints on the wall',
+  );
+
+  // and the standalone .sha256 file must agree with both — three copies of one
+  // claim, which is only safe while something checks they still match
+  const stated = gunzipSync(readFileSync(new URL('../../tools/jardine/corpus/corpus.sha256.gz', import.meta.url)))
+    .toString('utf8')
+    .trim()
+    .split(/\s+/)[0];
+  assert.equal(stated, actual, 'corpus.sha256 disagrees with the corpus it names');
+
+  // the character count the README pins, re-derived rather than trusted
+  assert.equal(bytes.toString('utf8').length, 2249715, 'the corpus is not the pinned length');
+});
+
+test('N2 the human acceptance documents survived with it', () => {
+  // WHY: verify.tsv is the file a human must READ to sign the colophon, and
+  // passages.tsv carries the attribution_lead and footnote_text for the ten
+  // quotations awaiting a speaker. Both lived only in the scratchpad. Without
+  // them the colophon can never honestly be signed and the ten names can never
+  // be confirmed — the two open editorial items on this project both die.
+  for (const f of ['verify.tsv', 'passages.tsv', 'report.json', 'dropped.tsv', 'depth-audit.tsv']) {
+    const p = new URL(`../../tools/jardine/corpus/${f}.gz`, import.meta.url);
+    assert.ok(existsSync(p), `${f} is missing — an audit document the corpus cannot be signed without`);
+    assert.ok(gunzipSync(readFileSync(p)).length > 1000, `${f} is present but empty`);
+  }
+});
+
+test('N3 no fabricated asset ships to a public path on the wall', () => {
+  // WHY: Vite copies public/ wholesale, so the deployed bundle carried
+  // public/dev/species-london.json — a SYNTHETIC 47-row fixture — and 15
+  // Nearctic mock PNGs of birds this London garden has never heard, to
+  // /collage/dev/ and /collage/mock/, on a museum whose entire claim is that
+  // nothing on it is invented. Nothing links them, which is exactly why they
+  // survived: no page was wrong, the wall was simply serving inventions at a
+  // public URL to anyone who guessed it.
+  //
+  // The first fix silently did nothing — a generateBundle hook cannot see
+  // publicDir, which Vite copies outside the rollup bundle, so it ran, found
+  // nothing and reported success. This asserts the OUTCOME on disk, not the
+  // presence of a plugin, for exactly that reason.
+  const dist = new URL('../dist/', import.meta.url);
+  if (!existsSync(dist)) return; // no build in the tree — nothing to assert
+  for (const dir of ['dev', 'mock']) {
+    assert.ok(
+      !existsSync(new URL(dir + '/', dist)),
+      `dist/${dir}/ shipped to the wall — that is fabricated content at a public URL`,
+    );
+  }
+  // and the sources must still be present, because dev and the suite need them
+  assert.ok(existsSync(new URL('../public/dev/species-london.json', import.meta.url)),
+    'the fixture was MOVED rather than excluded — the test suite reads it directly');
+});
+
+test('O1 the wall’s garden line comes from the same authority that picks the page', () => {
+  // WHY — the fabricated absence, third occurrence, and the second time a FIX
+  // for it shipped with a comment saying it was fixed.
+  //
+  // The pool asks heardHere() (a real tally counts even with no parseable
+  // stamp). The footer used to re-derive the answer from heardOnLabel(
+  // last_detected) alone — so a bird the Pi HAS recorded, whose stamp is missing
+  // or malformed, was selected INTO the heard pool and then printed as "not yet
+  // heard in this garden". Fixing the selection and leaving the label is exactly
+  // how it survived. The two must not be able to disagree.
+  //
+  // Asserted at source level because the module has no DOM in this suite; the
+  // real defence is that `garden` is derived from heardHere() at the one place
+  // the page is built.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryFrameView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+
+  assert.match(src, /garden: !known \? 'unheard' : on \? 'dated' : 'undated'/,
+    'the garden state is no longer derived from heardHere() at the point the page is built');
+  assert.match(src, /const known = c \? heardHere\(c\) : false/,
+    'the page no longer asks the shared authority');
+  assert.ok(
+    !/page\.heardOn \?/.test(src),
+    'the footer branches on the DATE again — that is the fabricated absence returning',
+  );
+  assert.match(src, /page\.garden === 'dated'/, 'the footer no longer reads the garden state');
+  // and the three states must each have distinct copy, or the distinction is
+  // decorative: a recorded bird with no stamp must not read as never-heard
+  assert.match(src, /'undated'[\s\S]{0,200}heard in this garden/,
+    'the undated state does not say the bird WAS heard');
+  assert.match(src, /not yet heard in this garden/, 'the genuine-absence copy vanished');
+});
+
+test('O2 heardHere is true on a tally alone — the predicate the wall depends on', () => {
+  // WHY: O1 pins the wiring; this pins the semantics underneath it. If
+  // heardHere() ever narrows to last_detected, O1 stays green while the wall
+  // silently returns to fabricating absences — the guard and the thing it
+  // guards must both be held.
+  const row = (over: Partial<CatalogSpecies>): CatalogSpecies =>
+    ({ ...london[0], ...over }) as CatalogSpecies;
+  assert.equal(heardHere(row({ last_detected: '2026-07-27 06:00:00', detection_count: 0 })), true,
+    'a parseable stamp must count as heard');
+  assert.equal(heardHere(row({ last_detected: '', detection_count: 310 })), true,
+    'A REAL TALLY WITH NO STAMP MUST COUNT AS HEARD — this is the bug');
+  assert.equal(heardHere(row({ last_detected: 'not a date', detection_count: 12 })), true,
+    'an unparseable stamp with a real tally must still count as heard');
+  assert.equal(heardHere(row({ last_detected: '', detection_count: 0 })), false,
+    'no stamp and no tally is the only genuine absence');
+});
+
+test('O3 the ledger does not count vignettes as plates', () => {
+  // WHY: the masthead ledger said "N have a plate" using `plate_ref !== null`,
+  // which counts the two VIGNETTES — and Erratum III, three sections further
+  // down the same page, argues that the Robin was DENIED a plate. The tab
+  // contradicted itself on one screen, in favour of the less flattering reading
+  // of its own corpus.
+  //
+  // The data is right and stays untouched: plate_is_vignette is the corpus's
+  // honest record of what the 1838 book actually gave each bird. Only the
+  // predicate was wrong.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const vignettes = j.species.filter((s) => s.plate_ref !== null && s.plate_is_vignette);
+  assert.ok(vignettes.length > 0, 'no vignettes in the corpus — this guard is vacuous');
+  // the Robin is the exhibit Erratum III is built on
+  assert.ok(
+    vignettes.some((s) => s.sci_name === 'Erithacus rubecula'),
+    'the Robin is no longer a vignette — re-check Erratum III before changing this',
+  );
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    src,
+    /plate_ref !== null && !s\.plate_is_vignette/,
+    'the ledger counts vignettes as plates again — it now contradicts Erratum III',
+  );
+});
+
+test('P1 every refused quotation is declared by the passage before it', () => {
+  // WHY — my own bug from the commit that built the reading room. The builder
+  // ships only what the protocol allows, which is right: 15 passages across 10
+  // accounts are quotations whose speaker is only 'probable', and a probable
+  // name in Cormorant under a real person is this project's one unrecoverable
+  // failure. What was missing is that NOTHING RECORDED THE REFUSAL — so
+  // Jardine's prose ran into the quotation and stopped mid-clause ("Mr Hewitson
+  // relates his knowledge of one which") under a header reading "N passages, as
+  // printed".
+  //
+  // Checked against the COMMITTED CORPUS, not inferred from punctuation. An
+  // earlier version of this test flagged eight more passages ending in ':—' and
+  // was WRONG to: those introduce a taxonomic characterisation that the
+  // EXTRACTOR drops as `generic_characters`/`genus_paragraph` during
+  // segmentation — a deliberate editorial exclusion of non-prose, not a
+  // withholding for want of a speaker. Calling those 'withheld' would be its own
+  // small lie, so this asserts only the class elided_after actually describes.
+  const raw = accountsRaw();
+  if (raw === null) return;
+  const acc = raw as Record<string, Array<{ text: string; elided_after?: number }>>;
+
+  const corpusGz = new URL('../../tools/jardine/corpus/corpus.json.gz', import.meta.url);
+  if (!existsSync(corpusGz)) return;
+  const corpus = JSON.parse(gunzipSync(readFileSync(corpusGz)).toString('utf8')) as unknown;
+  const accountsOf = (o: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(o)) o.forEach((x) => accountsOf(x, out));
+    else if (o && typeof o === 'object') {
+      for (const [k, v] of Object.entries(o)) {
+        if (k === 'accounts' && Array.isArray(v)) out.push(...(v as Array<Record<string, unknown>>));
+        else accountsOf(v, out);
+      }
+    }
+    return out;
+  };
+  const byTitle = new Map<string, Record<string, unknown>>();
+  for (const a of accountsOf(corpus)) byTitle.set(String(a.jardine_title), a);
+
+  const j = normalize(corpusRaw());
+  let checked = 0;
+  const wrong: string[] = [];
+  for (const sp of j.species) {
+    const rows = acc[sp.sci_name];
+    const a = byTitle.get(sp.jardine_title);
+    if (!rows || !a) continue;
+    // walk the source account and count refusals between shipped passages
+    let idx = -1;
+    let expected = 0;
+    for (const p of a.passages as Array<Record<string, unknown>>) {
+      if (p.shippable === true && p.is_quotation === false) {
+        if (idx >= 0 && (rows[idx].elided_after ?? 0) !== expected) {
+          wrong.push(`${sp.sci_name} row ${idx}: says ${rows[idx].elided_after ?? 0}, source refused ${expected}`);
+        }
+        idx++;
+        expected = 0;
+      } else if (idx >= 0) {
+        expected++;
+        checked++;
+      }
+    }
+    if (idx >= 0 && (rows[idx].elided_after ?? 0) !== expected) {
+      wrong.push(`${sp.sci_name} row ${idx}: says ${rows[idx].elided_after ?? 0}, source refused ${expected}`);
+    }
+  }
+  assert.deepEqual(wrong, [], 'the reading room miscounts what it withheld:\n  ' + wrong.join('\n  '));
+  assert.ok(checked >= 15, `expected the known refusals, walked ${checked}`);
+});
+
+test('P2 the withheld marker names nobody, and is never dressed as 1838', () => {
+  // WHY: the whole reason those passages are withheld is that the extraction
+  // could not PROVE who was speaking. Jardine's lead-in says "Mr Hewitson" and
+  // the corpus carries speaker_candidate values — using either would treat the
+  // exact signal the protocol rejects as though it were evidence, which is
+  // worse than the gap. And the marker is the museum talking about the book, so
+  // it takes the 2026 hand: Cormorant is Jardine's, amber is a Pi measurement.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const marker = /elided_after > 0 && \([\s\S]{0,600}?\)\}/.exec(src)?.[0] ?? '';
+  assert.ok(marker, 'the withheld marker is no longer rendered');
+  for (const name of ['Hewitson', 'Thompson', 'Selby', 'Yarrell', 'Laing', 'Macgillivray']) {
+    assert.ok(!marker.includes(name), `the marker names ${name} — a candidate, never a proven speaker`);
+  }
+  assert.ok(!/speaker_candidate/.test(src), 'the view reads speaker_candidate — that field is not evidence');
+  // the class must be the mono apparatus register, not the prose one
+  assert.match(marker, /lib-acct-elided/, 'the marker lost its own class');
+  const css = readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8');
+  const rule = /\.lib-acct-elided \{[^}]*\}/.exec(css)?.[0] ?? '';
+  assert.match(rule, /var\(--mono\)/, 'the marker is not in the 2026 hand');
+  assert.ok(!/--amber/.test(rule), 'the marker uses amber — that is reserved for a measured number');
+  assert.ok(!/--display/.test(rule), 'the marker is set in Cormorant — that hand belongs to 1838');
+});
+
+test('Q1 no curated passage presents a severed sentence as a whole one', () => {
+  // WHY: the corpus is excerpts, and the curator marks one with a leading and/or
+  // trailing '…'. 41 of the 58 carry a leading marker and 36 a trailing one — so
+  // the convention is real, load-bearing and nearly universal. An excerpt that
+  // stops mid-clause WITHOUT it is not a smaller claim, it is a different one:
+  // it says Jardine ended his thought there.
+  //
+  // Exactly one passage broke it, and it was the worst possible one — the
+  // EPIGRAPH, the first sentence on the tab. It ended "…can only be felt by
+  // hearing;" while the source continues "; and it appears to be uttered on
+  // alarm…". A semicolon presented as a full stop, in display type, above
+  // everything else. Found by reading the tab (tools/read-library.ts), not by
+  // any of the 80 tests that were green at the time.
+  //
+  // P1 guards this class inside the reading room. Nothing guarded the curated
+  // passages, which are the ones a visitor actually meets first.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const all: Array<[string, JardinePassage]> = [];
+  if (j.epigraph) all.push(['epigraph', j.epigraph]);
+  if (j.roll_closing) all.push(['roll_closing', j.roll_closing]);
+  for (const s of j.species) {
+    if (s.voice) all.push([`${s.sci_name}.voice`, s.voice]);
+    if (s.coda) all.push([`${s.sci_name}.coda`, s.coda]);
+  }
+  for (const e of j.errata) if (e.quote) all.push([`errata[${e.no}]`, e.quote]);
+  assert.ok(all.length > 40, 'too few curated passages to audit');
+
+  const severed = all
+    .filter(([, p]) => !/[.!?…”"]$/.test(p.text.trim()))
+    .map(([k, p]) => `${k}: …${p.text.trim().slice(-52)}`);
+  assert.deepEqual(
+    severed,
+    [],
+    'these curated passages stop mid-clause with no excerpt marker, so they claim ' +
+      'Jardine ended his thought there:\n  ' + severed.join('\n  '),
+  );
+
+  // and the convention must still be IN USE — if every marker vanished the rule
+  // above would pass vacuously on a corpus that had quietly stopped excerpting
+  const marked = all.filter(([, p]) => /…/.test(p.text)).length;
+  assert.ok(marked > 20, `only ${marked} passages carry an excerpt marker — the convention has lapsed`);
+});
+
+test('Q2 a closing that makes a live claim stops printing when it stops being true', () => {
+  // WHY: two of the five errata closings are not remarks about the book, they
+  // are assertions about THIS garden. "Agreed." concedes Jardine's point that a
+  // Nightingale is absent; another asserts which bird is most-recorded. Both
+  // printed unconditionally. The card's TONE already flipped on the data — the
+  // sentence underneath it did not, so a red slip would have gone on agreeing.
+  //
+  // The contingency is declared in the data (closing_requires) rather than
+  // hardcoded per erratum, so a sixth slip states its own dependency instead of
+  // inheriting somebody's memory of which two were special.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const gated = j.errata.filter((e) => e.closing_requires !== null);
+  assert.ok(gated.length >= 2, 'no closing declares a contingency — the gate is vacuous');
+
+  const map = (rows: CatalogSpecies[]) => new Map(rows.map((r) => [r.sci_name, r]));
+  const row = (sci: string, n: number) => ({ ...london[0], sci_name: sci, detection_count: n, last_detected: '2026-07-28 06:00:00' }) as CatalogSpecies;
+
+  for (const e of gated) {
+    const subj = e.subjects.map((s) => s.sci_name);
+    assert.ok(subj.length > 0, `${e.no} declares a contingency but names no subject`);
+
+    if (e.closing_requires === 'all_absent') {
+      // holds while the bird is unheard …
+      assert.equal(closingHolds(e, map([row('Zzz zzz', 5)])), true, `${e.no} should hold while absent`);
+      // … and must go silent the moment it is heard
+      assert.equal(closingHolds(e, map([row(subj[0], 1)])), false,
+        `${e.no} still concedes after the bird was detected`);
+    } else {
+      // holds while a subject is the most-recorded bird …
+      assert.equal(closingHolds(e, map([row(subj[0], 900), row('Zzz zzz', 10)])), true,
+        `${e.no} should hold while its subject is top`);
+      // … and must go silent once something outranks it
+      assert.equal(closingHolds(e, map([row(subj[0], 10), row('Zzz zzz', 900)])), false,
+        `${e.no} still claims the top spot after being outranked`);
+    }
+    // and an unreachable ledger proves nothing, so it holds nothing
+    assert.equal(closingHolds(e, map([])), false, `${e.no} asserts a live claim with no catalog`);
+  }
+
+  // a timeless closing must NOT be gated away — the remark about the book stands
+  for (const e of j.errata.filter((x) => x.closing_requires === null && x.closing)) {
+    assert.equal(closingHolds(e, map([])), true, `${e.no} is a remark about the book and must always print`);
+  }
+
+  // and the view must actually consult the gate
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const sites = src.match(/e\.closing &&/g) ?? [];
+  const gatedSites = src.match(/e\.closing && closingHolds\(e, byCatalog\)/g) ?? [];
+  assert.equal(gatedSites.length, sites.length,
+    `${sites.length - gatedSites.length} closing render site(s) bypass the gate`);
 });

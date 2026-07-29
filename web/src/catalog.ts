@@ -92,7 +92,24 @@ function normalize(raw: unknown): CatalogSpecies[] {
 
 /** All-time life list. Never throws — see the file header. */
 export async function fetchCatalog(): Promise<CatalogSpecies[]> {
-  const url = MOCK ? MOCK_CATALOG_URL : CATALOG_URL;
+  // An EXPLICIT VITE_CATALOG_URL wins even under MOCK. It used to be discarded
+  // here, which made the incantation this repo documents at
+  // tests/jardine.test.ts a no-op: `VITE_CATALOG_URL=/dev/species-london.json
+  // npm run dev` kept VITE_MOCK=1 and quietly served the 8-row NEARCTIC
+  // public/species.json instead — a set with ZERO intersection with the 51
+  // Jardine species, so the Library degraded to a tab that looks deliberate:
+  // desk silent, Index of Silences and Blind Ear unmounted, 0 of 40 spines lit,
+  // every Roll row reading "the library is silent."
+  //
+  // The defect was never that nobody could look. It was that the repo's own
+  // written cure did nothing, so anyone who followed it saw the degraded tab and
+  // had no way to tell it from the real one.
+  //
+  // `!import.meta.env.VITE_CATALOG_URL` and not a comparison, because of the
+  // empty case: CATALOG_URL uses ??, so `VITE_CATALOG_URL=` yields '', and
+  // fetch('') resolves to the page itself → index.html → a parse failure → [].
+  // Treating empty as unset keeps a stray blank var from blanking the catalog.
+  const url = MOCK && !import.meta.env.VITE_CATALOG_URL ? MOCK_CATALOG_URL : CATALOG_URL;
   try {
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return [];

@@ -16,6 +16,7 @@ Run from ``avian/backup/``:
 """
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -148,14 +149,21 @@ class BackupCase(unittest.TestCase):
             json.dumps({"version": 1, "entries": [
                 {"sci_name": "erithacus-rubecula", "accession": 1},
                 {"sci_name": "psittacula-krameri", "accession": 2}]}) + "\n")
+        # RELATIVE, never a literal. check_phenology degrades a ledger whose
+        # built_at is older than PHENOLOGY_MAX_AGE_H, so a hardcoded timestamp
+        # silently turns every rc==0 assertion in this file red 72h after the day
+        # it was written -- on a date nobody would connect to this line.
+        _now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+        _fresh = (_now - datetime.timedelta(hours=1)).isoformat()
         (self.repo / "scripts/phenology.json").write_text(
-            json.dumps({"version": 1, "built_at": "2026-07-27T00:00:00+00:00",
-                        "current_year": 2026, "source_rows": 5, "species_years": 2,
-                        "coverage": {"min_date": "2026-07-01", "max_date": "2026-07-27",
-                                     "source_rows": 5, "years": [2026]},
+            json.dumps({"version": 1, "built_at": _fresh,
+                        "current_year": _now.year, "source_rows": 5, "species_years": 2,
+                        "coverage": {"min_date": "%d-01-01" % _now.year,
+                                     "max_date": _now.date().isoformat(),
+                                     "source_rows": 5, "years": [_now.year]},
                         "notes": [], "entries": [
-                            {"year": 2025, "sci_name": "erithacus-rubecula"},
-                            {"year": 2026, "sci_name": "psittacula-krameri"}]}) + "\n")
+                            {"year": _now.year - 1, "sci_name": "erithacus-rubecula"},
+                            {"year": _now.year, "sci_name": "psittacula-krameri"}]}) + "\n")
         (self.repo / "services/birdgen/manifest.json").write_text(json.dumps({"slugs": _BUNDLED}) + "\n")
 
         saved = {k: getattr(offbox_backup, k) for k in _ENV_ATTRS}
