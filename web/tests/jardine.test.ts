@@ -34,7 +34,7 @@ import { createHash } from 'node:crypto';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
-import type { Jardine, JardinePassage, JardineSpecies } from '../src/jardine.ts';
+import type { Jardine, JardineErratum, JardinePassage, JardineSpecies } from '../src/jardine.ts';
 
 // ── the two-line bundler shim ────────────────────────────────────────────────
 // Vite resolves extensionless relative specifiers ('./config'); Node does not.
@@ -104,6 +104,7 @@ const silences = jardineMod.silences as (
 const sealLine = jardineMod.sealLine as (c: unknown) => string;
 const weakSource = jardineMod.weakSource as (s: JardineSpecies) => string | null;
 const heardHere = jardineMod.heardHere as (c: CatalogSpecies) => boolean;
+const closingHolds = jardineMod.closingHolds as (e: JardineErratum, m: Map<string, CatalogSpecies>) => boolean;
 type SicRow = { find: string; note: string; offset: number | null };
 const sicSpans = jardineMod.sicSpans as (
   t: string,
@@ -2260,4 +2261,105 @@ test('P2 the withheld marker names nobody, and is never dressed as 1838', () => 
   assert.match(rule, /var\(--mono\)/, 'the marker is not in the 2026 hand');
   assert.ok(!/--amber/.test(rule), 'the marker uses amber — that is reserved for a measured number');
   assert.ok(!/--display/.test(rule), 'the marker is set in Cormorant — that hand belongs to 1838');
+});
+
+test('Q1 no curated passage presents a severed sentence as a whole one', () => {
+  // WHY: the corpus is excerpts, and the curator marks one with a leading and/or
+  // trailing '…'. 41 of the 58 carry a leading marker and 36 a trailing one — so
+  // the convention is real, load-bearing and nearly universal. An excerpt that
+  // stops mid-clause WITHOUT it is not a smaller claim, it is a different one:
+  // it says Jardine ended his thought there.
+  //
+  // Exactly one passage broke it, and it was the worst possible one — the
+  // EPIGRAPH, the first sentence on the tab. It ended "…can only be felt by
+  // hearing;" while the source continues "; and it appears to be uttered on
+  // alarm…". A semicolon presented as a full stop, in display type, above
+  // everything else. Found by reading the tab (tools/read-library.ts), not by
+  // any of the 80 tests that were green at the time.
+  //
+  // P1 guards this class inside the reading room. Nothing guarded the curated
+  // passages, which are the ones a visitor actually meets first.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const all: Array<[string, JardinePassage]> = [];
+  if (j.epigraph) all.push(['epigraph', j.epigraph]);
+  if (j.roll_closing) all.push(['roll_closing', j.roll_closing]);
+  for (const s of j.species) {
+    if (s.voice) all.push([`${s.sci_name}.voice`, s.voice]);
+    if (s.coda) all.push([`${s.sci_name}.coda`, s.coda]);
+  }
+  for (const e of j.errata) if (e.quote) all.push([`errata[${e.no}]`, e.quote]);
+  assert.ok(all.length > 40, 'too few curated passages to audit');
+
+  const severed = all
+    .filter(([, p]) => !/[.!?…”"]$/.test(p.text.trim()))
+    .map(([k, p]) => `${k}: …${p.text.trim().slice(-52)}`);
+  assert.deepEqual(
+    severed,
+    [],
+    'these curated passages stop mid-clause with no excerpt marker, so they claim ' +
+      'Jardine ended his thought there:\n  ' + severed.join('\n  '),
+  );
+
+  // and the convention must still be IN USE — if every marker vanished the rule
+  // above would pass vacuously on a corpus that had quietly stopped excerpting
+  const marked = all.filter(([, p]) => /…/.test(p.text)).length;
+  assert.ok(marked > 20, `only ${marked} passages carry an excerpt marker — the convention has lapsed`);
+});
+
+test('Q2 a closing that makes a live claim stops printing when it stops being true', () => {
+  // WHY: two of the five errata closings are not remarks about the book, they
+  // are assertions about THIS garden. "Agreed." concedes Jardine's point that a
+  // Nightingale is absent; another asserts which bird is most-recorded. Both
+  // printed unconditionally. The card's TONE already flipped on the data — the
+  // sentence underneath it did not, so a red slip would have gone on agreeing.
+  //
+  // The contingency is declared in the data (closing_requires) rather than
+  // hardcoded per erratum, so a sixth slip states its own dependency instead of
+  // inheriting somebody's memory of which two were special.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const gated = j.errata.filter((e) => e.closing_requires !== null);
+  assert.ok(gated.length >= 2, 'no closing declares a contingency — the gate is vacuous');
+
+  const map = (rows: CatalogSpecies[]) => new Map(rows.map((r) => [r.sci_name, r]));
+  const row = (sci: string, n: number) => ({ ...london[0], sci_name: sci, detection_count: n, last_detected: '2026-07-28 06:00:00' }) as CatalogSpecies;
+
+  for (const e of gated) {
+    const subj = e.subjects.map((s) => s.sci_name);
+    assert.ok(subj.length > 0, `${e.no} declares a contingency but names no subject`);
+
+    if (e.closing_requires === 'all_absent') {
+      // holds while the bird is unheard …
+      assert.equal(closingHolds(e, map([row('Zzz zzz', 5)])), true, `${e.no} should hold while absent`);
+      // … and must go silent the moment it is heard
+      assert.equal(closingHolds(e, map([row(subj[0], 1)])), false,
+        `${e.no} still concedes after the bird was detected`);
+    } else {
+      // holds while a subject is the most-recorded bird …
+      assert.equal(closingHolds(e, map([row(subj[0], 900), row('Zzz zzz', 10)])), true,
+        `${e.no} should hold while its subject is top`);
+      // … and must go silent once something outranks it
+      assert.equal(closingHolds(e, map([row(subj[0], 10), row('Zzz zzz', 900)])), false,
+        `${e.no} still claims the top spot after being outranked`);
+    }
+    // and an unreachable ledger proves nothing, so it holds nothing
+    assert.equal(closingHolds(e, map([])), false, `${e.no} asserts a live claim with no catalog`);
+  }
+
+  // a timeless closing must NOT be gated away — the remark about the book stands
+  for (const e of j.errata.filter((x) => x.closing_requires === null && x.closing)) {
+    assert.equal(closingHolds(e, map([])), true, `${e.no} is a remark about the book and must always print`);
+  }
+
+  // and the view must actually consult the gate
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const sites = src.match(/e\.closing &&/g) ?? [];
+  const gatedSites = src.match(/e\.closing && closingHolds\(e, byCatalog\)/g) ?? [];
+  assert.equal(gatedSites.length, sites.length,
+    `${sites.length - gatedSites.length} closing render site(s) bypass the gate`);
 });

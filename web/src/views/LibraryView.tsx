@@ -42,6 +42,7 @@ import {
   pickDeskSpecies,
   sealLine,
   silences,
+  closingHolds,
   sicSpans,
   speciesBySci,
   volumeRoman,
@@ -696,7 +697,9 @@ function ErratumSlip({
             hardcoded copy of itself — byte-identical for Erratum No. I, the
             tab's first and widest slip, which therefore printed one sentence
             twice. Pure deletion; every slip already carries its own closing. */}
-        {e.closing && <div className="lib-close">{e.closing}</div>}
+        {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
       </article>
     );
   }
@@ -747,7 +750,9 @@ function ErratumSlip({
           })}
         </div>
         {says}
-        {e.closing && <div className="lib-close">{e.closing}</div>}
+        {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
       </article>
     );
   }
@@ -783,7 +788,9 @@ function ErratumSlip({
           })}
         </div>
       </div>
-      {e.closing && <div className="lib-close">{e.closing}</div>}
+      {e.closing && closingHolds(e, byCatalog) && (
+          <div className="lib-close">{e.closing}</div>
+        )}
     </article>
   );
 }
