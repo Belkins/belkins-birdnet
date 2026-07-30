@@ -14,6 +14,25 @@ FPM_SOCK=${FPM_SOCK:-/run/php/php-fpm.sock}
 if [ -f /etc/caddy/Caddyfile ];then
   cp /etc/caddy/Caddyfile{,.original}
 fi
+# STATION_OPEN="1" — the deliberate LAN-open opt-out (owner's choice, 2026-07-30).
+# REFUSE rather than regenerate. Every path below re-emits basic_auth, so running
+# this script would silently put the passwords back and undo that choice.
+#
+# This is a refusal, not a TODO. The script already could not reproduce the live
+# /etc/caddy/Caddyfile — it emits the pre-2.7 `basicauth` spelling that Caddy
+# 2.11 rejects outright, and it knows nothing about the hand-added /events SSE
+# route or the extra Host pins. Teaching it a third branch would make it look
+# safe to run while it still is not. Edit the live file surgically instead.
+if [ "${STATION_OPEN}" = "1" ];then
+  echo "update_caddyfile: REFUSING to run — STATION_OPEN=1 in birdnet.conf." >&2
+  echo "  This script re-emits basic_auth on 11 paths and would restore every" >&2
+  echo "  password gate the owner deliberately removed on 2026-07-30." >&2
+  echo "  It also cannot reproduce the live file (old 'basicauth' spelling," >&2
+  echo "  no /events route, no extra Host pins), so it must not be used to" >&2
+  echo "  re-gate either. To restore the gates: edit /etc/caddy/Caddyfile by" >&2
+  echo "  hand, or unset STATION_OPEN first and diff before applying." >&2
+  exit 2
+fi
 if ! [ -z ${CADDY_PWD} ];then
 HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
 cat << EOF > /etc/caddy/Caddyfile
