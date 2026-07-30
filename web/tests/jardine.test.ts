@@ -2806,3 +2806,54 @@ test('E6 the station may only claim a bird it actually painted', () => {
   assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
   assert.ok(j.species.length - withPlate > 0, 'every species has an engraving — the station path is untested');
 });
+
+test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', () => {
+  // TWO INVARIANTS, AND THE SECOND IS THE ONE AT RISK.
+  //
+  // (1) A plate you cannot open is a thumbnail of an argument. The vitrine
+  //     prints the Robin's vignette at 0.38 of the Waxwing's plate, which at the
+  //     old 300px base was 114px wide — too small to see the bird the slip is
+  //     arguing about. Every plate on this tab must be openable.
+  //
+  // (2) THE RATIO MUST SURVIVE. Erratum I ("The Order of Precedence") is about a
+  //     book that gave a rare vagrant a full plate and this garden's
+  //     second-loudest bird a corner sketch, and the mounts carry that by
+  //     printing at Jardine's OWN relative scale. The obvious "tidy-up" — make
+  //     the pictures a uniform size so the row looks neat — deletes the
+  //     argument and leaves a slip whose text no longer matches its exhibit. I
+  //     was one edit away from doing exactly that while making them bigger.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+  const css = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8'),
+  );
+
+  for (const fn of ['Engraving', 'SpeciesPlate', 'StationBird']) {
+    const body = new RegExp(`function ${fn}\\(([\\s\\S]*?)\\n\\}\\n`).exec(src);
+    assert.ok(body, `${fn} is gone — re-point this guard`);
+    assert.match(body[1], /PlateOpener/, `${fn} renders a plate that cannot be opened`);
+  }
+  assert.match(src, /function PlateViewer\(/, 'the plate viewer is gone');
+  // A viewer nothing can reach is decoration.
+  assert.match(src, /<PlateViewer\s/, 'PlateViewer is never mounted');
+  assert.match(src, /OpenPlateCtx\.Provider/, 'nothing provides the open-plate handler');
+
+  // The mount width must still be a FUNCTION of Jardine's scale.
+  const mount = /\.lib-mount \{([^}]*)\}/.exec(css);
+  assert.ok(mount, '.lib-mount is gone — find the vitrine and re-point this guard');
+  assert.match(
+    mount[1],
+    /var\(--scale/,
+    'the vitrine no longer sizes by Jardine’s own scale — Erratum I’s exhibit now contradicts its text',
+  );
+  // And the data must still carry a real spread of scales, or (2) is vacuous.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const scales = new Set(j.errata.flatMap((e) => e.subjects.map((s) => s.scale)));
+  assert.ok(
+    scales.size > 1,
+    'every errata subject now has the same scale — the vitrine has nothing left to compare',
+  );
+});

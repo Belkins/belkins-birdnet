@@ -650,17 +650,124 @@
    --card ground, a 10px --bg2 mount, filter:none, NO glow. The only rectangular
    hard-edged image anywhere in this museum. Its width is Jardine's own relative
    scale, which is the entire argument of this slip. */
+/* THE RATIO IS THE ARGUMENT; THE BASE IS NOT.
+   Erratum I is about a book that gave a rare vagrant a full plate and this
+   garden's second-loudest bird a corner vignette, so the mounts print at
+   Jardine's OWN relative sizes and that must not be flattened. But a ratio
+   holds at any base, and at 300px the 0.38 vignettes came out 114px wide —
+   a thumbnail of an argument rather than the argument. 440px base: the same
+   comparison, now legible, and every plate opens to full size on click. */
 .lib-mount {
-  width: calc(var(--scale, 1) * 300px);
+  width: calc(var(--scale, 1) * 440px);
   max-width: 100%;
   margin: 0;
 }
+/* FRAMED, not merely bordered. A deep mat, a hairline where the print meets it,
+   and the weight of something hung — an engraving in this museum is a physical
+   object, and it was reading as a bordered thumbnail. */
 .lib-mat {
   display: block;
-  padding: 10px;
+  padding: var(--s-4);
   background: var(--bg2);
   border: 1px solid var(--line);
+  box-shadow:
+    inset 0 0 0 1px var(--line-2),
+    0 14px 30px -18px rgba(0, 0, 0, 0.75);
   border-radius: 0;
+}
+
+/* ── OPENING A PLATE ─────────────────────────────────────────────────────────
+   A real <button>, so the plates are reachable by keyboard and announce
+   themselves — and styled to nothing, so the museum never grows a UI chrome
+   button around a 190-year-old engraving. */
+.lib-plate-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: zoom-in;
+  text-align: inherit;
+}
+.lib-plate-open:focus-visible {
+  outline: 1px solid var(--amber);
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lib-plate-open .lib-mat,
+  .lib-plate-open .lib-plate {
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+}
+.lib-plate-open:hover .lib-mat {
+  box-shadow:
+    inset 0 0 0 1px var(--mut),
+    0 18px 36px -16px rgba(0, 0, 0, 0.85);
+}
+.lib-plate-open:hover .lib-plate {
+  border-color: var(--mut);
+}
+
+/* THE PLATE, LARGE. The only place the engraver's line is legible. */
+.lib-view-back {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-5);
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
+}
+.lib-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  max-width: min(1180px, 96vw);
+}
+.lib-view-x {
+  position: absolute;
+  top: calc(-1 * var(--s-7));
+  right: 0;
+}
+.lib-view-mat {
+  padding: var(--s-5);
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  box-shadow: 0 40px 80px -40px rgba(0, 0, 0, 0.9);
+}
+/* The station's bird was never on paper, so it is never matted. */
+.lib-view-bare {
+  padding: 0;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+.lib-view-img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  width: auto;
+  height: auto;
+}
+.lib-view-cap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: var(--w-read);
+  text-align: center;
+}
+.lib-view-t {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: var(--t-title);
+  color: var(--ink);
 }
 /* THE MOUNT WITH NO PLATE IN IT. It was a 22x92 sliver of flat card — narrower
    than a thumbnail, exactly the shape of an image that failed to load, which is
