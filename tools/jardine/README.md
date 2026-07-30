@@ -446,6 +446,76 @@ false` — verbatim, and its authorship is now proven rather than assumed:
 
 ---
 
+## Lane B — THE PLATES (`fetch_plates.py`, `link_plates.py`)
+
+Added 2026-07-30. The extraction above takes the TEXT. These two take the
+engravings, and they are deliberately two scripts rather than one, because
+downloading a picture and deciding whose picture it is are different jobs with
+different failure modes.
+
+```bash
+tools/jardine/fetch_plates.py --dry-run   # print the plan, request nothing
+tools/jardine/fetch_plates.py             # fetch what is missing
+tools/jardine/link_plates.py --dry-run    # what it would write
+tools/jardine/link_plates.py              # attach them to the birds
+```
+
+**Licence.** Rougeux's CC0 1.0 grant covers the restored **illustrations**
+specifically — the prose is the part whose reuse needs care, not the pictures.
+These are the most cleanly reusable bytes in the whole corpus. The earlier
+decision to drop the plates was about COVERAGE, never licence.
+
+**Politeness** is the extractor's, unchanged: one desktop UA, 1.5 s between
+requests, everything cached under `tools/jardine/cache/` (gitignored, ~25 MB, so
+a re-run costs zero requests). Shipped at a 1200×700 box, 146 source megapixels
+down to 3.0 MB.
+
+### The one thing that matters here
+
+**Jardine drew two species on one sheet, more than once.** Volume 34's plate XV
+carries its own engraved legend — *"Spotted (Left), Common (Right)"* — and
+figures a Spotted Sandpiper beside the Common Sandpiper. Volume 24's plate VIII
+puts a flame-crested Firecrest above a yellow-crested Goldcrest. Plate III has a
+Blackbird below and a Song Thrush above. Volume 40's plate III is Jardine's
+deliberate comparison of the European teal with the American, and he says so in
+prose this repo already transcribed.
+
+A single-species caption on any of those tells a reader the OTHER bird in the
+frame is that species. So `link_plates.py` **fails closed**: any plate the
+corpus anchors to more than one account must appear in its `ADJUDICATED` ledger,
+with every bird on the sheet, its position, and the evidence that placed it —
+or the script exits 2 and writes nothing.
+
+**Count claimants in the CORPUS, never in `jardine.json`.** The first version of
+the guard counted them among our own 52 species and could not fail on the case
+it existed for: *Actitis macularius* is a Nearctic vagrant this London garden
+never records, so it was filtered out before the manifest was built, one
+claimant survived, and the guard passed. The corpus holds 718 accounts. Any
+plate whose second bird is not a local bird looked single-claimant.
+
+A third case no claimant count can see — one account, two species figured — is a
+reviewed finding in `TWO_BIRD_SINGLE_ACCOUNT`, found by reading, and a stale
+entry there is reported.
+
+### Attribution strength is recorded, not assumed
+
+`plate_attribution` is `depicted` when the picture shows the bird and
+`plate-list` when only the VOLUME says so. Plate XXIII is the Wren's by every
+provenance test — monotonic plate map, exactly one account, the domed
+side-entrance nest — and a blind identification still declined to name it,
+because the engraver drew a longer tail and a more dagger-like bill than a Wren
+has. It ships as a citation with the reason attached. Unknown values degrade to
+the weaker claim, so a corrupt field cannot promote a citation into an assertion.
+
+### What the museum does with them
+
+25 of 52 species hang an engraving. The other 27 were never figured by Jardine
+and render the station's own painted bird instead, labelled as such — the
+two-hand law in pictures. The colophon says which pictures are Jardine's,
+scanned, and which are the station's, painted here.
+
+---
+
 ## Credit and licence
 
 Sir William Jardine, *The Naturalist's Library*, Edinburgh 1833–1843. Restored
