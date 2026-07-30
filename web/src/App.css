@@ -965,6 +965,47 @@
   }
 }
 
+/* THE TOP ROW RUNS OUT OF PHONE BEFORE THE NAV DOES. The five time filters and
+   the menu cluster are pinned to opposite corners with fixed 26px insets, and
+   neither shrinks: at 320 the filter's right edge lands at 222 while the menu
+   starts at 155, so 7D and ALL sit UNDER the theme toggle and the menu pill and
+   cannot be clicked at all. Two of the five windows are unreachable on a small
+   phone, and nothing shows they are there.
+
+   This is not the scrim — that was A/B tested by ablating the whole block at
+   runtime, and the hit-test outcome was identical with and without it. It is
+   older than the scrim and it is a real defect: a control you cannot press.
+
+   Both sides give up room rather than one side taking it all. Tighter insets,
+   a tighter filter gap, one step down in type, and less air around the menu —
+   about 80px reclaimed against a 67px overlap, which clears at 320 and leaves
+   the layout untouched above 420 where there was never a problem. */
+@media (max-width: 420px) {
+  .filter,
+  .archive-cap,
+  .live-counter {
+    left: 14px;
+  }
+  .menu-wrap,
+  .colophon {
+    right: 14px;
+  }
+  .filter {
+    gap: 8px;
+  }
+  .filter button {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .menu-wrap {
+    gap: 8px;
+  }
+  .theme-quick {
+    width: 30px;
+    height: 30px;
+  }
+}
+
 /* ── frame / wall mode (spec §5) ───────────────────────────────
    Chrome dissolves; the wall keeps the masthead + canvas, the compact data
    line (repositioned bottom-right) and the exit pill. The colophon and wall

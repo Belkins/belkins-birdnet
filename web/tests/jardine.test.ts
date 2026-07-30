@@ -210,7 +210,12 @@ const CORPUS_PATH = new URL('../public/jardine.json', import.meta.url);
 /** The three committed CC0 engravings. A fourth path in the errata means a
  *  broken mount in the vitrine, which is the one object where the images ARE
  *  the argument. */
-const IMAGE_MANIFEST = ['jardine/19-vignette.jpg', 'jardine/24-vignette.jpg', 'jardine/24-11.jpg'];
+/** Engravings that existed before the plate set was fetched. Kept as a floor —
+ *  these three must never disappear — NOT as a whitelist. A whitelist of three
+ *  is what E3 used to assert, and it went stale the moment 23 more plates
+ *  landed: it failed on a CORRECT change while remaining unable to catch the
+ *  thing that actually matters, which is a path with no file behind it. */
+const IMAGE_FLOOR = ['jardine/19-vignette.jpg', 'jardine/24-vignette.jpg', 'jardine/24-11.jpg'];
 
 const london = JSON.parse(readFileSync(LONDON_PATH, 'utf8')) as CatalogSpecies[];
 
@@ -920,12 +925,13 @@ test('E2 the corpus loses NOTHING to normalize — a dropped row means the extra
   }
 });
 
-test('E3 every errata engraving is one of the three committed files, and it is on disk', () => {
-  // WHY: the Precedence vitrine hangs three plates at Jardine's own relative
-  // sizes; the SMALLNESS of the two vignettes beside the Waxwing's full plate is
-  // the entire argument. A fourth path, or a path whose file was never
-  // committed, renders as a broken mount that reads as a broken feature — and
-  // an <img> 404 is invisible to every other check in this repo.
+test('E3 every engraving path anywhere in the museum has a file behind it', () => {
+  // WHY: an <img> 404 renders as a broken mount, reads as a broken feature, and
+  // is invisible to every other check in this repo. The old version of this
+  // test asserted membership of a three-item whitelist, which caught nothing an
+  // existence check does not and broke the moment the plate set was fetched.
+  // Assert the property that matters — a path implies a file — over every
+  // surface that can print one, not over a list someone has to remember to edit.
   const raw = corpusRaw();
   if (raw === null) {
     assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
@@ -933,25 +939,99 @@ test('E3 every errata engraving is one of the three committed files, and it is o
   }
   const j = normalize(raw);
   let hung = 0;
+  const check = (where: string, image: string | null, w: number | null, h: number | null) => {
+    if (image === null) return;
+    hung++;
+    assert.ok(
+      existsSync(new URL(`../public/${image}`, import.meta.url)),
+      `${where}: ${image} is referenced but not in the tree`,
+    );
+    assert.ok(w !== null && h !== null, `${where}: ${image} has no intrinsic size — the mount will jump`);
+  };
   for (const e of j.errata) {
     for (const s of e.subjects) {
-      if (s.image === null) continue;
-      hung++;
-      assert.ok(
-        IMAGE_MANIFEST.includes(s.image),
-        `errata ${e.no}/${s.sci_name}: ${s.image} is not one of the three committed engravings`,
-      );
-      assert.ok(
-        existsSync(new URL(`../public/${s.image}`, import.meta.url)),
-        `errata ${e.no}/${s.sci_name}: ${s.image} is not in the tree`,
-      );
-      assert.ok(s.image_w !== null && s.image_h !== null, `${s.image}: no intrinsic size — the vitrine will jump`);
-      assert.ok(s.scale > 0, `${s.image}: a non-positive scale erases Jardine's own proportion`);
+      check(`errata ${e.no}/${s.sci_name}`, s.image, s.image_w, s.image_h);
+      if (s.image !== null) {
+        assert.ok(s.scale > 0, `${s.image}: a non-positive scale erases Jardine's own proportion`);
+      }
     }
   }
-  assert.ok(hung > 0, 'the vitrine hangs nothing — the errata carry no images at all');
-  for (const f of IMAGE_MANIFEST) {
+  for (const s of j.species) check(`species ${s.sci_name}`, s.image, s.image_w, s.image_h);
+  assert.ok(hung > 0, 'the museum hangs nothing — no record carries an image at all');
+  for (const f of IMAGE_FLOOR) {
     assert.ok(existsSync(new URL(`../public/${f}`, import.meta.url)), `${f} was committed and is now gone`);
+  }
+});
+
+test('E4 a plate two birds share names them both, in both directions', () => {
+  // WHY: this is the defect the plate work exists to prevent, and it is not
+  // hypothetical — volume 34's plate XV figures a Spotted Sandpiper beside the
+  // Common Sandpiper we caption, and its own engraved legend says so. A shared
+  // plate that names one bird tells a visitor the OTHER bird in the picture is
+  // that species. The failure is silent, and it would hang in the same room as
+  // this museum's corrections of Jardine.
+  //
+  // NEGATIVE-TESTED: deleting a plate_also entry, or pointing one at a bird
+  // that is not in the crosswalk, fails this test.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
+    return;
+  }
+  const j = normalize(raw);
+
+  // THE SHARING FACT COMES FROM THE CORPUS, NOT FROM OUR OWN SPECIES LIST.
+  // The first version of this test grouped species by image and checked any
+  // file two of them hung. It could not fail on the case it was written for:
+  // volume 34's plate XV is shared with Actitis macularius, a Nearctic vagrant
+  // London never records, so exactly ONE of our species hangs that file and the
+  // group of "sharers" had size 1. Deleting the Sandpiper's co-occupant left
+  // the suite green — proven, not assumed. link_plates.py now writes the
+  // corpus-derived truth into `plates_shared` and this reads it.
+  const shared = (JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as {
+    plates_shared?: Record<string, { sci_name: string; common: string; where: string }[]>;
+  }).plates_shared;
+  assert.ok(
+    shared && Object.keys(shared).length > 0,
+    'jardine.json records no shared plates — run tools/jardine/link_plates.py; a museum that has ' +
+      'forgotten which plates carry two birds will caption one of them wrongly',
+  );
+  const byImage = new Map<string, typeof j.species>();
+  for (const s of j.species) {
+    if (s.image === null) continue;
+    const list = byImage.get(s.image) ?? [];
+    list.push(s);
+    byImage.set(s.image, list);
+  }
+  for (const [image, figures] of Object.entries(shared)) {
+    for (const s of byImage.get(image) ?? []) {
+      const also = s.plate_also ?? [];
+      for (const fig of figures) {
+        if (fig.sci_name === s.sci_name) continue;
+        assert.ok(
+          also.some((a) => a.sci_name === fig.sci_name),
+          `${s.sci_name} shares ${image} with ${fig.sci_name} and does not name it`,
+        );
+      }
+      assert.ok(
+        figures.some((f) => f.sci_name === s.sci_name),
+        `${s.sci_name} hangs ${image}, which is a shared plate that does not list it`,
+      );
+      assert.ok(s.plate_where !== null, `${s.sci_name}: shares a plate but is not placed on it`);
+    }
+  }
+  // Any bird that declares a co-occupant must place itself too, whether or not
+  // the co-occupant is a species this garden hears — Actitis macularius is a
+  // vagrant London never records, and it is exactly that asymmetry which let
+  // the first version of the fetcher's guard pass a two-bird plate.
+  for (const s of j.species) {
+    if ((s.plate_also ?? []).length === 0) continue;
+    assert.ok(s.image !== null, `${s.sci_name} declares a shared plate but hangs no image`);
+    assert.ok(s.plate_where !== null, `${s.sci_name} names a co-occupant but does not place itself`);
+    for (const a of s.plate_also ?? []) {
+      assert.ok(a.sci_name.trim().length > 0, `${s.sci_name}: a co-occupant with no name`);
+      assert.ok(a.where.trim().length > 0, `${s.sci_name}/${a.sci_name}: a co-occupant with no position`);
+    }
   }
 });
 
