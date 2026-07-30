@@ -112,6 +112,27 @@
 .st-stale {
   color: var(--red);
 }
+/* The live dot — only ever rendered while audio is genuinely playing, so it
+   cannot claim liveness the picture is not delivering. */
+.st-livedot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: 999px;
+  background: var(--live, var(--amber));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .st-livedot {
+    animation: st-pulse 2s ease-in-out infinite;
+  }
+  @keyframes st-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
 
 /* ── listen ────────────────────────────────────────────────────
    The control is <Listen> (.listen-btn), the same play/pause pill used on every

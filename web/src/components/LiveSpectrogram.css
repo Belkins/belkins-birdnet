@@ -1,0 +1,12 @@
+/* The live waterfall canvas. Sits inside .bp-spectro (the dossier's band), so it
+   inherits that frame — radius, inset shadow, border — and only needs to fill
+   it. --spec-ground is read in JS to paint the canvas ground, so the strip
+   matches the surrounding card in both themes. */
+.live-spec {
+  display: block;
+  width: 100%;
+  --spec-ground: #141414;
+}
+:root[data-theme='day'] .live-spec {
+  --spec-ground: #1a1a18;
+}
