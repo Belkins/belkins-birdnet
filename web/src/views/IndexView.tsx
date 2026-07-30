@@ -2,15 +2,35 @@
 import type { RosterRow } from '../types';
 import { formatDay } from '../days';
 
+/** The rolling window, in words. NOT a day: every one of these is a window
+ *  ending now, so "Today" is false for all of them — at 02:00 a 24-hour window
+ *  is mostly yesterday, and at ALL it is four weeks of history headlined as one
+ *  morning. The comment below already forbade headlining ARCHIVE counts as
+ *  "Heard Today" and the same sentence was hardcoded over every live window. */
+export const WINDOW_HEADLINE: Record<number, string> = {
+  1: 'This Hour',
+  12: 'These 12 Hours',
+  24: 'These 24 Hours',
+  168: 'These 7 Days',
+  1_000_000: 'All Time',
+};
+
 export function IndexView({
   rows,
   archiveDay = null,
+  windowHours = 24,
+  windowLabel = '24H',
 }: {
   rows: RosterRow[];
   /** Pinned past day the roster reflects, or null = live window — the ledger
    *  must never headline archive counts as "Heard Today". */
   archiveDay?: string | null;
+  /** The window `rows` was actually counted over. The headline is a CLAIM about
+   *  these numbers, so it has to come from the same place they do. */
+  windowHours?: number;
+  windowLabel?: string;
 }) {
+  const headline = WINDOW_HEADLINE[windowHours] ?? windowLabel;
   const total = rows.reduce((a, r) => a + r.n, 0);
   const top = rows.slice(0, 12);
   const max = top.length ? top[0].n : 1;
@@ -23,10 +43,10 @@ export function IndexView({
         <div className="idx-big">
           Heard
           <br />
-          {archiveDay ? 'That Day' : 'Today'}
+          {archiveDay ? 'That Day' : headline}
         </div>
         <div className="idx-sub">
-          {archiveDay ? `most-heard · ${formatDay(archiveDay)}` : 'most-heard · last 24 hours'}
+          {archiveDay ? `most-heard · ${formatDay(archiveDay)}` : `most-heard · ${headline.toLowerCase()}`}
         </div>
         <div className="idx-total">{total}</div>
         <div className="idx-totl">calls · {rows.length} species</div>
