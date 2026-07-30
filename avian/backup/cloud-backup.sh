@@ -279,6 +279,28 @@ if [ "$DRY" != "1" ]; then
 
   # COMPLETENESS, reported separately from integrity. During the initial seed the
   # remote is legitimately behind; once seeded, a shortfall is the signal.
+  # RESTORABILITY, not just presence. An object store has no real directories, so
+  # `rclone copy <file> remote:a/b` happily creates the KEY "a/b/<basename>" --
+  # and then "a/b" exists as BOTH a file and a directory prefix, which no
+  # filesystem can materialise. A restore of that path fails outright.
+  #
+  # This bit on 2026-07-30: db/birds.db and all four ledgers were simultaneously
+  # file and directory, so the irreplaceable core was un-restorable while the
+  # completeness line below reported green on every run of its life -- it counted
+  # By_Date only. A verifier structurally unable to see the fault it exists to
+  # catch is this project's signature bug. `rclone cat` still worked, which is
+  # why the earlier recovery drill passed and missed it.
+  for _p in db ledgers; do
+    _dirs=$(rclone lsf --dirs-only "${CHRISTINA_CLOUD_REMOTE%/}/$_p" 2>/dev/null | tr '\n' ' ')
+    if [ -n "${_dirs// /}" ]; then
+      fail "PATH COLLISION in $_p/: these names are both a file and a directory -- $_dirs
+     No filesystem can restore that. Move the nested copies aside with
+     'rclone moveto' (never delete) and re-run. The archive is NOT restorable
+     until this is clear." 5
+    fi
+  done
+  log "  restorability: db/ and ledgers/ hold files only, no path collisions"
+
   LOCAL_N=$(find "$MEDIA_SRC" -type f \( -name '*.mp3' -o -name '*.png' \) | wc -l | tr -d ' ')
   REMOTE_N=$(rclone lsf "${CHRISTINA_CLOUD_REMOTE%/}/By_Date" --recursive --files-only 2>/dev/null | wc -l | tr -d ' ')
   log "  completeness: $REMOTE_N/$LOCAL_N media objects in the archive"
