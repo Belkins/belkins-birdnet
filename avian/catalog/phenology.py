@@ -545,6 +545,8 @@ def build_ledger(birds_path, ledger_path, built_at):
 
     bird_set, com_by_sci = _bird_index(acc)
     current_year = year_week(acc["max_date"])[0]
+
+
     if current_year is None:
         # Explicit, not an accidental TypeError deeper in merge_ledger.
         sys.stderr.write(
@@ -553,6 +555,27 @@ def build_ledger(birds_path, ledger_path, built_at):
             "rather than recomputed from undatable rows\n" % (acc["source_rows"],))
 
     existing = _load_ledger(ledger_path)
+    # RATCHET, never trust max(Date) alone. current_year decides which entries are
+    # OPEN (recomputed nightly) and which are FROZEN (kept byte-for-byte forever).
+    # Deriving it purely from the data means a birds.db whose newest row moves
+    # BACKWARDS silently thaws an already-sealed year and overwrites it — and a
+    # rollback is a first-class operation here: tools/pull-backup.sh exists to
+    # restore exactly such a file, and the disk purge trims rows from the front.
+    # A sealed year must never reopen because the source went back in time, so the
+    # ledger's own highest year is a floor.
+    if existing:
+        sealed = [y for (_sci, y) in existing if isinstance(y, int)]
+        if sealed:
+            highest_sealed = max(sealed)
+            if current_year is None or highest_sealed > current_year:
+                sys.stderr.write(
+                    "phenology: birds.db's newest row is year %s but the ledger has "
+                    "already sealed %d -- holding current_year at %d so no frozen "
+                    "year thaws. (A restored or rolled-back birds.db does this.)\n"
+                    % (current_year, highest_sealed, highest_sealed)
+                )
+                current_year = highest_sealed
+
     if acc["source_rows"] == 0 and existing:
         # The ledger would survive (merge keeps it), but reporting the death of
         # the source as a cheerful success is exactly the class of silence this

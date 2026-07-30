@@ -109,13 +109,34 @@ export async function fetchCatalog(): Promise<CatalogSpecies[]> {
   // empty case: CATALOG_URL uses ??, so `VITE_CATALOG_URL=` yields '', and
   // fetch('') resolves to the page itself → index.html → a parse failure → [].
   // Treating empty as unset keeps a stray blank var from blanking the catalog.
+  return (await fetchCatalogOrNull()) ?? [];
+}
+
+/** THE SAME FETCH, BUT IT CAN SAY "I DON'T KNOW".
+ *
+ *  fetchCatalog() collapses a 404, a network error, a parse failure and a
+ *  genuinely empty file to the same `[]`. Callers then wrote `catalog !== null`
+ *  meaning "the ledger arrived" — a test that can NEVER be false, because the
+ *  function never resolves to null. So on the day the nightly does not publish,
+ *  the museum does not go quiet: it prints measured zeroes. "0 of 0 species have
+ *  a page." "never heard in this garden." Confident, and wrong.
+ *
+ *  null means the ledger could not be read. [] means it was read and is empty —
+ *  a real state for a station on its first night. A caller that cannot tell them
+ *  apart must not assert anything about the garden. */
+export async function fetchCatalogOrNull(): Promise<CatalogSpecies[] | null> {
   const url = MOCK && !import.meta.env.VITE_CATALOG_URL ? MOCK_CATALOG_URL : CATALOG_URL;
   try {
     const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return [];
-    return normalize((await res.json()) as unknown);
+    if (!res.ok) return null;
+    // Caddy's php try_files answers 200 text/html for any missing path under
+    // /collage/, so an OK status proves nothing. A body that is not an array is
+    // not an empty catalog — it is a failure wearing a 200.
+    const raw = (await res.json()) as unknown;
+    if (!Array.isArray(raw)) return null;
+    return normalize(raw);
   } catch {
-    return [];
+    return null;
   }
 }
 

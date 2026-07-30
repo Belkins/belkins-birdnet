@@ -27,6 +27,7 @@ EXTRACTED="${CHRISTINA_EXTRACTED:-$HOME/BirdSongs/Extracted}"
 RAILWAY_BASE="${CHRISTINA_RAILWAY_BASE:-}"
 WEBHOOK_SECRET="${CHRISTINA_WEBHOOK_SECRET:-}"
 say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
+die(){ printf '\n\033[31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 ok(){ printf '   \033[32m\xE2\x9C\x93\033[0m %s\n' "$*"; }
 warn(){ printf '   \033[33m! %s\033[0m\n' "$*"; }
 render_unit(){

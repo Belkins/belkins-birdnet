@@ -389,6 +389,48 @@ class PhenologyLedgerTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(self.out))
 
     # -- 19 (THE CURVE) -----------------------------------------------------
+    def test_a_sealed_year_never_thaws_when_birds_db_goes_backwards(self):
+        """A CLOSED year must stay closed even if birds.db's newest row moves BACK.
+
+        current_year decides which entries are OPEN (recomputed nightly) and which
+        are FROZEN (kept byte-for-byte forever), and it was derived purely from
+        max(Date) in the data. So a birds.db whose newest row went backwards
+        silently REOPENED an already-sealed year and overwrote it with a partial
+        recomputation -- permanently, because a frozen year is never revisited.
+
+        Not hypothetical: tools/pull-backup.sh exists to restore exactly such a
+        file, the disk purge trims rows from the front, and a half-written db
+        during a crash reads short. The one artifact this project declares
+        unrecomputable had its durability resting on a number re-derived from
+        mutable data every night.
+        """
+        _make_birds_db(self.birds, [
+            _row("2025-06-01", "12:00:00"),
+            _row("2026-06-01", "12:00:00"),
+        ])
+        self.assertEqual(self._run(), 0)
+        first = self._ledger()
+        self.assertEqual(first["current_year"], 2026)
+        frozen_before = json.dumps(self._entries()[("Erithacus rubecula", 2025)],
+                                   sort_keys=True)
+
+        # birds.db goes BACKWARDS: its newest row is now 2025. Unratcheted,
+        # current_year drops to 2025 and the sealed year is recomputed.
+        rolled = os.path.join(self.tmp, "rolled_back.db")
+        _make_birds_db(rolled, [_row("2025-06-01", "12:00:00")])
+        self.assertEqual(self._run(built_at=self.LATER_AT, birds=rolled), 0)
+        after = self._ledger()
+
+        self.assertEqual(
+            after["current_year"], 2026,
+            "current_year fell back to %s -- the ledger reopened a year it had "
+            "already sealed, which is unrecoverable" % after["current_year"])
+        still = self._entries().get(("Erithacus rubecula", 2025))
+        self.assertIsNotNone(still, "the sealed 2025 entry vanished entirely")
+        self.assertEqual(
+            json.dumps(still, sort_keys=True), frozen_before,
+            "the sealed 2025 entry was REWRITTEN by a rolled-back database")
+
     def test_weekly_curve_is_frozen_not_just_the_peak(self):
         """The deliverable. _note_year has always accumulated a full histogram
         and _compute_entries used to keep only peak_week -- and since a closed
@@ -631,3 +673,4 @@ class PhenologyLedgerTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

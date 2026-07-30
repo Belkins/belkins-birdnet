@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { API_BASE } from '../config';
 import type { CatalogSpecies } from '../catalog';
-import { fetchArtStatus, fetchCatalog } from '../catalog';
+import { fetchArtStatus, fetchCatalogOrNull } from '../catalog';
 import { fmtRelative } from '../almanac';
 
 import { BirdThumb } from '../components/BirdThumb';
@@ -1014,7 +1014,11 @@ export function LibraryView({
     void fetchJardine().then((j) => {
       if (alive) setJardine(j);
     });
-    void fetchCatalog().then((c) => {
+    // OrNull, so `catalog !== null` below is a test that can actually be FALSE.
+    // With plain fetchCatalog() every failure arrived as [] and the tab printed
+    // measured zeroes — "0 of 0 species have a page", "never heard in this
+    // garden" — on the day the nightly did not publish. Confident, and wrong.
+    void fetchCatalogOrNull().then((c) => {
       if (alive) setCatalog(c);
     });
     void fetchArtStatus().then((m) => {
