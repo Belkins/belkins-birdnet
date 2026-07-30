@@ -3178,6 +3178,18 @@ test('E6 the station may only claim a bird it actually painted', () => {
     /artProvenance\(/,
     'the colophon no longer counts who painted what — it is asserting again',
   );
+  // NO UNIVERSAL PROMISE ABOUT CAPTIONS. The line used to end "which is which
+  // is printed under every image", and it was false on its own page: the two
+  // <BirdThumb> cuts inside the errata slips and the Blind Ear reveal carry a
+  // NAME and no provenance line. The counts above say which is which; a
+  // promise about every image on the page is a claim nothing can keep.
+  assert.doesNotMatch(
+    flat,
+    /which is which is printed under (?:every|each)/,
+    'the colophon promises a caption under every image again — the cuts inside the ' +
+      'slips carry a bird name and no provenance line, so that sentence is false on ' +
+      'the page that prints it',
+  );
   // and the counter itself must never hand a bundled bird to the station
   const prov = artProvenance([
     { art_status: 'ready', art_source: 'autogen' },

@@ -1942,8 +1942,7 @@ export function LibraryView({
                 if (p.shipped) parts.push(`${p.shipped} shipped with the museum`);
                 if (p.unattributed) parts.push(`${p.unattributed} this station cannot attribute`);
                 return ` · ${parts.join(', ')}`;
-              })()}{' '}
-              · which is which is printed under each
+              })()}
             </div>
             <div className="lib-col-l">
               Sir William Jardine, The Naturalist's Library, Edinburgh 1833–1843.{' '}
