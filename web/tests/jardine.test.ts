@@ -3413,11 +3413,23 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
     }
   }
   assert.ok(scaled > 0, 'no .lib-mount rule sizes by var(--scale) at all');
-  // and the view must actually hand each subject its own scale
+  // and the view must hand each subject its own scale, ON the element the CSS
+  // sizes. A reviewer noted the variable can be moved one DOM level down and
+  // every check above still passes — `--scale` set on an inner node leaves
+  // `.lib-mount` computing `var(--scale, 1)`, which falls back to 1, so every
+  // plate renders at full width and the ratio quietly disappears. So the style
+  // and the class must be on the same element.
+  const flat = src.replace(/\s+/g, ' ');
   assert.match(
-    src.replace(/\s+/g, ' '),
+    flat,
     /'--scale':\s*String\(sub\.scale\)/,
     'the vitrine no longer passes each subject its recorded scale — every mount is 1.0',
+  );
+  assert.match(
+    flat,
+    /<figure className="lib-mount" style=\{style\}>/,
+    'the scale variable is no longer set on .lib-mount itself — anywhere else and ' +
+      'var(--scale, 1) takes its fallback, which is 1 for every plate',
   );
   // And the data must still carry a real spread of scales, or (2) is vacuous.
   const raw = corpusRaw();
