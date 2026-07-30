@@ -28,8 +28,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { registerHooks } from 'node:module';
 import { gunzipSync } from 'node:zlib';
+import { registerHooks } from 'node:module';
+
 import { createHash } from 'node:crypto';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
@@ -218,6 +219,54 @@ function pick(a: DeskArgs): JardineSpecies | null {
 
 const LONDON_PATH = new URL('../public/dev/species-london.json', import.meta.url);
 const CORPUS_PATH = new URL('../public/jardine.json', import.meta.url);
+
+/** THE PINNED EXTRACTION — 718 accounts, sha256 9f1746f1…, the only authority on
+ *  which plates carry two birds.
+ *
+ *  E4 used to read that fact out of `plates_shared` in jardine.json — the same
+ *  file it was validating. Proven circular on 2026-07-30: deleting a co-occupant
+ *  from BOTH `plate_also` and `plates_shared` left the suite green, because the
+ *  guard's evidence and the guard's subject were one file. A guard cannot audit
+ *  its own source of truth. */
+const CORPUS_GZ = new URL('../../tools/jardine/corpus/corpus.json.gz', import.meta.url);
+interface CorpusAccount {
+  volume: number;
+  plate_ref: string | null;
+  jardine_title: string;
+  jardine_binomial: string;
+}
+function corpusAccounts(): CorpusAccount[] {
+  const raw = JSON.parse(gunzipSync(readFileSync(CORPUS_GZ)).toString('utf8')) as unknown;
+  const out: CorpusAccount[] = [];
+  const walk = (o: unknown): void => {
+    if (Array.isArray(o)) {
+      for (const x of o) walk(x);
+      return;
+    }
+    if (o && typeof o === 'object') {
+      const rec = o as Record<string, unknown>;
+      for (const [k, v] of Object.entries(rec)) {
+        if (k === 'accounts' && Array.isArray(v)) {
+          for (const a of v) {
+            if (a && typeof a === 'object') out.push(a as unknown as CorpusAccount);
+          }
+        } else walk(v);
+      }
+    }
+  };
+  walk(raw);
+  return out;
+}
+/** (volume, plate_ref) -> the accounts the CORPUS anchors to that sheet. */
+function corpusPlateClaimants(): Map<string, CorpusAccount[]> {
+  const m = new Map<string, CorpusAccount[]>();
+  for (const a of corpusAccounts()) {
+    if (!a.plate_ref) continue;
+    const key = `${a.volume}|${a.plate_ref}`;
+    m.set(key, [...(m.get(key) ?? []), a]);
+  }
+  return m;
+}
 
 /** The three committed CC0 engravings. A fourth path in the errata means a
  *  broken mount in the vitrine, which is the one object where the images ARE
@@ -975,76 +1024,57 @@ test('E3 every engraving path anywhere in the museum has a file behind it', () =
   }
 });
 
-test('E4 a plate two birds share names them both, in both directions', () => {
-  // WHY: this is the defect the plate work exists to prevent, and it is not
-  // hypothetical — volume 34's plate XV figures a Spotted Sandpiper beside the
-  // Common Sandpiper we caption, and its own engraved legend says so. A shared
-  // plate that names one bird tells a visitor the OTHER bird in the picture is
-  // that species. The failure is silent, and it would hang in the same room as
-  // this museum's corrections of Jardine.
+test('E4 a plate two birds share names them both — checked against the CORPUS', () => {
+  // THIS GUARD USED TO VALIDATE A COPY OF ITSELF.
   //
-  // NEGATIVE-TESTED: deleting a plate_also entry, or pointing one at a bird
-  // that is not in the crosswalk, fails this test.
+  // It read the sharing fact from `plates_shared` in jardine.json — the same
+  // file it was auditing. Proven circular: deleting a co-occupant from BOTH
+  // `plate_also` and `plates_shared` left the suite green, because the evidence
+  // and the subject were one file. link_plates.py writes both, so a single wrong
+  // ledger entry made the guard agree with the mistake.
+  //
+  // The authority is the PINNED EXTRACTION — 718 accounts, sha256 9f1746f1…,
+  // which nothing in the web build can edit. If the corpus anchors two accounts
+  // to a sheet, a species hanging that sheet must name the others, whether or
+  // not jardine.json admits the plate is shared.
   const raw = corpusRaw();
-  if (raw === null) {
-    assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
-    return;
-  }
+  if (raw === null) return;
   const j = normalize(raw);
+  const claimants = corpusPlateClaimants();
+  assert.ok(claimants.size > 100, 'the corpus reader found almost no plates — re-point this guard');
 
-  // THE SHARING FACT COMES FROM THE CORPUS, NOT FROM OUR OWN SPECIES LIST.
-  // The first version of this test grouped species by image and checked any
-  // file two of them hung. It could not fail on the case it was written for:
-  // volume 34's plate XV is shared with Actitis macularius, a Nearctic vagrant
-  // London never records, so exactly ONE of our species hangs that file and the
-  // group of "sharers" had size 1. Deleting the Sandpiper's co-occupant left
-  // the suite green — proven, not assumed. link_plates.py now writes the
-  // corpus-derived truth into `plates_shared` and this reads it.
-  const shared = (JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as {
-    plates_shared?: Record<string, { sci_name: string; common: string; where: string }[]>;
-  }).plates_shared;
-  assert.ok(
-    shared && Object.keys(shared).length > 0,
-    'jardine.json records no shared plates — run tools/jardine/link_plates.py; a museum that has ' +
-      'forgotten which plates carry two birds will caption one of them wrongly',
-  );
-  const byImage = new Map<string, typeof j.species>();
-  for (const s of j.species) {
-    if (s.image === null) continue;
-    const list = byImage.get(s.image) ?? [];
-    list.push(s);
-    byImage.set(s.image, list);
-  }
-  for (const [image, figures] of Object.entries(shared)) {
-    for (const s of byImage.get(image) ?? []) {
-      const also = s.plate_also ?? [];
-      for (const fig of figures) {
-        if (fig.sci_name === s.sci_name) continue;
-        assert.ok(
-          also.some((a) => a.sci_name === fig.sci_name),
-          `${s.sci_name} shares ${image} with ${fig.sci_name} and does not name it`,
-        );
-      }
-      assert.ok(
-        figures.some((f) => f.sci_name === s.sci_name),
-        `${s.sci_name} hangs ${image}, which is a shared plate that does not list it`,
-      );
-      assert.ok(s.plate_where !== null, `${s.sci_name}: shares a plate but is not placed on it`);
+  let shared = 0;
+  for (const sp of j.species) {
+    if (!sp.image || !sp.plate_ref) continue;
+
+    // The image must BE the plate the row claims. Nothing tied these together:
+    // a species could hang another bird's engraving under a caption naming its
+    // own plate, and every provenance guard stayed green.
+    const stem = sp.plate_ref.replace(/^plate-/, '');
+    assert.equal(
+      sp.image,
+      `jardine/${sp.volume}-${stem}.jpg`,
+      `${sp.sci_name} hangs ${sp.image} while claiming ${sp.plate_ref} of vol. ${sp.volume}`,
+    );
+
+    const others = (claimants.get(`${sp.volume}|${sp.plate_ref}`) ?? []).filter(
+      (a) => a.jardine_title !== sp.jardine_title,
+    );
+    if (others.length === 0) continue;
+    shared++;
+    const named = (sp.plate_also ?? []).length;
+    assert.ok(
+      named >= others.length,
+      `the corpus anchors ${others.length + 1} accounts to ${sp.image} (${others
+        .map((o) => o.jardine_title)
+        .join(', ')}) and ${sp.sci_name} names ${named} of them`,
+    );
+    assert.ok(sp.plate_where, `${sp.sci_name} shares a sheet but is not placed on it`);
+    for (const a of sp.plate_also ?? []) {
+      assert.ok(a.sci_name.trim() && a.where.trim(), `${sp.sci_name}: a co-occupant with no name or no position`);
     }
   }
-  // Any bird that declares a co-occupant must place itself too, whether or not
-  // the co-occupant is a species this garden hears — Actitis macularius is a
-  // vagrant London never records, and it is exactly that asymmetry which let
-  // the first version of the fetcher's guard pass a two-bird plate.
-  for (const s of j.species) {
-    if ((s.plate_also ?? []).length === 0) continue;
-    assert.ok(s.image !== null, `${s.sci_name} declares a shared plate but hangs no image`);
-    assert.ok(s.plate_where !== null, `${s.sci_name} names a co-occupant but does not place itself`);
-    for (const a of s.plate_also ?? []) {
-      assert.ok(a.sci_name.trim().length > 0, `${s.sci_name}: a co-occupant with no name`);
-      assert.ok(a.where.trim().length > 0, `${s.sci_name}/${a.sci_name}: a co-occupant with no position`);
-    }
-  }
+  assert.ok(shared > 0, 'no species hangs a corpus-shared plate — this guard is vacuous');
 });
 
 // ═══ F · THE LONDON FIXTURE ════════════════════════════════════════════════
