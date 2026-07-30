@@ -2738,47 +2738,63 @@ test('E5 a declared plate size is the size of the file, and the file has a pictu
   assert.ok(checked > 0, 'no image references checked — this guard is vacuous');
 });
 
-test('E6 every bird renders something — no species falls through to nothing', () => {
-  // THE REQUIREMENT, MADE CHECKABLE. Jardine figured 25 of these 52 birds and
-  // never figured the other 27, and for a while the tab rendered an engraving
-  // for the first group and literally nothing for the second — a library of the
-  // birds in this garden, showing half of them.
+test('E6 the station may only claim a bird it actually painted', () => {
+  // THE REQUIREMENT, AND THE FAILURE IT IS BUILT FROM.
   //
-  // The station paints every species it hears, so a bird with no plate is not a
-  // hole, it is the other hand: an 1838 engraving where the book has one, this
-  // station's own bird where it does not, and a caption saying which. The one
-  // way to reintroduce the hole is an early `return null` in SpeciesPlate, which
-  // no type-check, lint or test would otherwise notice — the tab would simply go
-  // quiet again for half its subjects.
+  // Jardine figured 25 of these 52 birds. The other 27 render the station's own
+  // painting instead — but the first version of that rendered BirdThumb
+  // unconditionally, and BirdThumb's `none` phase is BirdSilhouette(): ONE
+  // hard-coded generic SVG, byte-identical for every species. Measured on a
+  // real page: 25 of the 27 plateless birds showed that glyph, under a caption
+  // reading "drawn by this station, not by Jardine".
+  //
+  // Twenty-five fabricated attributions, on the page whose entire argument is
+  // provenance, in the same room as its corrections of Jardine. Nothing threw,
+  // nothing logged, every test was green, and it LOOKED like a broken image —
+  // which is what this file's own CSS calls the one thing a museum of
+  // provenance must never look like.
+  //
+  // So the claim must be gated on the art being READY. No painting, no figure,
+  // no sentence — silence, which was always the honest fallback.
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   );
-  const fn = /function SpeciesPlate\([\s\S]*?\n\}\n/.exec(src);
-  assert.ok(fn, 'SpeciesPlate is gone — find what renders a bird and re-point this guard');
-  assert.doesNotMatch(
-    fn[0],
-    /return null/,
-    'SpeciesPlate can return null again — a bird Jardine never figured would render nothing',
-  );
-  // It must reach BOTH wells: the 1838 engraving and the station's own bird.
-  assert.match(fn[0], /jardineImageUrl/, 'SpeciesPlate no longer renders the 1838 engraving');
-  assert.match(fn[0], /BirdThumb/, "SpeciesPlate no longer renders the station's own bird");
 
-  // And the colophon must still say which is which. The page disclaims model
-  // generation for its sentences; the coloured birds ARE model-painted, and a
-  // reader will read one line as covering the whole page.
+  const plate = /function SpeciesPlate\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(plate, 'SpeciesPlate is gone — find what renders a bird and re-point this guard');
+  assert.match(plate[0], /jardineImageUrl/, 'SpeciesPlate no longer renders the 1838 engraving');
+  assert.match(plate[0], /StationBird/, "SpeciesPlate no longer reaches the station's own bird");
+
+  const station = /function StationBird\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(station, 'StationBird is gone — the station-bird path has no guard');
+  // THE LOAD-BEARING LINE. Without it the caption prints over a generic glyph.
+  assert.match(
+    station[0],
+    /phase !== 'ready'[\s\S]{0,40}return null/,
+    'StationBird no longer requires READY art before claiming the station painted the bird',
+  );
+  // And the claim itself must live inside the gated component, so it cannot be
+  // rendered from anywhere that skips the gate.
+  const claim = /by this station, not by Jardine/;
+  assert.match(station[0], claim, 'the station claim left StationBird');
+  assert.equal(
+    (src.match(new RegExp(claim.source, 'g')) || []).length,
+    1,
+    'the station claim appears more than once — a second, ungated copy can fabricate an attribution',
+  );
+
+  // The colophon must keep saying which pictures are scanned and which painted.
   assert.match(
     src.replace(/\s+/g, ' '),
     /the engravings are Jardine's, scanned[^<]*the birds in colour are this station's own/,
     'the colophon no longer distinguishes the scanned engravings from the painted birds',
   );
 
-  // The split itself must be real in the data, or this whole feature is moot.
+  // The split must be real in the data, or the whole feature is moot.
   const raw = corpusRaw();
   if (raw === null) return;
   const j = normalize(raw);
   const withPlate = j.species.filter((s) => s.image !== null).length;
-  const without = j.species.length - withPlate;
   assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
-  assert.ok(without > 0, 'every species has an engraving — the station-bird path is now untested');
+  assert.ok(j.species.length - withPlate > 0, 'every species has an engraving — the station path is untested');
 });

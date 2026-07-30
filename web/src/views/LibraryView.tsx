@@ -23,6 +23,8 @@ import { fetchArtStatus, fetchCatalogOrNull } from '../catalog';
 import { fmtRelative } from '../almanac';
 
 import { BirdThumb } from '../components/BirdThumb';
+import { birdImageUrl } from '../img';
+import { useBirdImage } from '../useBirdImage';
 import { JardineName } from '../components/JardineName';
 import { Listen } from '../components/Listen';
 import type {
@@ -314,6 +316,50 @@ function Attribution({ p, link = true }: { p: JardinePassage; link?: boolean }) 
   );
 }
 
+/** THE STATION'S OWN BIRD, and ONLY when there is one.
+ *
+ *  It must gate on the art actually being READY, and the first version did not.
+ *  BirdThumb's `none` phase renders BirdSilhouette() — ONE hard-coded generic
+ *  SVG, byte-identical for every species — and the caption underneath said
+ *  "drawn by this station, not by Jardine". Measured: 25 of the 27 plateless
+ *  birds rendered that, so the museum printed a provenance claim twenty-five
+ *  times over a UI fallback glyph that is not a drawing of that bird at all.
+ *
+ *  That is a fabricated attribution. It is the same class of error the two-bird
+ *  caption exists to prevent, committed on the page whose whole argument is
+ *  provenance, and it looked exactly like the 22x92 empty mount this file's own
+ *  CSS calls "the one thing a museum of provenance must never look like" — at
+ *  seven times the area.
+ *
+ *  So the claim is made only when it is true. No painting, no figure, no
+ *  sentence: back to silence, which was always the honest fallback. On the live
+ *  station art coverage is 47/47, so this renders; in a dev tree with no Pi it
+ *  does not, and that difference is exactly what it should be. */
+function StationBird({
+  sci,
+  com,
+  slug,
+  art,
+}: {
+  sci: string;
+  com: string;
+  slug: string;
+  art: Map<string, string> | null;
+}) {
+  const url = birdImageUrl(slug, sci);
+  const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
+  if (phase !== 'ready' || !src) return null;
+  return (
+    <figure className="lib-fig-plate lib-fig-modern">
+      <img className="lib-plate lib-plate-station" src={src} alt={`${com || sci}, painted by this station`} decoding="async" />
+      <figcaption className="lib-plate-cap">
+        <span className="lib-plate-k">no plate — the book never figured this bird</span>
+        <span className="lib-plate-modern">painted by this station, not by Jardine</span>
+      </figcaption>
+    </figure>
+  );
+}
+
 /** THE ENGRAVING FOR ONE BIRD, captioned to exactly the strength of its claim.
  *
  *  In the book the plate faces the first page of the account, so it opens the
@@ -362,21 +408,7 @@ function SpeciesPlate({
   // station's own, painted here. The caption says which, every time, because a
   // page whose entire argument is provenance cannot show a picture of a bird
   // and leave a reader to guess where it came from.
-  if (!src) {
-    return (
-      <figure className="lib-fig-plate lib-fig-modern">
-        <div className="lib-cut lib-cut-plate">
-          <BirdThumb slug={slug} sci={sp.sci_name} com={com} art={art?.get(slug)} />
-        </div>
-        <figcaption className="lib-plate-cap">
-          <span className="lib-plate-k">no plate — the book never figured this bird</span>
-          <span className="lib-plate-modern">
-            drawn by this station, not by Jardine
-          </span>
-        </figcaption>
-      </figure>
-    );
-  }
+  if (!src) return <StationBird sci={sp.sci_name} com={com} slug={slug} art={art} />;
   const cited = sp.plate_attribution === 'plate-list';
   const also = sp.plate_also;
   const plate = sp.plate_ref ? sp.plate_ref.replace(/-/g, ' ') : 'plate';
@@ -387,6 +419,18 @@ function SpeciesPlate({
         src={src}
         width={sp.image_w ?? undefined}
         height={sp.image_h ?? undefined}
+        /* RESERVE THE BOX BEFORE THE JPEG DECODES. The width/height attributes
+           alone do not: the CSS sets width:auto/height:auto, which defeats the
+           browser's aspect-ratio reservation, so the element was 2x2px until
+           decode and then jumped 378px — CLS 0.115 on a phone, over Google's
+           0.1 "poor" line, and the jump pushed the passage down the page as
+           you were starting to read it. An explicit ratio makes the box
+           computable from the markup, before a byte of image arrives. */
+        style={
+          sp.image_w && sp.image_h
+            ? ({ aspectRatio: `${sp.image_w} / ${sp.image_h}` } as CSSProperties)
+            : undefined
+        }
         alt={
           also.length > 0
             ? `Jardine's ${plate}: ${sp.jardine_title} ${sp.plate_where ?? ''}, with ${also

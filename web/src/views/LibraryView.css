@@ -206,14 +206,26 @@
   margin: 0 0 var(--s-5);
   max-width: var(--w-read);
 }
+/* 280px, not 380. At 380 the plate and its caption ran from 507 to 932px on a
+   1440x900 screen and the passage began at y=956 — BELOW THE FOLD. The signature
+   of this tab is an 1838 sentence set large, and on a plated bird you arrived to
+   a picture and had to scroll to reach a single word of it. A plate faces the
+   account; it does not replace the first screen of it. */
 .lib-fig-plate .lib-plate {
   display: block;
+  height: 280px;
   width: auto;
   max-width: 100%;
-  max-height: 380px;
-  height: auto;
+  object-fit: contain;
   border: 1px solid var(--line);
   background: var(--card-2);
+}
+/* The station's bird was never on paper, so it gets no frame and no ground —
+   the difference from an engraving must survive the caption being unread. */
+.lib-plate-station {
+  border: 0;
+  background: none;
+  object-fit: contain;
 }
 /* THE OTHER HAND, IN PICTURES. Twenty-seven of these birds were never figured
    by Jardine, and the station paints every species it hears — so the tab shows
