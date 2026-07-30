@@ -39,8 +39,47 @@ function renderGuardsFor(fileUrl: URL, tag: string): string[] {
   const names = new Set<string>();
   let found = 0;
 
+  // ONE LEVEL OF LOCAL INDIRECTION, because that is how this guard was beaten.
+  // Collecting the identifiers in each enclosing condition only sees the names
+  // written AT the render site. Hoist the test one line up —
+  //
+  //   const showCounter = !framed && shownTab !== 'library';
+  //   {showCounter && ( … <LiveCounter …/> … )}
+  //
+  // — and the only identifier in the condition is `showCounter`, which is on no
+  // banned list. Measured: the counter vanishes from the Library tab, tsc is
+  // clean, all 117 tests pass, and F4 says nothing. Extracting a long condition
+  // into a well-named flag is the most ordinary refactor there is, which is
+  // exactly why the guard has to follow it. Same fix, same reason, as
+  // rawNameRenders() in jardine.test.ts.
+  const locals = new Map<string, ts.Node>();
+  const collectLocals = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      locals.set(n.name.text, n.initializer);
+    }
+    ts.forEachChild(n, collectLocals);
+  };
+  collectLocals(sf);
+
+  // UNBOUNDED, not one level. A first attempt followed exactly one hop and a
+  // two-hop version walked straight past it:
+  //
+  //   const onCollageOnly = shownTab === 'collage';
+  //   const showCounter   = !framed && onCollageOnly;
+  //
+  // Picking any fixed depth just tells the next person how many lines to use.
+  // The chain is followed to the end instead, with a seen-set so a self- or
+  // mutually-referential const cannot spin.
+  const seen = new Set<string>();
   const idsIn = (n: ts.Node): void => {
-    if (ts.isIdentifier(n)) names.add(n.text);
+    if (ts.isIdentifier(n)) {
+      names.add(n.text);
+      const init = locals.get(n.text);
+      if (init && !seen.has(n.text)) {
+        seen.add(n.text);
+        idsIn(init);
+      }
+    }
     ts.forEachChild(n, idsIn);
   };
 

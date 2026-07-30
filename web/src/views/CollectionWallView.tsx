@@ -17,7 +17,7 @@
 import { useEffect, useState } from 'react';
 import { currentSeasonFacts, anniversariesFor, departuresFor } from '../almanac';
 import type { CatalogSpecies } from '../catalog';
-import { fetchCatalog } from '../catalog';
+import { fetchCatalog, catalogOrder } from '../catalog';
 import {
   counterpointFor,
   fetchJardine,
@@ -51,20 +51,9 @@ function annivDateLine(iso: string): string {
   return month ? `first heard ${month} ${Number(m[3])}, ${m[1]}` : `first heard ${m[1]}`;
 }
 
-/** Catalogue order: earliest first_confident first (ISO strings sort
- *  chronologically), undated species last, ties broken by common name. */
-function catalogOrder(a: CatalogSpecies, b: CatalogSpecies): number {
-  const af = a.first_confident;
-  const bf = b.first_confident;
-  if (af && bf) {
-    if (af !== bf) return af < bf ? -1 : 1;
-  } else if (af) {
-    return -1;
-  } else if (bf) {
-    return 1;
-  }
-  return (a.com_name || a.sci_name).localeCompare(b.com_name || b.sci_name);
-}
+// catalogOrder() MOVED to catalog.ts — see the note there. Its three-branch
+// null handling is the whole claim of this wall's heading, and it needed to be
+// somewhere `node --test` can call it.
 
 /** Local scarcity for the life-list wall: the all-time tally of times a species
  *  has ever been heard here. Fewer = rarer. (The bird popup uses a per-day rate

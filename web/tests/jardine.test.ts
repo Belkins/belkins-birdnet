@@ -108,6 +108,11 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
 >;
 const hangsAPlate = jardineMod.hangsAPlate as (s: JardineSpecies) => boolean;
 const ambersBinomial = jardineMod.ambersBinomial as (s: JardineSpecies) => boolean;
+// catalog.ts imports './config' extensionless, so it must come through the same
+// shim jardine.ts does — a static import is hoisted above registerHooks() and
+// fails to resolve before the hook exists.
+const catalogMod = (await import(new URL('catalog.ts', SRC).href)) as Record<string, unknown>;
+const catalogOrder = catalogMod.catalogOrder as (a: CatalogSpecies, b: CatalogSpecies) => number;
 const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
 const gardenFact = jardineMod.gardenFact as (
   sciName: string,
@@ -3671,6 +3676,56 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   );
 });
 
+test('T5 the wall keeps its own three promises', () => {
+  // Three claims the collection wall makes, each found by a sweep, each one an
+  // ordinary tidy away from being false. All three reproduced before fixing.
+
+  // 1 — "IN ORDER OF FIRST APPEARANCE". The comparator's three-branch null
+  // dance IS that sentence. Collapse it to `(af ?? '') < (bf ?? '')` — exactly
+  // the simplification it invites — and an empty string sorts before every real
+  // date, so a wall headed "in order of first appearance" opens with the birds
+  // whose first appearance is unknown.
+  const row = (sci: string, first: string | null, com = sci): CatalogSpecies =>
+    ({ sci_name: sci, com_name: com, first_confident: first }) as CatalogSpecies;
+  const wall = [
+    row('D undated', null, 'Aardvark Bird'),
+    row('B later', '2026-07-20'),
+    row('A earliest', '2026-06-30'),
+    row('C undated too', null, 'Zebra Bird'),
+  ].sort(catalogOrder);
+  assert.deepEqual(
+    wall.map((r) => r.sci_name),
+    ['A earliest', 'B later', 'D undated', 'C undated too'],
+    'the wall is no longer in order of first appearance: a bird with no date must come ' +
+      'LAST — it has no place in that order at all — and undated ties break by name',
+  );
+
+  // 2 — "THE LIBRARY NEVER DESCRIBED ITS VOICE" is a claim about a page that
+  // EXISTS. counterpointFor(null) is the no-page case and must stay null, or an
+  // optional-chaining tidy in the wall's card —
+  //     counterpointFor(jard.get(sci))?.kind === 'voice' ? … : …
+  // — sends every bird Jardine never wrote about into the else branch, where
+  // the wall states the library considered it and stayed silent.
+  assert.equal(
+    counterpointFor(null),
+    null,
+    'a bird with NO Jardine page no longer yields null — every such bird on the wall ' +
+      'would then be captioned as one the library declined to describe',
+  );
+  const wallSrc = stripComments(
+    readFileSync(new URL('../src/views/CollectionWallView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    wallSrc,
+    /const cp = counterpointFor[^;]*; if \(!cp\) return null;/,
+    'the wall no longer separates "no page" from "a page with no voice" before it prints ' +
+      '"the library never described its voice"',
+  );
+
+  // 3 — and it must ask the shared authority, not re-derive the distinction.
+  assert.match(wallSrc, /counterpointFor\(/, 'the wall hand-rolls the voice/silence split again');
+});
+
 test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
   // THE LAW THE WHOLE TAB RESTS ON, GUARDED IN ONE RULE UNTIL NOW.
   //
@@ -3975,6 +4030,33 @@ test('E9 the collision slip prints the name that actually collided', () => {
     }
   }
   assert.ok(checked > 0, 'no collision slip in the corpus — E9 would be vacuous');
+
+  // SUBJECT ORDER IS THE SLIP'S ARGUMENT, and nothing was holding it.
+  // The collision slip labels its columns by INDEX — `i === 0 ? '1838' : '2026'`
+  // — so subjects[0] is the bird Jardine's name stood over and subjects[1] is
+  // the bird it belongs to now. A sweep proposed adding a determinism sort to
+  // asSubjects(), matching the wording of the one deskPool() already carries;
+  // `Turdus iliacus` sorts before `Turdus philomelos`, the columns swap, and the
+  // slip states the Redwing was Jardine's Song Thrush. Two headings, both wrong,
+  // no test moved.
+  const twoIn = normalize({
+    version: 1,
+    errata: [
+      {
+        no: 'Z',
+        headline: 'Z',
+        kind: 'collision',
+        subjects: [{ sci_name: 'Zzz last' }, { sci_name: 'Aaa first' }],
+      },
+    ],
+  });
+  assert.deepEqual(
+    twoIn.errata[0].subjects.map((s) => s.sci_name),
+    ['Zzz last', 'Aaa first'],
+    'normalize() REORDERS errata subjects. The collision slip labels its columns by ' +
+      'position — index 0 is 1838, index 1 is 2026 — so any sort here silently swaps ' +
+      'which bird Jardine named and which one owns the name today',
+  );
 
   // And the view must READ it. The defect was not a wrong string in a file; it
   // was a string DERIVED from the wrong place, which no data check can see.
