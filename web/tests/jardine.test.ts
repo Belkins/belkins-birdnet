@@ -3377,6 +3377,52 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   );
 });
 
+test('T3 the crow line counts the birds its own sentence describes', () => {
+  // A SENTENCE POINTED AT THE WRONG SET, AND THEREFORE NEVER PRINTED.
+  //
+  // "N of the silent are crows. Jardine gave the family thousands of words and
+  // their voices none." — N counted rows with NO Jardine record at all. A bird
+  // with no record has no words of his to have been given, so the count
+  // contradicted the claim directly. Measured on the live station: rows with no
+  // record = 2, crows among them = 0. The line had never once appeared.
+  //
+  // The set the sentence describes — an account in the corpus with no voice
+  // passage in it — is four birds: the Carrion Crow, the Rook, the Jackdaw and
+  // the Magpie. That is the tab's whole argument, and it was unreachable.
+  const j = normalize(corpusRaw());
+  const CORVIDS = ['Corvus', 'Coloeus', 'Pica', 'Garrulus', 'Nucifraga', 'Pyrrhocorax'];
+  const isCorvid = (sci: string) => CORVIDS.some((g) => sci.startsWith(`${g} `));
+
+  const withAccountNoVoice = j.species.filter((s) => s.voice === null && isCorvid(s.sci_name));
+  assert.ok(
+    withAccountNoVoice.length > 0,
+    'no corvid in the corpus has an account without a voice — the line would be vacuous, ' +
+      'and a line that cannot print is not an editorial choice, it is a dead branch',
+  );
+
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  // the count must require a record AND an absent voice — never the bare !r.j
+  assert.match(
+    src,
+    /const silentCorvids = roll\.filter\( \(r\) => r\.j && r\.j\.voice === null/,
+    'silentCorvids counts something other than "has an account, has no voice" — if it ' +
+      'counts rows with no record, the sentence beneath it contradicts its own number',
+  );
+  assert.doesNotMatch(
+    src,
+    /silentCorvids[\s\S]{0,80}of the silent are crows/,
+    'the sentence calls them "the silent" again — in the Roll that word means "not in ' +
+      'Jardine at all", which is the opposite of what the rest of the sentence claims',
+  );
+  assert.match(
+    src,
+    /have an account here and no voice in it/,
+    'the crow line no longer says which silence it means',
+  );
+});
+
 test('T2 amber is only ever an unmoved 1838 name', () => {
   // THE AMBER LAW HAD NO GUARD AT ALL, on a tab whose vocabulary is three
   // colours wide. Amber means two things here and only two: a number the Pi

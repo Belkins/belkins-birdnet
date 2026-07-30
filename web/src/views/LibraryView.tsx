@@ -1551,8 +1551,22 @@ export function LibraryView({
   }, [catalog, bySci]);
   const silentCount = roll.filter((r) => !r.j).length;
   const firstSilent = roll.findIndex((r) => !r.j);
+  // THE CROWS THE SENTENCE IS ACTUALLY ABOUT.
+  //
+  // This counted `!r.j` — rows with no Jardine record AT ALL — under a sentence
+  // reading "Jardine gave the family thousands of words and their voices none".
+  // A bird with no record has no words of his to be given, so the count and the
+  // claim were about different sets, and the claim contradicted the count.
+  //
+  // Measured against the live station: rows with no record = 2, of which crows
+  // = 0, so the line had never once printed. The set it DESCRIBES — a Jardine
+  // account with no voice passage in it — is 4: the Carrion Crow, the Rook, the
+  // Jackdaw and the Magpie. That is the tab's own argument, and it was silent.
   const silentCorvids = roll.filter(
-    (r) => !r.j && CORVID_GENERA.some((g) => r.c.sci_name.startsWith(`${g} `)),
+    (r) =>
+      r.j &&
+      r.j.voice === null &&
+      CORVID_GENERA.some((g) => r.c.sci_name.startsWith(`${g} `)),
   ).length;
 
   // The shelf lights only where this garden lives.
@@ -1818,8 +1832,9 @@ export function LibraryView({
                       out.push(
                         <tr className="lib-roll-break" key="lib-roll-break">
                           <td colSpan={4}>
-                            {silentCorvids} of the silent are crows. Jardine gave the family
-                            thousands of words and their voices none.
+                            {silentCorvids} of this garden's crows have an account here and no
+                            voice in it. Jardine gave the family thousands of words and their
+                            song none.
                           </td>
                         </tr>,
                       );
