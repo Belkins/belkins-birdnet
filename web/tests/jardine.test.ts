@@ -2775,7 +2775,15 @@ test('E6 the station may only claim a bird it actually painted', () => {
   );
   // And the claim itself must live inside the gated component, so it cannot be
   // rendered from anywhere that skips the gate.
-  const claim = /by this station, not by Jardine/;
+  // The claim must say the word AI. A reader looking at a picture of a bird on a
+  // page of scanned engravings owes nobody an inference about where it came from.
+  //
+  // Pin the FULL caption, not the phrase: the phrase also appears in the image's
+  // alt text (same claim, same gated component, correct) and in the colophon
+  // (a separate and equally correct statement). Counting the phrase would fail
+  // on two things that ought to exist — a guard that goes red on correct code
+  // gets weakened or deleted, which is how a real one dies.
+  const claim = /AI visualized by this station · not an engraving, not a photograph/;
   assert.match(station[0], claim, 'the station claim left StationBird');
   assert.equal(
     (src.match(new RegExp(claim.source, 'g')) || []).length,
@@ -2786,7 +2794,7 @@ test('E6 the station may only claim a bird it actually painted', () => {
   // The colophon must keep saying which pictures are scanned and which painted.
   assert.match(
     src.replace(/\s+/g, ' '),
-    /the engravings are Jardine's, scanned[^<]*the birds in colour are this station's own/,
+    /the engravings are Jardine's, scanned[^<]*the birds in colour are AI visualized by this station/,
     'the colophon no longer distinguishes the scanned engravings from the painted birds',
   );
 

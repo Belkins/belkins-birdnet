@@ -351,10 +351,10 @@ function StationBird({
   if (phase !== 'ready' || !src) return null;
   return (
     <figure className="lib-fig-plate lib-fig-modern">
-      <img className="lib-plate lib-plate-station" src={src} alt={`${com || sci}, painted by this station`} decoding="async" />
+      <img className="lib-plate lib-plate-station" src={src} alt={`${com || sci}, AI visualized by this station`} decoding="async" />
       <figcaption className="lib-plate-cap">
         <span className="lib-plate-k">no plate — the book never figured this bird</span>
-        <span className="lib-plate-modern">painted by this station, not by Jardine</span>
+        <span className="lib-plate-modern">AI visualized by this station · not an engraving, not a photograph</span>
       </figcaption>
     </figure>
   );
@@ -1666,7 +1666,7 @@ export function LibraryView({
                 failure this tab exists to correct, on the tab's own colophon. */}
             <div className="lib-col-l">
               the engravings are Jardine's, scanned from the 1833–1843 volumes · the birds in
-              colour are this station's own, painted here from the species name and never
+              colour are AI visualized by this station from the species name — not engraved, not
               photographed · which is which is printed under every image
             </div>
             <div className="lib-col-l">
