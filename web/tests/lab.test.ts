@@ -178,6 +178,27 @@ test('honesty: a caddy/php-fpm restart is never reported as failure on a dead fe
   assert.match(services, /the reply died with it/);
 });
 
+test('honesty: journals are keyed by unit, so a slow response cannot wear another unit\'s name', () => {
+  // One shared logText string let unit A's late journal render under unit
+  // B's row - mislabeled logs one click from the wrong restart (the MUST
+  // from the 2026-07-30 review). The write must be keyed by the unit the
+  // fetch was issued for, and the read must key on the row's own unit.
+  assert.match(services, /setLogs\(\(v\) => \(\{ \.\.\.v, \[unit\]:/);
+  assert.match(services, /logs\[unit\]/);
+  assert.doesNotMatch(services, /setLogText\(/);
+});
+
+test('honesty: an armed restart disarms on a timer, not only on blur (Safari never blurs)', () => {
+  assert.match(services, /setTimeout\(\(\) => setArming\(null\)/);
+});
+
+test('honesty: leaving the archive tab closes the open row so hidden audio cannot keep playing', () => {
+  const archive = readFileSync(new URL('lab/Archive.tsx', SRC), 'utf8');
+  assert.match(archive, /if \(!active\) setOpen\(null\);/);
+  const lab = readFileSync(new URL('lab/Lab.tsx', SRC), 'utf8');
+  assert.match(lab, /<Archive cat=\{cat\} active=\{tab === 'archive'\}/);
+});
+
 test('css: .lab-hide outranks every display-setting rule it must beat (declared last)', () => {
   // Equal specificity means source order decides. If .lab-hide is declared
   // before .lab-tabbody (display: grid), a hidden tab body stays VISIBLE and

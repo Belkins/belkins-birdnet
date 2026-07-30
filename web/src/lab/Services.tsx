@@ -34,7 +34,11 @@ export function Services(): JSX.Element {
   const [gate, setGate] = useState<Gate>('open');
   const [reason, setReason] = useState('');
   const [logsFor, setLogsFor] = useState<string | null>(null);
-  const [logText, setLogText] = useState('');
+  // Journals are KEYED BY UNIT, not one shared string: journalctl on the Pi
+  // can take seconds, and a slow response for unit A landing after the
+  // operator opened unit B must not render A's journal under B's name -
+  // mislabeled logs sit one click from the wrong restart.
+  const [logs, setLogs] = useState<Record<string, string>>({});
   const [arming, setArming] = useState<string | null>(null);
   const [verdicts, setVerdicts] = useState<Record<string, string>>({});
 
@@ -67,11 +71,22 @@ export function Services(): JSX.Element {
       return;
     }
     setLogsFor(unit);
-    setLogText('fetching journal…');
+    setLogs((v) => ({ ...v, [unit]: 'fetching journal…' }));
     fetchLogs(unit, 120)
-      .then((l) => setLogText(l.text || '(journal empty)'))
-      .catch((e: unknown) => setLogText(`journal fetch failed (${String(e)})`));
+      .then((l) => setLogs((v) => ({ ...v, [unit]: l.text || '(journal empty)' })))
+      .catch((e: unknown) =>
+        setLogs((v) => ({ ...v, [unit]: `journal fetch failed (${String(e)})` })),
+      );
   };
+
+  // Safety-net disarm: macOS Safari does not focus a <button> on click, so
+  // the onBlur disarm below can never fire there - an armed restart would
+  // stay armed until something else happened to re-render it away.
+  useEffect(() => {
+    if (arming === null) return;
+    const t = window.setTimeout(() => setArming(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [arming]);
 
   const restart = (unit: string): void => {
     if (arming !== unit) {
@@ -225,7 +240,7 @@ export function Services(): JSX.Element {
                 logsFor === unit ? (
                   <tr key={`${unit}-logs`} className="lab-expand">
                     <td colSpan={5}>
-                      <pre className="lab-logs">{logText}</pre>
+                      <pre className="lab-logs">{logs[unit] ?? 'fetching journal…'}</pre>
                     </td>
                   </tr>
                 ) : null,
