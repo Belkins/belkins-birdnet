@@ -106,6 +106,7 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
   string,
   { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
 >;
+const hangsAPlate = jardineMod.hangsAPlate as (s: JardineSpecies) => boolean;
 const ambersBinomial = jardineMod.ambersBinomial as (s: JardineSpecies) => boolean;
 const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
 const artProvenance = jardineMod.artProvenance as (
@@ -2538,18 +2539,25 @@ test('O3 the ledger does not count vignettes as plates', () => {
   // predicate correctly changed to test `image` instead — while still being
   // unable to catch the same bug written any other way. What Erratum III needs
   // is one thing: whatever the ledger counts, it excludes vignettes.
-  const withPlate = /const withPlate = withPage\.filter\(\((\w+)\) => ([^;]*?)\)\.length;/.exec(src);
-  assert.ok(withPlate, 'the ledger no longer computes withPlate — find it and re-point this guard');
-  const [, param, predicate] = withPlate;
-  assert.ok(
-    predicate.includes(`!${param}.plate_is_vignette`),
-    `the ledger counts vignettes as plates again — it now contradicts Erratum III (predicate: ${predicate})`,
-  );
-  // And it must count something the museum actually hangs, not merely a
-  // reference: a plate_ref with no file behind it is a plate we do not have.
-  assert.ok(
-    predicate.includes(`${param}.image`),
-    `the ledger counts plate REFERENCES, not hung plates (predicate: ${predicate})`,
+  // BEHAVIOUR, NOT SUBSTRINGS. This read the predicate's SOURCE and asked
+  // whether it contained `s.image` and `!s.plate_is_vignette`. Both appear in
+  // `s.image || !s.plate_is_vignette`, which means the opposite and would count
+  // every vignette in the corpus as a plate — an operator is not a substring,
+  // and this file has now shipped that mistake twice.
+  //
+  // The rule is hangsAPlate() and this calls it over the whole truth table.
+  const V = (image: string | null, vignette: boolean) =>
+    hangsAPlate({ image, plate_is_vignette: vignette } as unknown as JardineSpecies);
+  assert.equal(V('jardine/24-3.jpg', false), true, 'a full plate we hold is not counted');
+  assert.equal(V('jardine/24-3.jpg', true), false, 'a VIGNETTE is counted as a plate — that is the claim Erratum III makes');
+  assert.equal(V(null, false), false, 'a bird with no engraving on disk is counted as having one');
+  assert.equal(V(null, true), false, 'a missing vignette is counted as a plate');
+
+  // and the ledger must use it rather than re-deriving the pair
+  assert.match(
+    src,
+    /const withPlate = withPage\.filter\(hangsAPlate\)\.length;/,
+    'the ledger hand-rolls its plate test again — that is where the operator went wrong',
   );
 });
 

@@ -55,6 +55,7 @@ import {
   stationCaption,
   artProvenance,
   ambersBinomial,
+  hangsAPlate,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -1533,7 +1534,7 @@ export function LibraryView({
   // screen. And the test is now `image`, not `plate_ref` — a reference with no
   // file behind it is a plate the museum does not have, and this sentence is
   // the one place the collection states its own size.
-  const withPlate = withPage.filter((s) => s.image !== null && !s.plate_is_vignette).length;
+  const withPlate = withPage.filter(hangsAPlate).length;
   const heardCount = catalog?.length ?? 0;
 
   // THE ROLL — a left join of the garden onto the library. Sorted by drift class

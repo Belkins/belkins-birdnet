@@ -856,6 +856,22 @@ export function stationClaimAllowed(phase: string, src: string | null): src is s
   return phase === 'ready' && !!src;
 }
 
+/** Does this bird HANG a plate — a full engraving the museum actually holds?
+ *
+ *  Both halves are load-bearing and both were learned the hard way. A
+ *  `plate_ref` with no file behind it is a plate we do not have, so the count
+ *  must test the image. And Erratum III's argument is that a VIGNETTE is not a
+ *  plate, so the ledger that contradicts it would contradict the slip two
+ *  sections above.
+ *
+ *  It is a function because the guard on it was a substring test — it asked
+ *  whether the predicate's source text CONTAINED `s.image` and
+ *  `!s.plate_is_vignette`, and `s.image || !s.plate_is_vignette` contains both
+ *  while meaning the opposite. An operator is not a substring. */
+export function hangsAPlate(s: JardineSpecies): boolean {
+  return s.image !== null && !s.plate_is_vignette;
+}
+
 /** ── THE AMBER LAW, AS CODE ──────────────────────────────────────────────────
  *
  *  Amber marks exactly two things in this museum: a number the Pi measured, and
