@@ -3192,8 +3192,34 @@ test('E8 a plate caption says everything the plate obliges it to say', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(src, /two birds on this sheet/, 'the two-bird naming is gone from the captions');
-  assert.match(src, /the volume assigns this plate; the picture does not say so/, 'the citation disclaimer is gone');
+  // EXACTLY ONCE, NOT AT LEAST ONCE. These were `assert.match` over the whole
+  // file while both sentences existed TWICE — in the printed figcaption and
+  // again in the enlarged viewer — so either copy could be deleted and the
+  // surviving one satisfied the guard. Six reviewers found it independently,
+  // and the copy that matters most is the first: it is the one on the page.
+  // The sentences live in <PlateObligations> now, once, and both surfaces
+  // render it.
+  for (const [sentence, what] of [
+    ['two birds on this sheet', 'the two-bird naming'],
+    ['the volume assigns this plate; the picture does not say so', 'the citation disclaimer'],
+  ]) {
+    const n = src.split(sentence).length - 1;
+    assert.equal(
+      n,
+      1,
+      n === 0
+        ? `${what} is gone from the captions`
+        : `${what} exists ${n} times — a duplicate is a copy that can be deleted ` +
+          `while a whole-file match stays green, which is how this guard was beaten`,
+    );
+  }
+  const obligations = src.split('<PlateObligations').length - 1;
+  assert.equal(
+    obligations,
+    2,
+    `both the printed caption and the enlarged viewer must discharge the obligations ` +
+      `through the one component — found ${obligations} call sites`,
+  );
   assert.match(src, /plateCaption\(/, 'the view no longer derives its caption obligations from plateCaption()');
 });
 
@@ -3229,13 +3255,58 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   assert.match(src, /<PlateViewer\s/, 'PlateViewer is never mounted');
   assert.match(src, /OpenPlateCtx\.Provider/, 'nothing provides the open-plate handler');
 
-  // The mount width must still be a FUNCTION of Jardine's scale.
-  const mount = /\.lib-mount \{([^}]*)\}/.exec(css);
-  assert.ok(mount, '.lib-mount is gone — find the vitrine and re-point this guard');
+  // THE MOUNT MUST STAY PROPORTIONAL — every rule, not the first one.
+  //
+  // This used to be `/\.lib-mount \{([^}]*)\}/` plus a check that the token
+  // `var(--scale` appeared inside. Six reviewers found the same two holes: the
+  // regex reads only the FIRST matching block, so any later rule (a media
+  // query, a state selector) overrides it unseen; and the token surviving says
+  // nothing about proportionality — `min-width: 300px` keeps it and flattens
+  // the Robin's 0.38 vignette onto the same width as a full plate. Erratum I is
+  // ABOUT that ratio: its argument is what the exhibit shows, so a clamped
+  // exhibit contradicts the text above it.
+  //
+  // So: collect every rule that targets .lib-mount anywhere in the sheet, and
+  // require each to leave the width a linear function of Jardine's own scale.
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
+    /\.lib-mount(?![\w-])/.test(m[1]),
+  );
+  assert.ok(rules.length > 0, '.lib-mount is gone — find the vitrine and re-point this guard');
+  let scaled = 0;
+  for (const [, selector, body] of rules) {
+    const sel = selector.trim().replace(/\s+/g, ' ');
+    const width = /(?:^|;)\s*width\s*:([^;]*)/.exec(body);
+    if (width) {
+      assert.match(
+        width[1],
+        /var\(--scale/,
+        `"${sel}" sets a width that ignores Jardine's scale — the vitrine stops comparing plates`,
+      );
+      scaled++;
+    }
+    assert.doesNotMatch(
+      body,
+      /(?:^|;)\s*(?:min-width|min-inline-size)\s*:/,
+      `"${sel}" floors the mount's width. A floor is exactly how the ratio dies while ` +
+        `var(--scale) is still written on the line above it: a 0.38 vignette clamps up to ` +
+        `the same width as a full plate, and Erratum I's exhibit stops showing its argument`,
+    );
+    const maxw = /(?:^|;)\s*(?:max-width|max-inline-size)\s*:([^;]*)/.exec(body);
+    if (maxw) {
+      assert.match(
+        maxw[1],
+        /100%|none/,
+        `"${sel}" caps the mount at ${maxw[1].trim()} — anything but 100% clamps the large ` +
+          `plate down and closes the same gap from the other side`,
+      );
+    }
+  }
+  assert.ok(scaled > 0, 'no .lib-mount rule sizes by var(--scale) at all');
+  // and the view must actually hand each subject its own scale
   assert.match(
-    mount[1],
-    /var\(--scale/,
-    'the vitrine no longer sizes by Jardine’s own scale — Erratum I’s exhibit now contradicts its text',
+    src.replace(/\s+/g, ' '),
+    /'--scale':\s*String\(sub\.scale\)/,
+    'the vitrine no longer passes each subject its recorded scale — every mount is 1.0',
   );
   // And the data must still carry a real spread of scales, or (2) is vacuous.
   const raw = corpusRaw();

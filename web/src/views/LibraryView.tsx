@@ -387,23 +387,66 @@ function PlateViewer({ plate, onClose }: { plate: PlateView; onClose: () => void
         <div className="lib-view-cap">
           <span className="lib-plate-k">{plate.locator}</span>
           <span className="lib-view-t">{plate.subject}</span>
-          {plate.also.length > 0 && (
-            <span className="lib-plate-two">
-              two birds on this sheet — {plate.subject} {plate.where}
-              {plate.also.map((a) => (
-                <span key={a.sci_name}>
-                  , and the {a.common} {a.where}
-                </span>
-              ))}
-            </span>
-          )}
-          {plate.cited && (
-            <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>
-          )}
-          {plate.cited && plate.note && <span className="lib-plate-why">{plate.note}</span>}
+          <PlateObligations
+            subject={plate.subject}
+            where={plate.where}
+            also={plate.also}
+            cited={plate.cited}
+            note={plate.note}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+/** EVERYTHING A PLATE OBLIGES ITS CAPTION TO SAY, IN ONE PLACE.
+ *
+ *  Both sentences existed twice — once in the printed figcaption, once in the
+ *  enlarged viewer — and E8 asserted them with a whole-file `assert.match`, so
+ *  either copy could be deleted with the suite green. Six reviewers reported it
+ *  independently, and one pointed out the worse half: the copy a reader
+ *  actually faces on the page is the FIRST one, so the deletion that matters
+ *  most is the one the surviving match hides.
+ *
+ *  Two birds on a sheet is not decoration. Jardine drew two species on one
+ *  plate five times, and a caption that names one of them asserts the picture
+ *  is of that bird alone. Same for the citation: without it, a plate the VOLUME
+ *  assigns becomes a plate Jardine drew.
+ *
+ *  One component, both call sites. plateCaption() in jardine.ts states the
+ *  obligation; this discharges it; E8 checks each sentence exists exactly ONCE
+ *  and that both surfaces render this. */
+function PlateObligations({
+  subject,
+  where,
+  also,
+  cited,
+  note,
+}: {
+  subject: string;
+  where: string | null;
+  also: JardinePlateFigure[];
+  cited: boolean;
+  note: string | null;
+}) {
+  return (
+    <>
+      {also.length > 0 && (
+        <span className="lib-plate-two">
+          two birds on this sheet — {subject} {where}
+          {also.map((a) => (
+            <span key={a.sci_name}>
+              , and the {a.common} {a.where}
+            </span>
+          ))}
+        </span>
+      )}
+      {cited && (
+        <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>
+      )}
+      {cited && note && <span className="lib-plate-why">{note}</span>}
+    </>
   );
 }
 
@@ -611,18 +654,13 @@ function SpeciesPlate({
         <span className="lib-plate-k">
           {plate} · vol. {volumeRoman(sp.volume)}
         </span>
-        {also.length > 0 && (
-          <span className="lib-plate-two">
-            two birds on this sheet — {sp.jardine_title} {sp.plate_where}
-            {also.map((a) => (
-              <span key={a.sci_name}>
-                , and the {a.common} {a.where}
-              </span>
-            ))}
-          </span>
-        )}
-        {cited && <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>}
-        {cited && sp.plate_note && <span className="lib-plate-why">{sp.plate_note}</span>}
+        <PlateObligations
+          subject={sp.jardine_title}
+          where={sp.plate_where}
+          also={also}
+          cited={cited}
+          note={sp.plate_note}
+        />
       </figcaption>
     </figure>
   );
