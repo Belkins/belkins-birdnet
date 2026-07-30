@@ -1,0 +1,19 @@
+name = "christina-deadman"
+main = "worker.js"
+compatibility_date = "2026-07-30"
+
+# The bucket the nightly backup already writes to. READ-ONLY use: the Worker
+# only ever calls list(). It never puts, never deletes.
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "christina-station"
+
+# 06:00 UTC daily — after the Pi's 04:45 local nightly has had time to finish,
+# so a healthy run is never reported as a miss.
+[triggers]
+crons = ["0 6 * * *"]
+
+# NOTIFY_URL is set as a SECRET, not here:
+#   npx wrangler secret put NOTIFY_URL
+# It is the same ntfy topic the Pi already pushes to, so a backup alarm arrives
+# on the same channel as every other Christina alert — one place to watch.
