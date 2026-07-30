@@ -29,7 +29,9 @@
      comment claims — that the band is the printed rule under the type, at the
      same measure — was the one thing the unit made impossible. A length in rem
      resolves once, so the alignment is now real rather than asserted. */
-  --w-read: 46rem; /* ≈ 736px — about 66 characters of Cormorant at 26px */
+  /* 42rem ≈ 672px ≈ 65 characters of Cormorant at 26px. 46rem measured 71.2,
+     which is over the comfortable band for a low-contrast serif on obsidian. */
+  --w-read: 42rem;
 
   /* ── THE SCALE ────────────────────────────────────────────────────────────
      This tab was built section by section over several days and never once
@@ -460,9 +462,19 @@
 .lib-says {
   margin-bottom: 18px;
 }
+/* THE SAME ch BUG, STILL LIVE — I fixed every var(--measure) and missed the
+   literal, then wrote a comment upstairs claiming the class was eliminated. It
+   was not: 44ch resolved to 356.8px on the Cormorant prose and 269.3px on the
+   Space Mono citation, an 87.5px mismatch inside every errata slip, and it left
+   the right half of a 578px card empty so the slip read as a strip of text
+   pinned to one edge of a box. Fixing the instance and declaring the class dead
+   is this project's signature mistake and I made it again.
+
+   The card is the measure here. Both children take its full width, so they
+   cannot disagree. */
 .lib-says .lib-prose,
 .lib-says .lib-cite {
-  max-width: 44ch;
+  max-width: 100%;
 }
 .lib-garden-rows {
   display: flex;
@@ -837,9 +849,21 @@
 }
 
 /* ── 5 · THE SHELF — forty spines, no images ───────────────────────────────── */
+/* TWO SHELVES, NOT ONE RAIL. Forty spines across 1180px is 29.5px each, of
+   which 11px is the rotated title — so ten titles were cut, by up to 146px, and
+   the roman numerals collided into each other at the far end (XXXVII over
+   XXXVIII, measured). My first attempt at this was a mask-image fade, and a
+   re-measure showed it changed NOTHING: the same ten titles, cut by the same
+   pixel amounts, now ending softly instead of sharply. A gradient over a wound.
+
+   The wound was the width. Twenty spines to a shelf doubles every spine to 59px
+   — the numerals fit, the titles get room, and two rows of twenty read as a
+   bookcase rather than as a scratch-strip claiming to be the whole natural
+   world in 2% of the page. The fade stays as the last-resort marker for the few
+   titles that are still longer than any spine. */
 .lib-shelf {
   display: grid;
-  grid-template-columns: repeat(40, minmax(0, 1fr));
+  grid-template-columns: repeat(20, minmax(0, 1fr));
   gap: 1px;
   max-width: 1180px;
   margin: 0 auto;
@@ -892,7 +916,9 @@
   color: var(--mut);
   max-height: 150px;
   overflow: hidden;
-  white-space: nowrap;
+  /* Two vertical lines now fit in a 59px spine, so a long title wraps instead
+     of running off the end. */
+  white-space: normal;
   mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
 }
 .lib-spine[data-lit='yes'] .lib-spine-t {
@@ -1245,15 +1271,17 @@
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
 }
+/* The desk's own silence note — the same sentence-set-as-a-label problem the
+   Index of Silences had, on the museum's signature surface. Modern PROSE voice,
+   and no invented fallback hex. */
 .lib-desk-silence {
-  margin: 0 0 0.4rem;
-  max-width: 62ch;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: var(--t-label);
-  line-height: 1.65;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--mut, #8f8f8f);
+  margin: 0 0 var(--s-3);
+  max-width: var(--w-read);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
 }
 
 /* ── THE FULL ACCOUNT — the reading room ────────────────────────────────────

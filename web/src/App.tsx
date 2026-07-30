@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './App.css';
 import { CollageEngine } from './collage';
-import { MOCK, SNAPSHOT_HOURS } from './config';
+import { MOCK } from './config';
 import { loadSettings, saveSettings } from './settings';
 import type { Settings } from './settings';
 import type { LiveState, RosterRow } from './types';
@@ -287,15 +287,13 @@ export default function App() {
     });
     ro.observe(wrap);
 
-    void engine.start().then(async () => {
+    // Boot straight into the PERSISTED window. This used to seed 24h and then
+    // re-seed via setWindow(), which fired a second complete image sweep — a
+    // silent doubling of first-load bytes for anyone who had ever picked
+    // 1H/12H/7d/all. A day pinned by the scrubber mid-boot is still safe: it
+    // bumps seedSeq, so start()'s own seed is skipped by the existing guard.
+    void engine.start(s0.windowHours).then(() => {
       if (engineRef.current !== engine) return; // torn down / remounted (StrictMode)
-      // Skip the persisted-window re-seed if the user already pinned an
-      // archive day (the scrubber renders before boot settles) — the re-seed
-      // would silently replace the pinned day with live data.
-      if (engine.day === null && s0.windowHours !== SNAPSHOT_HOURS) {
-        await engine.setWindow(s0.windowHours);
-      }
-      if (engineRef.current !== engine) return; // teardown can land mid-setWindow
       setBootDone(true); // roster is real → the ?bird= restore may resolve
     });
 
@@ -526,6 +524,18 @@ export default function App() {
   // mast, the live dashboard, the listening pulse, the scrubber, the colophon)
   // therefore stays silent on it without a second condition.
   const shownTab: Tab = framed ? (frameLibrary ? 'library' : 'collage') : tab;
+  // Under 400px the nav pill scrolls, and the ACTIVE tab can start entirely
+  // off-screen — at 320 it begins 53.7px past the right edge and
+  // elementFromPoint returns null, so the view you are looking at has no
+  // visible, tappable tab of its own. Pull it into view when the tab CHANGES,
+  // not on every render: an inline ref callback re-fires each time React
+  // re-renders and would snap the pill back while a reader was scrolling it.
+  // `nearest` makes it a no-op whenever the button is already visible, which is
+  // every width above 400 and most tabs below it.
+  const activeTabRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [shownTab]);
   // The rolling-1H window turns the collage surface into the live dashboard —
   // never while a past day is pinned (an archive has no live dashboard).
   const liveActive =
@@ -689,7 +699,12 @@ export default function App() {
       <div className="navrow">
         <nav className="nav">
           {TABS.map((t) => (
-            <button key={t} className={t === shownTab ? 'on' : ''} onClick={() => setTab(t)}>
+            <button
+              key={t}
+              className={t === shownTab ? 'on' : ''}
+              onClick={() => setTab(t)}
+              ref={t === shownTab ? activeTabRef : null}
+            >
               {t.toUpperCase()}
             </button>
           ))}

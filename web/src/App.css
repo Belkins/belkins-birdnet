@@ -207,11 +207,20 @@
 
    So the scrim is conditional on there BEING a scroller, and it is the .nav
    pill's own recipe rather than a new one: the same bg1 at 90%, the same blur,
-   the same radius family. The signature surfaces keep their bare chrome. */
+   the same radius family. The signature surfaces keep their bare chrome.
+
+   THE PADDING MUST NOT CHANGE THE LAYOUT BOX. My first version added
+   `padding: 6px 12px` and nothing else, which grew .filter from 186 to 212px
+   and .menu-wrap from 139 to 165px. At 390 that turned 12.8px of clearance into
+   a 39.2px overlap and the theme toggle landed on top of the ALL button —
+   a scrim intended to make text readable made a control unclickable. Negative
+   margins of the same size cancel it: the pill grows, the box does not, and the
+   geometry is byte-for-byte what it was before the scrim existed. */
 .stage:has(.overlay) .filter,
 .stage:has(.overlay) .menu-wrap,
 .stage:has(.overlay) .live-counter {
   padding: 6px 12px;
+  margin: -6px -12px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg1) 90%, transparent);
   border: 1px solid var(--line);
@@ -222,6 +231,19 @@
 .stage:has(.overlay) .live-counter:not(.compact) {
   border-radius: 12px;
   padding: 10px 14px;
+  margin: -10px -14px;
+}
+
+/* AND ON A PHONE THE COUNTER COMES OFF THE READING PAGE ENTIRELY. Opaque, it
+   covers 184.5px of a 351px column — 52.6% of the text, and 64% at 320px. The
+   overlap predates the scrim; what the scrim changed is that the prose used to
+   be muddled and is now hidden. It is pointer-events:none decoration whose home
+   is the collage, and a page of Victorian prose is for reading. It stays on
+   every other surface and at every other width. */
+@media (max-width: 760px) {
+  .stage:has(.overlay) .live-counter {
+    display: none;
+  }
 }
 
 /* ── colophon (Belkins credit, bottom-right) ───────────────── */
