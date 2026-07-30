@@ -25,7 +25,7 @@
 // narrowed by App's asTab(), which stays the only gate that reads it.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CatalogSpecies } from '../catalog';
-import { fetchCatalog } from '../catalog';
+import { fetchCatalogOrNull } from '../catalog';
 import type { Jardine, JardinePassage, JardineSpecies } from '../jardine';
 import { dayOfYear, fetchJardine, heardHere, sicSpans, volumeRoman } from '../jardine';
 import type { RosterRow } from '../types';
@@ -72,9 +72,14 @@ interface Page {
    *   'dated'   — recorded, and the catalog carries a readable stamp
    *   'undated' — recorded, but no parseable last_detected
    *   'unheard' — genuinely never recorded here
+   *   'unknown' — the ledger could not be READ, so this garden has nothing to
+   *               say either way. Without it the wall printed "not yet heard in
+   *               this garden" under a bird the station was hearing at that
+   *               moment, whenever the nightly failed to publish — on the one
+   *               surface that gets photographed and then hangs there all day.
    *  Derived from the same heardHere() that selects the pool, so the footer can
    *  never contradict the selection. */
-  garden: 'dated' | 'undated' | 'unheard';
+  garden: 'dated' | 'undated' | 'unheard' | 'unknown';
 }
 
 function hasText(p: JardinePassage | null): p is JardinePassage {
@@ -92,12 +97,12 @@ function hasText(p: JardinePassage | null): p is JardinePassage {
  *  is the correct sentence for an empty library rather than an empty state. */
 function choosePage(
   doc: Jardine,
-  catalog: CatalogSpecies[],
+  catalog: CatalogSpecies[] | null,
   rows: RosterRow[],
   doy: number,
 ): Page | null {
   const byName = new Map<string, CatalogSpecies>();
-  for (const c of catalog) if (c.sci_name) byName.set(c.sci_name, c);
+  for (const c of catalog ?? []) if (c.sci_name) byName.set(c.sci_name, c);
   // The live roster is a NAME fallback only, for the case where species.json is
   // unreachable but the engine's snapshot is not. It can never pick the page —
   // that would make the surface change mid-day.
@@ -121,13 +126,14 @@ function choosePage(
     // the Pi HAS recorded printed "not yet heard in this garden". Fixing the
     // pool and leaving the label is why that fabricated absence survived a fix
     // that said it was fixed. The label must come from the same authority.
+    const unknownLedger = catalog === null;
     const known = c ? heardHere(c) : false;
     const page: Page = {
       passage: s.voice,
       title: s.jardine_title || null,
       com,
       heardOn: on,
-      garden: !known ? 'unheard' : on ? 'dated' : 'undated',
+      garden: unknownLedger ? 'unknown' : !known ? 'unheard' : on ? 'dated' : 'undated',
     };
     if (known) heard.push(page);
     else unheard.push(page);
@@ -157,14 +163,16 @@ export function LibraryFrameView(props: {
 
   // null = still gathering; the derived Page|null then distinguishes "a page"
   // from "nothing true to print". Never a spinner, never an error state.
-  const [data, setData] = useState<{ doc: Jardine; catalog: CatalogSpecies[] } | null>(null);
+  // catalog: CatalogSpecies[] | null — null means the ledger could NOT be read,
+  // which the page must render as silence rather than as an absence.
+  const [data, setData] = useState<{ doc: Jardine; catalog: CatalogSpecies[] | null } | null>(null);
   const [doy, setDoy] = useState<number>(() => dayOfYear(new Date()));
   const [ready, setReady] = useState(false);
   const readyRef = useRef(false);
 
   useEffect(() => {
     let alive = true;
-    void Promise.all([fetchJardine(), fetchCatalog()]).then(([doc, catalog]) => {
+    void Promise.all([fetchJardine(), fetchCatalogOrNull()]).then(([doc, catalog]) => {
       if (alive) setData({ doc, catalog });
     });
     return () => {
@@ -294,6 +302,10 @@ export function LibraryFrameView(props: {
               // recorded here, but the catalog carries no readable stamp. Saying
               // "not yet heard" would be false; inventing a date would be worse.
               <span className="lfr-heard">heard in this garden</span>
+            ) : page.garden === 'unknown' ? (
+              // the ledger did not load. Saying "not yet heard" here would be a
+              // fabricated absence, printed large and left on a wall all day.
+              <span className="lfr-unheard">the garden’s ledger is not to hand</span>
             ) : (
               <span className="lfr-unheard">not yet heard in this garden</span>
             )}
