@@ -160,7 +160,24 @@ if(isset($_GET['view'])){
   if($_GET['view'] == "Daily Charts"){include('history.php');}
   if($_GET['view'] == "Tools"){
     ensure_authenticated();
-    $url = $_SERVER['SERVER_NAME']."/scripts/adminer.php";
+    // Two buttons were removed from this grid on 2026-07-30 because both led to
+    // doors that no longer open:
+    //   Database Maintenance — Adminer was deleted in the 2026-07-27 security
+    //     pass; the view has since rendered only a "use sqlite3 over SSH" note.
+    //   Web Terminal — web_terminal.service is inactive AND disabled and nothing
+    //     listens on :8888, so caddy's /terminal* proxy returns 502 to an
+    //     AUTHENTICATED operator (measured, not assumed). It is off ON PURPOSE:
+    //     a browser shell reachable from the LAN was part of what that same
+    //     hardening pass closed. So the button goes; the service stays off.
+    // Both view= handlers are left in the dispatcher — harmless, and removing
+    // them would widen this diff for no gain.
+    //
+    // This is a PHP comment, not an HTML one, on purpose. The first version of
+    // it was `<!-- ... -->` INSIDE the echoed string below, so every word above
+    // was being served to the browser.
+    //
+    // Dropped with them: `$url = $_SERVER['SERVER_NAME']."/scripts/adminer.php"`,
+    // assigned here and never read, still naming the file that was deleted.
     echo "<div class=\"centered\">
       <form action=\"views.php\" method=\"GET\" id=\"views\">
       <button type=\"submit\" name=\"view\" value=\"Settings\" form=\"views\">Settings</button>
@@ -168,8 +185,6 @@ if(isset($_GET['view'])){
       <button type=\"submit\" name=\"view\" value=\"System Controls\" form=\"views\">System Controls".$updatediv."</button>
       <button type=\"submit\" name=\"view\" value=\"Services\" form=\"views\">Services</button>
       <button type=\"submit\" name=\"view\" value=\"File\" form=\"views\">File Manager</button>
-      <button type=\"submit\" name=\"view\" value=\"Adminer\" form=\"views\">Database Maintenance</button>
-      <button type=\"submit\" name=\"view\" value=\"Webterm\" form=\"views\">Web Terminal</button>
       <button type=\"submit\" name=\"view\" value=\"Included\" form=\"views\">Custom Species List</button>
       <button type=\"submit\" name=\"view\" value=\"Excluded\" form=\"views\">Excluded Species List</button>
       <button type=\"submit\" name=\"view\" value=\"Whitelisted\" form=\"views\">Whitelist Species List</button>

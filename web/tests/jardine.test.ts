@@ -2141,8 +2141,18 @@ test('O1 the wall’s garden line comes from the same authority that picks the p
     readFileSync(new URL('../src/views/LibraryFrameView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
 
-  assert.match(src, /garden: !known \? 'unheard' : on \? 'dated' : 'undated'/,
+  assert.match(src, /garden: unknownLedger \? 'unknown' : !known \? 'unheard' : on \? 'dated' : 'undated'/,
     'the garden state is no longer derived from heardHere() at the point the page is built');
+  // FOUR states, not three. The wall printed "not yet heard in this garden"
+  // under a bird the station was hearing whenever the nightly failed to
+  // publish — a fabricated absence on the one surface that gets photographed
+  // and then hangs there all day. An unreadable ledger is not an absence.
+  assert.match(src, /const unknownLedger = catalog === null/,
+    'the frame can no longer tell an unreadable ledger from an empty one');
+  assert.match(src, /page\.garden === 'unknown'[\s\S]{0,200}ledger is not to hand/,
+    'the unknown state does not render its own copy — it would fall through to "not yet heard"');
+  assert.match(src, /fetchCatalogOrNull\(\)/,
+    'the frame reads the collapsing fetchCatalog() again, so catalog can never be null');
   assert.match(src, /const known = c \? heardHere\(c\) : false/,
     'the page no longer asks the shared authority');
   assert.ok(

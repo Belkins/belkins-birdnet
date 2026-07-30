@@ -55,7 +55,31 @@ function is_lan_addr(string $ip): bool {
     if (preg_match('/^(?:127|10)\./', $ip)) return true;          // loopback, 10/8
     if (preg_match('/^192\.168\./', $ip)) return true;            // 192.168/16
     if (preg_match('/^172\.(?:1[6-9]|2\d|3[01])\./', $ip)) return true; // 172.16/12
-    return false;
+
+    // ── IPv6 ────────────────────────────────────────────────────────────────
+    // Everything above is IPv4-only, so before this the button was DEAD for any
+    // visitor arriving over IPv6 -- which is the default on macOS and iOS on a
+    // dual-stack LAN. The operator's one interactive control simply never
+    // rendered, with no error and no log line.
+    //
+    // The private-range trick does not rescue it here: this LAN's addresses are
+    // globally-routable (2a01:...), handed out by the router's prefix
+    // delegation, so there is no fc00::/7 to match. ULA and link-local are
+    // accepted below because other deployments do use them, but the test that
+    // actually works on THIS network is prefix identity: a caller sharing the
+    // server's own /64 is on the same link, which is the same physical-presence
+    // claim RFC1918 makes for v4.
+    //
+    // Still fail-closed: anything unparseable, any address family mismatch, and
+    // any case where the server's own address is unknown returns false.
+    if (preg_match('/^f[cd][0-9a-f]{2}:/i', $ip)) return true;    // fc00::/7  ULA
+    if (preg_match('/^fe[89ab][0-9a-f]:/i', $ip)) return true;    // fe80::/10 link-local
+
+    $client = @inet_pton($ip);
+    $server = @inet_pton($_SERVER['SERVER_ADDR'] ?? '');
+    if ($client === false || $server === false) return false;     // unparseable
+    if (strlen($client) !== 16 || strlen($server) !== 16) return false; // not both v6
+    return substr($client, 0, 8) === substr($server, 0, 8);       // same /64
 }
 
 // One Railway round-trip. Returns [statusCode, decodedJson|null];

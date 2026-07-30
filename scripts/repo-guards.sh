@@ -358,6 +358,29 @@ grep -q 'hash_equals' scripts/common.php \
   || fail "scripts/common.php no longer uses hash_equals — a loose == comparison is both timing-unsafe and vulnerable to PHP type juggling"
 grep -qE '\$expected === .."?\)?' scripts/common.php || grep -q "expected === ''" scripts/common.php \
   || fail "scripts/common.php lost the empty-password guard — an unset CADDY_PWD makes is_authenticated() return true for EVERYONE (the 2026-07 LAN exposure)"
+#    SAME CLASS, DIFFERENT TREE (2026-07-30). avian/api/config.php and
+#    birdnet-status.php each gated themselves with
+#        getenv('AV_REQUIRE_AUTH') === '1'
+#    a guard that is OFF unless an env var is set — and on the live station it
+#    never was. Measured unauthenticated over the LAN: config.php GET handed out
+#    LATITUDE/LONGITUDE, its POST rewrote birdnet.conf, and birdnet-status.php's
+#    action=restart ran `sudo systemctl restart` on any allowlisted unit,
+#    livestream included. Same fail-open shape as the CADDY_PWD bug above, three
+#    weeks after it. Assert the fix is wired AND that the opt-in shape is gone.
+for _f in avian/api/config.php avian/api/birdnet-status.php avian/api/menu.php; do
+  grep -q 'av_require_auth()' "$_f" \
+    || fail "$_f no longer calls av_require_auth() — it is an admin endpoint (station config, service state, or the admin menu) and without that call it answers the LAN unauthenticated"
+done
+grep -q 'hash_equals' avian/api/_auth.php \
+  || fail "avian/api/_auth.php no longer uses hash_equals — a loose comparison is timing-unsafe and exposed to PHP type juggling"
+grep -q "expected === ''" avian/api/_auth.php \
+  || fail "avian/api/_auth.php lost its empty-password guard — a station with no CADDY_PWD configured must be LOCKED, never open"
+#    Strip comment lines before searching: the docblocks in these three files
+#    NAME the old variable while explaining why it is gone, so a naive grep here
+#    would fail on correct code — the precise antipattern flagged below.
+if printf '%s\n' "$(grep -rhvE '^[[:space:]]*(//|#|\*|/\*)' avian/api/*.php)" | grep -q 'AV_REQUIRE_AUTH'; then
+  fail "AV_REQUIRE_AUTH is back in live code under avian/api/ — that guard defaults to OFF, which is exactly what left config.php and birdnet-status.php unauthenticated on the LAN"
+fi
 #    Check the ASSIGNMENT, not the usage: `exec("sudo rm $file_pointer ...")` is
 #    identical in the safe and unsafe versions — what differs is whether the
 #    variable was escaped first. Matching the usage produced a guard that failed

@@ -10,9 +10,11 @@
 //   restart   - GET/POST &unit=<name>: restart a single service (whitelisted)
 //   diag      - everything in one go (system + services + recent logs)
 //
-// Default LAN deploy: returns data immediately, no auth.
-// Forwarded deploy:  set AV_REQUIRE_AUTH=1 (env) AND configure Caddy
-// basic_auth on /avian/api/ to gate everything.
+// AUTH: always required, on every deploy. This used to be "default LAN deploy:
+// returns data immediately, no auth", opt-in via AV_REQUIRE_AUTH — a var this
+// station never set, so `action=restart` would `sudo systemctl restart` any
+// allowlisted unit (livestream included) for anyone on the LAN, unauthenticated.
+// See avian/api/_auth.php.
 //
 // Service restart + journalctl need passwordless sudo for the caddy
 // user that runs php-fpm. install_services.sh drops the matching
@@ -23,11 +25,8 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'unauthorized']);
-    exit;
-}
+require_once __DIR__ . '/_auth.php';
+av_require_auth();
 
 $action = $_GET['action'] ?? 'diag';
 
