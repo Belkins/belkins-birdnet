@@ -31,10 +31,11 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // the museum the front door, and the museum linked nothing back. That silently
 // stranded the ENTIRE station — its 10-button nav, its 23 views, and the "Live
 // Audio" button that lives only in its banner. Nothing broke; the door just
-// stopped being on any path a visitor walks. The four below are the ones you
-// cannot reach any other way; everything else (Overview, Today's Detections,
-// Best Recordings, Daily Charts, Weekly Report, Recordings, Log, Tools →
-// Settings) hangs off the Station Console's own nav once you are inside it.
+// stopped being on any path a visitor walks. What remains below is the ONE
+// door you cannot reach any other way; everything else (Overview, Today's
+// Detections, Best Recordings, Daily Charts, Weekly Report, Recordings, Log,
+// Tools → Settings) hangs off the Station Console's own nav once you are
+// inside it, and the two LIVE instruments open in StationPanel above.
 //
 // Every entry was probed on the live Pi (2026-07-30) and answered. Deliberately
 // ABSENT: /terminal — the web terminal unit is installed but dead, so linking it
@@ -42,9 +43,9 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // The two LIVE instruments — the stream and its picture — no longer leave the
 // wall. They open in StationPanel, one window, because the spectrogram IS the
 // picture of what the stream is playing and reading one without the other was
-// always two tabs. The two entries below stay external: they are whole
-// applications, not instruments, and embedding a PHP admin UI in an iframe here
-// would be a worse lie about where you are than a new tab is.
+// always two tabs. The console entry below stays external: it is a whole
+// application, not an instrument, and embedding a PHP admin UI in an iframe
+// here would be a worse lie about where you are than a new tab is.
 //
 // views.php dispatches these to two DIFFERENT files and the names invite the
 // wrong one: view=System Controls is system_controls.php (reboot, shutdown,

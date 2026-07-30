@@ -170,7 +170,20 @@ export function Archive({ cat }: { cat: CatalogSpecies[] }): JSX.Element {
                     <tr
                       key={key}
                       className={isOpen ? 'lab-row lab-row--open' : 'lab-row'}
-                      onClick={() => setOpen(isOpen ? null : key)}
+                      onClick={() => {
+                        if (!isOpen) {
+                          // Reopening retries: an <audio> error can be a purge
+                          // OR a transient network failure - a permanent latch
+                          // would turn a wifi blip into "purged" forever.
+                          setAudioGone((s) => {
+                            if (!s.has(r.file)) return s;
+                            const next = new Set(s);
+                            next.delete(r.file);
+                            return next;
+                          });
+                        }
+                        setOpen(isOpen ? null : key);
+                      }}
                     >
                       <td className="lab-mono">{r.d}</td>
                       <td className="lab-mono">{r.t}</td>
@@ -184,7 +197,10 @@ export function Archive({ cat }: { cat: CatalogSpecies[] }): JSX.Element {
                       <tr key={`${key}-x`} className="lab-expand">
                         <td colSpan={5}>
                           {audioGone.has(r.file) ? (
-                            <p className="lab-empty">recording not on disk (purged?).</p>
+                            <p className="lab-empty">
+                              recording unreachable - purged from disk, or the fetch failed.
+                              Reopen the row to retry.
+                            </p>
                           ) : (
                             <audio
                               controls

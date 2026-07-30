@@ -51,7 +51,18 @@ async function getJson<T>(url: string): Promise<T> {
   if (MOCK) throw new StationUnavailable('mock');
   const res = await fetch(url, { cache: 'no-store' });
   if (res.status === 401) throw new StationUnavailable('locked');
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // The API writes its refusal reason into the body ({error: 'from= after
+    // to='}); surface it instead of a bare status code.
+    let msg = `HTTP ${res.status}`;
+    try {
+      const body = (await res.json()) as { error?: unknown };
+      if (typeof body?.error === 'string') msg = `${msg} - ${body.error}`;
+    } catch {
+      /* not JSON - the status alone is the truth we have */
+    }
+    throw new Error(msg);
+  }
   return (await res.json()) as T;
 }
 
@@ -174,10 +185,16 @@ export interface LogsResponse {
 }
 export interface RestartResponse {
   unit: string;
-  ok: boolean;
-  rc: number;
-  out: string;
+  ok?: boolean;
+  rc?: number;
+  out?: string;
+  /** Present instead of ok/rc/out on a 400 refusal (unit not allowed). */
+  error?: string;
 }
+
+/** Units that carry this very page: restarting them aborts the in-flight
+ *  response, so a dead fetch is the EXPECTED signature of success there. */
+export const SELF_KILLING_UNITS = /^(caddy|php[\d.]+-fpm)$/;
 
 const STATUS = `${API_BASE}/birdnet-status.php`;
 
