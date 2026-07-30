@@ -217,9 +217,10 @@
    margins of the same size cancel it: the pill grows, the box does not, and the
    geometry is byte-for-byte what it was before the scrim existed.
 
-   The counter is not in this list. It used to be, and scrimming it was the
-   wrong answer to the wrong question — it is hidden on these surfaces now, so
-   a background for it would be dead rules pretending to be a decision. */
+   The counter is deliberately NOT in this list. Scrimming it opaque was the
+   wrong answer to the wrong question: it turned prose that was merely muddled
+   behind it into prose that was hidden, and that is what led me to remove the
+   counter altogether — a much worse mistake. Bare, it reads through. */
 .stage:has(.overlay) .filter,
 .stage:has(.overlay) .menu-wrap {
   padding: 6px 12px;
@@ -230,25 +231,19 @@
   backdrop-filter: blur(16px) saturate(1.15);
 }
 
-/* AND THE COUNTER COMES OFF THE READING PAGES ENTIRELY. Opaque, it covers
-   184.5px of a 351px column on a phone — 52.6% of the text. The overlap
-   predates the scrim; what the scrim changed is that the prose used to be
-   muddled and is now hidden.
+/* THE LIVE COUNTER STAYS ON EVERY VIEW. IT IS THE PRODUCT.
+   I hid it on all scrolling views — Index, Stats, Atlas, Wall and the Library —
+   because it overlapped the Library's prose, and that was mine to get wrong: the
+   ask was about the Library, the counter is the thing this appliance is FOR, and
+   four tabs lost their live species/calls readout as collateral of a typography
+   fix. Reverted.
 
-   I first scoped this to phones, wrote "a page of Victorian prose is for
-   reading" in the reason, and then applied it to one breakpoint. A sweep of
-   every scroll position found the same defect wide open above it: at 1024 the
-   counter sits on content at 27 of 29 positions and eats "William Swainson",
-   "c82.net ↗" and the figure in the errata slip whole; at 1440 it covers 12 of
-   29, including every slip number and the first spine's title and numeral.
-
-   It is pointer-events:none decoration whose home is the collage and the wall,
-   where nothing scrolls underneath it and it is the signature. On a view that
-   scrolls it is a pill parked on the text. So the rule is the surface, not the
-   width. */
-.stage:has(.overlay) .live-counter {
-  display: none;
-}
+   The overlap it was meant to solve predates this session and is not worth the
+   counter. It got worse only when I scrimmed the counter opaque, so the scrim
+   comes off it too (see the chrome block above — .live-counter is deliberately
+   NOT in that selector list) and the prose reads through it the way it always
+   did. If the overlap is ever worth solving, solve it by moving the TEXT, never
+   by removing the instrument. Guarded by tests/frame.test.ts F4. */
 
 /* ── colophon (Belkins credit, bottom-right) ───────────────── */
 .colophon {
