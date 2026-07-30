@@ -105,6 +105,11 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
   string,
   { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
 >;
+const LABEL_CLAIMS = jardineMod.LABEL_CLAIMS as ReadonlyArray<{
+  phrase: string;
+  holds: ((jardineBinomial: string, sciName: string) => boolean) | null;
+  provenBy?: string;
+}>;
 const EMPTY = jardineMod.EMPTY_JARDINE as Jardine;
 const fetchJardine = jardineMod.fetchJardine as () => Promise<Jardine>;
 const speciesBySci = jardineMod.speciesBySci as (j: Jardine) => Map<string, JardineSpecies>;
@@ -2865,10 +2870,84 @@ test('T1 every band heading is TRUE of every row beneath it', () => {
 
   // Every band must earn its place: a caption with no rows is a claim about
   // nothing, and a predicate no row exercises has never been run.
+  //
+  // The `|| drift === 'family'` exemption that used to sit on the next line is
+  // gone. It was written when the family tier was empty; the tier has a row now,
+  // and an exemption kept past its cause is a guard that cannot fail.
   for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
     const rows = j.species.filter((s) => s.drift === drift);
-    assert.ok(rows.length > 0 || drift === 'family', `band '${drift}' has no rows — remove it or the caption is decorative`);
+    assert.ok(rows.length > 0, `band '${drift}' has no rows — remove it or the caption is decorative`);
     assert.ok(band.label.trim().length > 0, `band '${drift}' has an empty caption`);
+  }
+
+  // ── AND THE SENTENCE ITSELF ────────────────────────────────────────────────
+  // Everything above this line checks the PREDICATE. Seven independent
+  // reviewers landed on the same hole in one sweep: `label` is a free string
+  // that no assertion above ever reads, so the exact caption this guard was
+  // written to retire — "the same name, spelled the way 1838 spelled it" —
+  // could be pasted back over fourteen non-identical binomials and every
+  // assertion so far would still pass. Storing the caption next to its
+  // predicate was not the same as binding it to one.
+  //
+  // A band heading may only claim something in words registered in
+  // LABEL_CLAIMS, each carrying the test that makes it true. No registered
+  // phrase in a label = the heading asserts something unverifiable, and that
+  // is the failure, not an exemption.
+  // THE SUBGENUS, PINNED BY BEHAVIOUR. `Parus (Mecistura) Caudatus` split on
+  // whitespace put `(Mecistura)` in the epithet slot, so the comparison against
+  // `Aegithalos caudatus` reported BOTH halves moved and the Roll filed the
+  // Long-tailed Tit under "both halves of the name changed" — over a row whose
+  // epithet has not changed since 1838. The data is corrected; correcting it
+  // also made the HELPER bug invisible, because `genus` holds either way
+  // (measured: reverting the filter left this test green). So the case is
+  // asserted through the exported bands, on the one name in the corpus that
+  // carries a subgenus.
+  const SUB = 'Parus (Mecistura) Caudatus';
+  const SUB_NOW = 'Aegithalos caudatus';
+  assert.equal(
+    DRIFT_BANDS.family.holds(SUB, SUB_NOW),
+    false,
+    `"${SUB}" → "${SUB_NOW}" moved ONE half. If the family band accepts it, a ` +
+      `parenthesised subgenus is being counted as the species epithet again`,
+  );
+  assert.equal(
+    DRIFT_BANDS.spelling.holds(SUB, SUB_NOW),
+    true,
+    `"${SUB}" → "${SUB_NOW}" is one word away once the subgenus is set aside`,
+  );
+
+  const testSrc = readFileSync(new URL('./jardine.test.ts', import.meta.url), 'utf8');
+  for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
+    const rows = j.species.filter((s) => s.drift === drift);
+    const claims = LABEL_CLAIMS.filter((c) => band.label.includes(c.phrase));
+    assert.ok(
+      claims.length > 0,
+      `band '${drift}' reads "${band.label}" and makes no claim anything can check. ` +
+        `Register the words that carry its claim in LABEL_CLAIMS with the predicate ` +
+        `that makes them true, or say less.`,
+    );
+    for (const c of claims) {
+      if (c.holds) {
+        for (const s of rows) {
+          assert.ok(
+            c.holds(s.jardine_binomial, s.sci_name),
+            `band '${drift}' says "${c.phrase}" and ${s.sci_name} is filed under it — ` +
+              `${JSON.stringify(s.jardine_binomial)} → ${JSON.stringify(s.sci_name)} makes ` +
+              `that sentence false for this row`,
+          );
+        }
+        continue;
+      }
+      assert.ok(
+        c.provenBy,
+        `claim "${c.phrase}" has no predicate and names no test — it is checked by nothing`,
+      );
+      assert.match(
+        testSrc,
+        new RegExp(`test\\('${c.provenBy}\\b`),
+        `claim "${c.phrase}" defers its proof to ${c.provenBy}, and there is no such test`,
+      );
+    }
   }
 
   // And the Roll must actually render them from this source, not a local copy.

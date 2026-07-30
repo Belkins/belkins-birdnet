@@ -728,7 +728,17 @@ function orth(word: string): string {
     .replace(/æ|ae|oe/g, 'e');
 }
 function binomialWords(b: string): [string, string] {
-  const p = b.trim().split(/\s+/);
+  // A SUBGENUS IS NOT THE SPECIES. Zoological names may be written
+  // `Genus (Subgenus) species`, and the corpus has one: the Long-tailed
+  // Titmouse stands as `Parus (Mecistura) Caudatus`. Splitting on whitespace
+  // put `(Mecistura)` in the epithet slot, so its comparison against
+  // `Aegithalos caudatus` said BOTH halves had moved — and the Roll filed the
+  // bird under "both halves of the name changed", on a wall, above a row whose
+  // epithet had not changed at all since 1838.
+  //
+  // The parenthesis is an interpolation into the name, never one of its two
+  // words. Dropping it makes the Tit exactly what it is: a genus move.
+  const p = b.trim().split(/\s+/).filter((w) => !w.startsWith('('));
   return [p[0] ?? '', p[1] ?? ''];
 }
 /** How many of the two words differ once Victorian spelling is normalised. */
@@ -748,18 +758,81 @@ export const DRIFT_BANDS: Record<string, JardineDriftBand> = {
     holds: (j, s) => wordsMoved(j, s) <= 1,
   },
   genus: {
+    // was `j !== s`, which is satisfied by a bare accent — `Palæornis` vs
+    // `Palaeornis` differs as a string and has moved no word at all. This tier
+    // claims a name MOVED, so it must count a moved word.
     label: 'the name has moved further — a different genus, or a different species within it',
-    holds: (j, s) => j !== s,
+    holds: (j, s) => wordsMoved(j, s) >= 1,
   },
   family: {
     label: 'both halves of the name changed — the bird was refiled entirely',
     holds: (j, s) => wordsMoved(j, s) === 2,
   },
   collision: {
+    // The ONLY band whose claim is not about the shape of the string: it says
+    // the name belongs to another bird NOW, which no comparison of these two
+    // names can establish. `holds` is therefore the weakest necessary
+    // condition, and the real proof is E9 — the name is recorded, checked
+    // verbatim against the 1838 page, and required not to be either bird's
+    // heading. Do not read this predicate as the tier's evidence.
     label: 'the 1838 name now belongs to a DIFFERENT bird',
     holds: (j, s) => j !== s,
   },
 };
+
+/** ── WHAT A BAND HEADING IS ALLOWED TO SAY ───────────────────────────────────
+ *
+ *  Pairing each band with a `holds` predicate was supposed to stop a heading
+ *  drifting from its rows. It did not, and seven independent reviewers found
+ *  the same hole: `holds` is CODE and `label` is a free string, and nothing
+ *  connected them. T1 called the predicate and never read the sentence, so the
+ *  precise heading the bands were built to retire —
+ *
+ *      "the same name, spelled the way 1838 spelled it"
+ *
+ *  — could be pasted back over fourteen rows with no identical binomial among
+ *  them and the suite stayed green. The lesson written after that incident was
+ *  "store the caption WITH the predicate that makes it true". Storing them in
+ *  one object was not the same as BINDING them.
+ *
+ *  This is the binding. A band heading may only make a factual claim in words
+ *  registered here, each with the test that makes the claim true of a row. T1
+ *  requires every label to contain at least one registered phrase — so prose
+ *  with no checkable claim in it is itself a failure, not a gap — and then
+ *  proves that claim against every row filed under it.
+ *
+ *  Editorial voice is untouched: the phrase is a substring, the rest of the
+ *  sentence is free. What is no longer possible is a heading that asserts
+ *  something about its rows in words nothing can check. */
+export interface JardineLabelClaim {
+  /** the exact words that carry the claim, verbatim as they appear in a label */
+  phrase: string;
+  /** true of any row the claim may cover — or null when the claim is not about
+   *  the shape of the two names, in which case `provenBy` must name the test
+   *  that does prove it. A null with no `provenBy` is a claim nothing checks. */
+  holds: ((jardineBinomial: string, sciName: string) => boolean) | null;
+  /** the test id that carries the proof, for claims `holds` cannot reach */
+  provenBy?: string;
+}
+
+export const LABEL_CLAIMS: readonly JardineLabelClaim[] = [
+  { phrase: 'letter for letter', holds: (j, s) => j === s },
+  { phrase: 'one word away', holds: (j, s) => wordsMoved(j, s) <= 1 },
+  {
+    // a disjunction, and it must be registered WHOLE — 'a different genus'
+    // alone is false of Anser ferus → Anser anser, which never left Anser.
+    phrase: 'a different genus, or a different species within it',
+    holds: (j, s) => wordsMoved(j, s) >= 1,
+  },
+  { phrase: 'both halves of the name changed', holds: (j, s) => wordsMoved(j, s) === 2 },
+  {
+    // Nothing in these two strings can show who owns a name today. E9 does it
+    // from the 1838 page and the recorded collision_name.
+    phrase: 'now belongs to a DIFFERENT bird',
+    holds: null,
+    provenBy: 'E9',
+  },
+];
 
 /** ── TWO DECISIONS LIFTED OUT OF JSX, SO A TEST CAN CALL THEM ────────────────
  *
