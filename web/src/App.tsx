@@ -12,10 +12,11 @@ import { SettingsPanel } from './views/Settings';
 import { FrameOverlay } from './views/FrameOverlay';
 import { useFrameMode } from './frame';
 import { FRAME_AT_BOOT, markFrameReady, PROFILE } from './profile';
-import { IndexView } from './views/IndexView';
+import { IndexView, WINDOW_HEADLINE } from './views/IndexView';
 import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 import { BirdPopup, type BirdRef } from './components/BirdPopup';
+import { StationPanel } from './components/StationPanel';
 import { CollectionWallView } from './views/CollectionWallView';
 import { LibraryView } from './views/LibraryView';
 import { LibraryFrameView } from './views/LibraryFrameView';
@@ -144,6 +145,9 @@ export default function App() {
   const [latest, setLatest] = useState('');
   const [liveState, setLiveState] = useState<LiveState>('connecting');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The live microphone + its spectrogram, in-window. Opened from the STATION
+  // section of the drawer; closing the drawer behind it keeps one thing on top.
+  const [stationOpen, setStationOpen] = useState(false);
   // The bird-detail modal target (C5). null = closed; a click on the collage
   // canvas or an Atlas plate sets it, and BirdPopup enriches it on open.
   const [popup, setPopup] = useState<BirdRef | null>(null);
@@ -666,12 +670,21 @@ export default function App() {
 
       {shownTab === 'index' && (
         <Overlay>
-          <IndexView rows={rows} archiveDay={viewDay} />
+          <IndexView
+            rows={rows}
+            archiveDay={viewDay}
+            windowHours={settings.windowHours}
+            windowLabel={windowLabel}
+          />
         </Overlay>
       )}
       {shownTab === 'stats' && (
         <Overlay>
-          <StatsView rows={rows} archiveDay={viewDay} />
+          <StatsView
+            rows={rows}
+            archiveDay={viewDay}
+            windowHeadline={WINDOW_HEADLINE[settings.windowHours] ?? windowLabel}
+          />
         </Overlay>
       )}
       {shownTab === 'atlas' && (
@@ -790,7 +803,13 @@ export default function App() {
         onChange={patch}
         onClose={() => setSettingsOpen(false)}
         onEnterFrame={enterFrame}
+        onOpenStation={() => {
+          setSettingsOpen(false);
+          setStationOpen(true);
+        }}
       />
+
+      {stationOpen && <StationPanel onClose={() => setStationOpen(false)} />}
     </div>
   );
 }

@@ -223,6 +223,22 @@
 .set-link:first-child {
   border-top: 0;
 }
+/* A .set-link that opens an in-app panel instead of navigating. Same row, so it
+   must shed every default button style rather than gain its own look. */
+.set-link-btn {
+  width: 100%;
+  align-items: flex-start;
+  text-align: left;
+  font: inherit;
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  cursor: pointer;
+}
+.set-link-btn:hover .set-link-n {
+  color: var(--amber);
+}
 .set-link-n {
   font-family: var(--display);
   font-size: 18px;

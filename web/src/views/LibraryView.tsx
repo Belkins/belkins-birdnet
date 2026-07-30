@@ -133,6 +133,7 @@ function FullAccount({
   com,
   slug,
   art,
+  artSource,
   onClose,
 }: {
   species: JardineSpecies;
@@ -141,6 +142,8 @@ function FullAccount({
   /** For the station's own bird, when Jardine never figured this one. */
   slug: string;
   art: Map<string, string> | null;
+  /** 'bundled' | 'autogen' | '' — decides whether the caption may claim agency. */
+  artSource: string;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -175,7 +178,7 @@ function FullAccount({
           {com} · vol. {volumeRoman(species.volume)} · {passages.length} passages, as printed
         </div>
         <div className="lib-acct-body">
-          <SpeciesPlate sp={species} slug={slug} com={com} art={art} />
+          <SpeciesPlate sp={species} slug={slug} com={com} art={art} artSource={artSource} />
           {passages.map((p, i) => (
             <div key={i}>
               <Prose p={p} />
@@ -438,17 +441,41 @@ function PlateOpener({ plate, children }: { plate: PlateView | null; children: R
  *  sentence: back to silence, which was always the honest fallback. On the live
  *  station art coverage is 47/47, so this renders; in a dev tree with no Pi it
  *  does not, and that difference is exactly what it should be. */
+/** The three honest captions, by who actually made the picture.
+ *
+ *  A sweep verified by sha256 against the live station that three of these
+ *  birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
+ *  IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
+ *  with a fresh clone. This station never painted them, and cutout.php serves
+ *  them with X-Av-Real:1 exactly as it serves generated art, so no header can
+ *  tell them apart. The caption said "AI visualized by THIS STATION" over all
+ *  of them.
+ *
+ *  Two of that sentence's three clauses were true — the bundled art IS
+ *  AI-generated, and it is neither engraving nor photograph. Only the agency
+ *  was false, so only the agency changes. An unreadable art_source falls to the
+ *  claim with no agency in it at all, never to the strong one. */
+const STATION_CAPTION: Record<string, string> = {
+  autogen: 'AI visualized by this station · not an engraving, not a photograph',
+  bundled: 'AI illustration, shipped with this museum · not painted here, not a photograph',
+};
+const STATION_CAPTION_UNKNOWN = 'AI illustration · not an engraving, not a photograph';
+
 function StationBird({
   sci,
   com,
   slug,
   art,
+  artSource,
 }: {
   sci: string;
   com: string;
   slug: string;
   art: Map<string, string> | null;
+  /** 'bundled' | 'autogen' | '' — see STATION_CAPTION. */
+  artSource: string;
 }) {
+  const caption = STATION_CAPTION[artSource] ?? STATION_CAPTION_UNKNOWN;
   const url = birdImageUrl(slug, sci);
   const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
   // The decision lives in jardine.ts so a test can CALL it — a regex over this
@@ -461,7 +488,7 @@ function StationBird({
           src,
           w: null,
           h: null,
-          locator: 'no plate — AI visualized by this station',
+          locator: `no plate — ${caption}`,
           subject: com || sci,
           also: [],
           where: null,
@@ -473,13 +500,13 @@ function StationBird({
         <img
           className="lib-plate lib-plate-station"
           src={src}
-          alt={`${com || sci}, AI visualized by this station`}
+          alt={`${com || sci} — ${caption}`}
           decoding="async"
         />
       </PlateOpener>
       <figcaption className="lib-plate-cap">
         <span className="lib-plate-k">no plate — the book never figured this bird</span>
-        <span className="lib-plate-modern">AI visualized by this station · not an engraving, not a photograph</span>
+        <span className="lib-plate-modern">{caption}</span>
       </figcaption>
     </figure>
   );
@@ -511,11 +538,14 @@ function SpeciesPlate({
   slug,
   com,
   art,
+  artSource,
 }: {
   sp: JardineSpecies;
   slug: string;
   com: string;
   art: Map<string, string> | null;
+  /** 'bundled' | 'autogen' | '' — decides whether the caption may claim agency. */
+  artSource: string;
 }) {
   const src = jardineImageUrl(sp.image);
   // NO PLATE IN THE BOOK — so the station's own bird stands in, and says so.
@@ -533,7 +563,7 @@ function SpeciesPlate({
   // station's own, painted here. The caption says which, every time, because a
   // page whose entire argument is provenance cannot show a picture of a bird
   // and leave a reader to guess where it came from.
-  if (!src) return <StationBird sci={sp.sci_name} com={com} slug={slug} art={art} />;
+  if (!src) return <StationBird sci={sp.sci_name} com={com} slug={slug} art={art} artSource={artSource} />;
   const cap = plateCaption(sp);
   const cited = cap.mustDisclaimCitation;
   const also = sp.plate_also;
@@ -642,6 +672,7 @@ function ReadingDesk({
   slug,
   com,
   art,
+  artSource,
 }: {
   sp: JardineSpecies;
   lastDetected: string | null;
@@ -650,6 +681,8 @@ function ReadingDesk({
   slug: string;
   com: string;
   art: Map<string, string> | null;
+  /** 'bundled' | 'autogen' | '' — decides whether the caption may claim agency. */
+  artSource: string;
   /** The reader named this bird (?read=). Tier zero can land on a species with
    *  NO voice, so the desk must be able to answer with the library's silence. */
   aimed?: boolean;
@@ -766,7 +799,7 @@ function ReadingDesk({
           reader cannot tell whether the button worked. */}
       {aimed && <span className="lib-desk-aim">you asked for this one</span>}
       {/* The plate faces the account, as it does in the book. */}
-      <SpeciesPlate sp={sp} slug={slug} com={com} art={art} />
+      <SpeciesPlate sp={sp} slug={slug} com={com} art={art} artSource={artSource} />
       {sp.voice && <Prose p={sp.voice} />}
       {sp.coda && <Prose p={sp.coda} tone="coda" />}
       {/* An aimed bird can be one of the silent ones. Rendering nothing would
@@ -1596,6 +1629,7 @@ export function LibraryView({
               slug={slugFor(desk.sci_name)}
               com={comFor(desk.sci_name)}
               art={art}
+              artSource={byCatalog.get(desk.sci_name)?.art_source ?? ''}
               aimed={deskIsAimed}
               onReadAll={openAccount}
               canRotate={voicePool.length > 1}
@@ -1812,6 +1846,7 @@ export function LibraryView({
                   com={comFor(openSci)}
                   slug={slugFor(openSci)}
                   art={art}
+                  artSource={byCatalog.get(openSci)?.art_source ?? ''}
                   onClose={() => setOpenSci(null)}
                 />
               );

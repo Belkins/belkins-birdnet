@@ -22,6 +22,8 @@ body {
   background: var(--lab-bg);
   color: var(--lab-ink);
   font-family: 'Space Grotesk', system-ui, sans-serif;
+  /* Native form controls (date pickers, selects, audio) render dark. */
+  color-scheme: dark;
 }
 
 .lab {
@@ -210,4 +212,255 @@ body {
 }
 .lab-stale-chip {
   color: var(--lab-warn);
+}
+
+/* ── The console tabs (2026-07-30 growth). Same vocabulary as everything
+   else here: mono, letterspaced, hairlines - the active tab earns the accent
+   underline, nothing glows. ─────────────────────────────────────────────── */
+.lab-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--lab-line);
+  margin-bottom: 16px;
+}
+.lab-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 14px 10px;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--lab-dim);
+  cursor: pointer;
+}
+.lab-tab:hover {
+  color: var(--lab-ink);
+}
+.lab-tab--on {
+  color: var(--lab-ink);
+  border-bottom-color: var(--lab-accent);
+}
+.lab-tabbody {
+  display: grid;
+  gap: 16px;
+}
+/* AFTER every display-setting rule it must beat on equal specificity
+   (.lab-grid is earlier in the file; .lab-tabbody is directly above). */
+.lab-hide {
+  display: none;
+}
+.lab-wide,
+.lab-archive {
+  grid-column: 1 / -1;
+}
+
+/* Filter row - quiet dark controls, hairline borders, no glow. */
+.lab-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 12px;
+}
+.lab-select,
+.lab-input,
+.lab-btn {
+  background: var(--lab-bg);
+  color: var(--lab-ink);
+  border: 1px solid var(--lab-line);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+.lab-select:focus-visible,
+.lab-input:focus-visible,
+.lab-btn:focus-visible {
+  outline: 1px solid var(--lab-accent);
+  outline-offset: 1px;
+}
+.lab-btn {
+  cursor: pointer;
+}
+.lab-btn:hover:not(:disabled) {
+  border-color: var(--lab-dim);
+}
+.lab-btn:disabled {
+  color: var(--lab-dim);
+  cursor: default;
+}
+.lab-btn--arm {
+  border-color: var(--lab-warn);
+  color: var(--lab-warn);
+}
+.lab-count {
+  margin: 0 0 8px;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--lab-dim);
+}
+.lab-err {
+  color: var(--lab-warn);
+}
+.lab-row {
+  cursor: pointer;
+}
+.lab-row--open td {
+  border-bottom-color: transparent;
+}
+.lab-pager {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding-top: 12px;
+  font-size: 11px;
+}
+
+/* Expanded detection row: player + spectrogram, no chrome of its own. */
+.lab-expand td {
+  padding: 10px 8px 16px;
+  white-space: normal;
+  max-width: none;
+}
+.lab-expand audio {
+  display: block;
+  width: 100%;
+  max-width: 560px;
+  height: 32px;
+  margin-bottom: 8px;
+}
+.lab-spec {
+  display: block;
+  max-width: 560px;
+  width: 100%;
+  border: 1px solid var(--lab-line);
+  border-radius: 4px;
+}
+.lab-file {
+  margin: 6px 0 0;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 10px;
+}
+
+/* Charts - the SVG is the panel's full width; ticks wear the dim ink. */
+.lab-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.lab-bars {
+  height: 72px;
+}
+.lab-tick {
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 9px;
+  fill: var(--lab-dim);
+}
+.lab-barrow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+.lab-tickside {
+  font-size: 10px;
+  padding-bottom: 2px;
+}
+.lab-caption {
+  margin: 8px 0 0;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+}
+.lab-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.lab-legend i {
+  width: 12px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--lab-line);
+  display: inline-block;
+}
+
+/* Services - systemd state dots (semantic state only), chips, journal. */
+.lab-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.lab-chip {
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--lab-dim);
+  border: 1px solid var(--lab-line);
+  border-radius: 4px;
+  padding: 3px 7px;
+}
+.lab-chip--warn {
+  color: var(--lab-warn);
+  border-color: var(--lab-warn);
+}
+.lab-svc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+.lab-svc i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lab-dim);
+}
+.lab-svc--up {
+  color: #57c98a;
+}
+.lab-svc--up i {
+  background: #57c98a;
+}
+.lab-svc--bad {
+  color: var(--lab-warn);
+}
+.lab-svc--bad i {
+  background: var(--lab-warn);
+}
+.lab-svc--off {
+  color: var(--lab-dim);
+}
+.lab-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.lab-verdict {
+  font-size: 10px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lab-logs {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--lab-dim);
+  background: var(--lab-bg);
+  border: 1px solid var(--lab-line);
+  border-radius: 4px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+}
+.lab-hatch {
+  margin: 14px 0 0;
+  font-size: 11px;
 }

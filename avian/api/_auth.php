@@ -39,7 +39,7 @@ declare(strict_types=1);
  * Returns '' when the file is unreadable, absent, or the key is missing — every
  * one of which must land the caller in the locked branch, never the open one.
  */
-function av_station_password(): string
+function av_conf_value(string $key): string
 {
     // .../BirdNET-Pi/avian/api/_auth.php -> .../BirdNET-Pi/birdnet.conf
     $conf = dirname(__DIR__, 2) . '/birdnet.conf';
@@ -54,7 +54,7 @@ function av_station_password(): string
         if ($line === '' || $line[0] === '#') {
             continue;
         }
-        if (preg_match('/^\s*CADDY_PWD\s*=\s*(.*)$/', $line, $m)) {
+        if (preg_match('/^\s*' . preg_quote($key, '/') . '\s*=\s*(.*)$/', $line, $m)) {
             $val = trim($m[1]);
             // Strip one layer of surrounding quotes, matching how the shell
             // sources this file and how config.php's own read_conf() parses it.
@@ -67,6 +67,11 @@ function av_station_password(): string
     return '';
 }
 
+function av_station_password(): string
+{
+    return av_conf_value('CADDY_PWD');
+}
+
 /**
  * Demand HTTP Basic credentials matching the station password, or exit 401.
  *
@@ -77,6 +82,14 @@ function av_station_password(): string
  */
 function av_require_auth(): void
 {
+    // STATION_OPEN — same LAN-open opt-out honoured by scripts/common.php.
+    // Strict === '1' from birdnet.conf: anything else, including a missing or
+    // unreadable file, falls through to the password check below. An opt-out
+    // has to be typed on purpose; it must never be what a failure degrades to.
+    if (av_conf_value('STATION_OPEN') === '1') {
+        return;
+    }
+
     $expected = av_station_password();
     $given = (string)($_SERVER['PHP_AUTH_PW'] ?? '');
 

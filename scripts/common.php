@@ -67,10 +67,27 @@ function get_service_mount_name() {
 }
 
 function is_authenticated() {
+  $config = get_config();
+
+  // STATION_OPEN — the LAN-open opt-out. Set STATION_OPEN="1" in birdnet.conf
+  // and every password gate in this install stands down: no Caddy basic_auth,
+  // no PHP prompt. Chosen deliberately by the owner on 2026-07-30 for a
+  // single-household LAN behind Host pinning.
+  //
+  // Read it EXACTLY like this if you add another gate:
+  //   * from birdnet.conf, never from an env var (an unset env var is how
+  //     AV_REQUIRE_AUTH silently left three endpoints open),
+  //   * compared with === '1', so 'true', 'yes', '0' and '' all mean CLOSED,
+  //   * and never as the fallback branch of a failed lookup.
+  // Anything absent, malformed or unreadable must land here as CLOSED. This is
+  // an opt-OUT that must be typed on purpose, not a default that drifts open.
+  if (($config['STATION_OPEN'] ?? '') === '1') {
+    return true;
+  }
+
   if (!isset($_SERVER['PHP_AUTH_USER']) || !isset($_SERVER['PHP_AUTH_PW'])) {
     return false;
   }
-  $config = get_config();
   $expected = isset($config['CADDY_PWD']) ? (string)$config['CADDY_PWD'] : '';
 
   // FAIL CLOSED on an unset password. This used to be `$pw == $config['CADDY_PWD']`,
@@ -95,7 +112,12 @@ function is_authenticated() {
 
 function ensure_authenticated($error_message = 'You cannot edit the settings for this installation') {
   if (!is_authenticated()) {
-    header('WWW-Authenticate: Basic realm="My Realm"');
+    // The realm string MUST match Caddy's basic_auth realm and avian/api/_auth.php.
+    // Browsers cache Basic credentials per (origin, REALM) — with Caddy on
+    // realm="restricted" and this on "My Realm", one sign-in unlocked only half
+    // the station and every hop re-prompted. Same password the whole time; the
+    // browser just had no way to know that. Three places, one string.
+    header('WWW-Authenticate: Basic realm="Belkins BirdNET station"');
     header('HTTP/1.0 401 Unauthorized');
     echo '<table><tr><td>' . $error_message . '</td></tr></table>';
     exit;

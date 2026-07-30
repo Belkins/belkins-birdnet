@@ -20,7 +20,7 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
   { href: 'play.html', name: 'Name That Visitor', desc: 'a guessing game from your collection' },
   { href: 'wrapped.html', name: 'Year in Review', desc: 'the yard’s year as a poster' },
   { href: 'recap.html', name: 'Weekly Recap', desc: 'this week’s visitors, one illustrated sheet' },
-  { href: 'lab.html', name: 'The Lab', desc: 'the live feed + honest data, for the curious' },
+  { href: 'lab.html', name: 'The Lab', desc: 'live feed, archive, rhythms, services — the honest console' },
 ];
 
 // THE STATION — the BirdNET-Pi operator surfaces. ROOT-relative on purpose, not
@@ -31,29 +31,38 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // the museum the front door, and the museum linked nothing back. That silently
 // stranded the ENTIRE station — its 10-button nav, its 23 views, and the "Live
 // Audio" button that lives only in its banner. Nothing broke; the door just
-// stopped being on any path a visitor walks. The four below are the ones you
-// cannot reach any other way; everything else (Overview, Today's Detections,
-// Best Recordings, Daily Charts, Weekly Report, Recordings, Log, Tools →
-// Settings) hangs off the Station Console's own nav once you are inside it.
+// stopped being on any path a visitor walks. What remains below is the ONE
+// door you cannot reach any other way; everything else (Overview, Today's
+// Detections, Best Recordings, Daily Charts, Weekly Report, Recordings, Log,
+// Tools → Settings) hangs off the Station Console's own nav once you are
+// inside it, and the two LIVE instruments open in StationPanel above.
 //
 // Every entry was probed on the live Pi (2026-07-30) and answered. Deliberately
 // ABSENT: /terminal — the web terminal unit is installed but dead, so linking it
 // would ship a broken door; and Adminer, removed in the 2026-07-27 security pass.
+// The two LIVE instruments — the stream and its picture — no longer leave the
+// wall. They open in StationPanel, one window, because the spectrogram IS the
+// picture of what the stream is playing and reading one without the other was
+// always two tabs. The console entry below stays external: it is a whole
+// application, not an instrument, and embedding a PHP admin UI in an iframe
+// here would be a worse lie about where you are than a new tab is.
+//
+// views.php dispatches these to two DIFFERENT files and the names invite the
+// wrong one: view=System Controls is system_controls.php (reboot, shutdown,
+// update), while the per-service Enable/Disable switches — including the Live
+// Audio Stream one that turns the microphone feed on — are view=Services →
+// service_controls.php:36. Verified by fetching both authenticated: only the
+// Services page contains the "Live Audio Stream" heading.
+//
+// 2026-07-30: the Lab's SERVICES tab absorbed the daily uses of that page
+// (unit status, journal tails, restart) and carries the view=Services
+// deep-link itself — labelled with the mic-row trap above — so the direct
+// menu entry came out. The console door below stays: stop/enable/disable,
+// settings, system controls and the other 20 views live only there, and a
+// door that is on no walkable path is how this station got stranded once
+// already.
 const STATION: { href: string; name: string; desc: string }[] = [
-  { href: '/index.php?stream=play', name: 'Live Audio', desc: 'listen to the garden microphone, right now' },
-  { href: '/views.php?view=Spectrogram', name: 'Live Spectrogram', desc: 'see what the microphone is hearing' },
-  // views.php dispatches these to two DIFFERENT files and the names invite the
-  // wrong one: view=System Controls is system_controls.php (reboot, shutdown,
-  // update), while the per-service Enable/Disable switches — including the Live
-  // Audio Stream one that turns the microphone feed on — are view=Services →
-  // service_controls.php:36. Verified by fetching both authenticated: only the
-  // Services page contains the "Live Audio Stream" heading.
-  {
-    href: '/views.php?view=Services',
-    name: 'Service Controls',
-    desc: 'start or stop the recorder, the analyser, the audio stream',
-  },
-  { href: '/index.php', name: 'Station Console', desc: 'the BirdNET-Pi UI — detections, recordings, charts, logs' },
+  { href: '/index.php', name: 'Station Console', desc: 'the old BirdNET-Pi UI — service switches, settings, system controls' },
 ];
 
 // Segmented option tables — typed via indexed access so each picker stays in
@@ -140,8 +149,9 @@ export function SettingsPanel(props: {
   onChange: (patch: Partial<Settings>) => void;
   onClose: () => void;
   onEnterFrame: () => void;
+  onOpenStation: () => void;
 }) {
-  const { open, settings, onChange, onClose, onEnterFrame } = props;
+  const { open, settings, onChange, onClose, onEnterFrame, onOpenStation } = props;
 
   // Golden Hour is structurally silent without a configured location — the
   // toggle stays interactive (the engine gate makes it harmless) and the note
@@ -196,6 +206,16 @@ export function SettingsPanel(props: {
             <button type="button" className="set-primary" onClick={onEnterFrame}>
               Enter frame mode ⤢
             </button>
+            {/* Both of these already worked and nothing said so. The reading wall
+                (App.tsx: frameLibrary) has been reachable since it shipped ONLY by
+                being on the LIBRARY tab and entering frame mode — no UI element
+                anywhere constructs that state, and the F key is handled off in
+                frame.ts:129 with no on-screen mention. A surface reachable only by
+                a keystroke nobody was told about is not shipped, it is hidden. */}
+            <p className="set-note">
+              Or press <b>F</b>. From the LIBRARY tab this becomes the reading wall — the same
+              chrome-free surface, set as a page of text rather than the rosette.
+            </p>
           </Section>
 
           <Section title="WINDOW">
@@ -283,6 +303,12 @@ export function SettingsPanel(props: {
           {!MOCK && (
             <Section title="STATION">
               <nav className="set-links">
+                <button type="button" className="set-link set-link-btn" onClick={onOpenStation}>
+                  <span className="set-link-n">Live Audio &amp; Spectrogram</span>
+                  <span className="set-link-d">
+                    hear the garden microphone and see what it is hearing — here, in this window
+                  </span>
+                </button>
                 {STATION.map((s) => (
                   <a key={s.href} className="set-link" href={s.href} target="_blank" rel="noopener">
                     <span className="set-link-n">
@@ -293,7 +319,8 @@ export function SettingsPanel(props: {
                 ))}
               </nav>
               <p className="set-note">
-                These ask for the station password. The wall is open to the house; the controls are not.
+                The spectrogram is open to the house. The microphone and the controls ask for the
+                station password — once per visit now, not once per link.
               </p>
             </Section>
           )}

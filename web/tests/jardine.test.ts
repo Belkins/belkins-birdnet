@@ -2808,13 +2808,43 @@ test('E6 the station may only claim a bird it actually painted', () => {
     /if \(!stationClaimAllowed\(/,
     'StationBird no longer gates on stationClaimAllowed — it has its own copy of the condition',
   );
-  const claim = /AI visualized by this station · not an engraving, not a photograph/;
-  assert.match(station[0], claim, 'the station claim left the gated component');
-  assert.equal(
-    (src.match(new RegExp(claim.source, 'g')) || []).length,
-    1,
-    'a second, ungated copy of the caption can fabricate an attribution',
+  // THE AGENCY CLAIM BELONGS TO ONE ART SOURCE ONLY.
+  //
+  // A sweep verified by sha256 against the live station that three of these
+  // birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
+  // IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
+  // with a fresh clone; this station never painted them. cutout.php serves them
+  // with X-Av-Real:1 exactly as it serves generated art, so `phase === 'ready'`
+  // cannot tell the difference and never could. Only art_source can.
+  //
+  // Two of the caption's three clauses were true even for those three — bundled
+  // art IS AI-generated and is neither engraving nor photograph. Only the
+  // agency was false. So only the agency is gated here.
+  const table = /const STATION_CAPTION: Record<string, string> = \{([\s\S]*?)\};/.exec(src);
+  assert.ok(table, 'STATION_CAPTION is gone — the caption no longer varies by who made the picture');
+  const autogen = /autogen:\s*'([^']*)'/.exec(table[1]);
+  const bundled = /bundled:\s*'([^']*)'/.exec(table[1]);
+  assert.ok(autogen && bundled, 'STATION_CAPTION must cover both bundled and autogen art');
+  assert.match(autogen[1], /by this station/, 'station-painted art no longer says the station painted it');
+  assert.doesNotMatch(
+    bundled[1],
+    /by this station/,
+    'BUNDLED art claims the station painted it — it shipped with the repo and never could have',
   );
+  const unknown = /const STATION_CAPTION_UNKNOWN = '([^']*)'/.exec(src);
+  assert.ok(unknown, 'there is no caption for art whose source could not be read');
+  assert.doesNotMatch(
+    unknown[1],
+    /by this station/,
+    'an unreadable art_source falls back to CLAIMING the station painted it — it must fall to the weaker claim',
+  );
+  // And the agency sentence must exist nowhere else, gated or not.
+  assert.equal(
+    (src.match(/by this station · not an engraving/g) || []).length,
+    1,
+    'a second copy of the agency claim exists outside STATION_CAPTION',
+  );
+  assert.match(station[0], /STATION_CAPTION/, 'StationBird no longer selects its caption by art source');
 
   assert.match(
     src.replace(/\s+/g, ' '),
@@ -2921,4 +2951,57 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
     scales.size > 1,
     'every errata subject now has the same scale — the vitrine has nothing left to compare',
   );
+});
+
+test('U1 no view headlines windowed counts with a fixed period', () => {
+  // A LIVE FABRICATION, FOUND BY A MUTATION SWEEP, OUTSIDE THE LIBRARY.
+  //
+  // IndexView headlined "Heard Today · most-heard · last 24 hours" over `rows` —
+  // which is whatever window the visitor selected. Pick ALL and four weeks of
+  // history were labelled as one morning; at 02:00 a rolling 24-hour window is
+  // mostly yesterday. StatsView's Top Species panel had the same sentence over
+  // the same rows. IndexView's own comment already forbade headlining ARCHIVE
+  // counts as "Heard Today" and the identical mistake sat one line below it for
+  // every live window — the guard existed, scoped to one of the two cases.
+  //
+  // Same family as the Roll's false band headings (T1): a heading is a claim
+  // about the numbers under it, and nothing was checking it.
+  //
+  // The NOW/TODAY/WEEK/ALL block in StatsView is deliberately exempt — it reads
+  // FIXED buckets straight from the API and labels each with its own period.
+  const read = (f: string) =>
+    stripComments(readFileSync(new URL(`../src/views/${f}`, import.meta.url), 'utf8'));
+
+  const idx = read('IndexView.tsx');
+  assert.match(idx, /WINDOW_HEADLINE/, 'IndexView no longer derives its headline from the window');
+  assert.doesNotMatch(
+    idx,
+    /'most-heard · last 24 hours'/,
+    'IndexView headlines the selected window as "last 24 hours" again',
+  );
+  assert.doesNotMatch(
+    idx.replace(/\s+/g, ' '),
+    /archiveDay \? 'That Day' : 'Today'/,
+    'IndexView headlines the selected window as "Today" again',
+  );
+
+  const stats = read('StatsView.tsx');
+  assert.doesNotMatch(
+    stats,
+    /'most-heard, today'/,
+    'StatsView labels the selected window’s top species as "today" again',
+  );
+  assert.match(stats, /windowHeadline/, 'StatsView no longer takes the window it is describing');
+
+  // Every window the UI offers must have a headline, or the fallback silently
+  // reintroduces a wrong one for that window only.
+  const app = read('../App.tsx');
+  const periods = [...app.matchAll(/hours:\s*([\d_]+)/g)].map((m) => Number(m[1].replace(/_/g, '')));
+  assert.ok(periods.length >= 4, 'could not read PERIODS from App.tsx — re-point this guard');
+  const headline = /export const WINDOW_HEADLINE[^{]*\{([^}]*)\}/.exec(idx);
+  assert.ok(headline, 'WINDOW_HEADLINE is gone');
+  const keys = [...headline[1].matchAll(/([\d_]+)\s*:/g)].map((m) => Number(m[1].replace(/_/g, '')));
+  for (const h of periods) {
+    assert.ok(keys.includes(h), `the UI offers a ${h}-hour window with no headline of its own`);
+  }
 });

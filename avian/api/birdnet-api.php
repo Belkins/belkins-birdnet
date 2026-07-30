@@ -9,6 +9,9 @@
 //   species     - &sci=<sci_name>: per-species detail page
 //   timeseries  - &days=N: daily detection counts per species
 //   firstseen   - every species' earliest detection
+//   archive     - &from&to&sci&min_conf&limit&offset: raw detection rows,
+//                 newest first, paged, with the matching total
+//   activity    - &days=N[&sci=]: day x hour-of-day detection counts
 //
 // Default LAN deploy ships without auth. If you've exposed the Pi via
 // Cloudflare or a tunnel, add a Caddy `basic_auth` matcher around the
@@ -211,6 +214,117 @@ switch ($action) {
             'daily'   => $daily,
             'by_hour' => $by_hour,
             'as_of'   => date('c'),
+        ]);
+        break;
+    }
+
+    case 'archive': {
+        // The raw ledger, paged - the first action to return individual
+        // detection ROWS across species (species caps at 500 of one species;
+        // recent collapses to one row per species). Dates follow the house
+        // rule set by recent&on=: malformed, future, or absurd (pre-2015)
+        // is a 400, NEVER a silent fall-through to an unfiltered query - a
+        // client must never mistake the whole archive for a filtered slice.
+        // Numerics follow the other house rule (hours/days/limit): clamp
+        // silently, then ECHO the value actually applied so the client can
+        // refuse a clamp it didn't ask for.
+        $today = one($db, "SELECT DATE('now','localtime') AS d")['d'] ?? date('Y-m-d');
+        $dates = [];
+        foreach (['from', 'to'] as $k) {
+            $v = $_GET[$k] ?? null;
+            if ($v === null) { $dates[$k] = null; continue; }
+            if (!is_string($v) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
+                http_response_code(400); echo json_encode(['error' => $k.'= must be YYYY-MM-DD']); break 2;
+            }
+            [$y, $m, $d] = array_map('intval', explode('-', $v));
+            if (!checkdate($m, $d, $y) || $v > $today || $y < 2015) {
+                http_response_code(400); echo json_encode(['error' => $k.'= out of range']); break 2;
+            }
+            $dates[$k] = $v;
+        }
+        if ($dates['from'] !== null && $dates['to'] !== null && $dates['from'] > $dates['to']) {
+            http_response_code(400); echo json_encode(['error' => 'from= after to=']); break;
+        }
+        $sci = $_GET['sci'] ?? null;
+        if ($sci !== null && (!is_string($sci) || $sci === '' || strlen($sci) > 100)) {
+            http_response_code(400); echo json_encode(['error' => 'sci= invalid']); break;
+        }
+        // is_string first: (float) of a non-empty ARRAY (?min_conf[]=x) is
+        // 1.0 - the STRICTEST filter, not "no filter" - so a malformed
+        // param must 400 like on=, never silently invert its meaning.
+        $mcRaw = $_GET['min_conf'] ?? '0';
+        if (!is_string($mcRaw)) {
+            http_response_code(400); echo json_encode(['error' => 'min_conf= invalid']); break;
+        }
+        $minConf = max(0.0, min(1.0, (float)$mcRaw));
+        $limit   = max(1, min(500, (int)($_GET['limit'] ?? 100)));
+        $offset  = max(0, min(10000000, (int)($_GET['offset'] ?? 0)));
+
+        // One WHERE, shared verbatim by the count and the page - the total
+        // must describe the same slice the rows came from.
+        $where = [];
+        $bind  = [];
+        if ($dates['from'] !== null) { $where[] = 'Date >= :from';       $bind[':from'] = $dates['from']; }
+        if ($dates['to']   !== null) { $where[] = 'Date <= :to';         $bind[':to']   = $dates['to']; }
+        if ($sci           !== null) { $where[] = 'Sci_Name = :sn';      $bind[':sn']   = $sci; }
+        if ($minConf > 0.0)          { $where[] = 'Confidence >= :mc';   $bind[':mc']   = $minConf; }
+        $sql = $where ? ' WHERE ' . implode(' AND ', $where) : '';
+
+        $total = (int)(one($db, 'SELECT COUNT(*) AS n FROM detections' . $sql, $bind)['n'] ?? 0);
+        $rowsBind = $bind + [':lim' => $limit, ':off' => $offset];
+        $rs = rows($db,
+          'SELECT Date AS d, Time AS t, Sci_Name AS sci, Com_Name AS com, '
+        . '       Confidence AS conf, File_Name AS file '
+        . 'FROM detections' . $sql
+        // rowid tiebreaker: (Date, Time) is NOT unique (one analysis chunk
+        // logs several species in the same second) and OFFSET over a
+        // non-total order may repeat or skip rows at page boundaries.
+        . ' ORDER BY Date DESC, Time DESC, rowid DESC LIMIT :lim OFFSET :off',
+          $rowsBind
+        );
+        echo json_encode([
+            'rows'     => $rs,
+            'total'    => $total,
+            'from'     => $dates['from'],
+            'to'       => $dates['to'],
+            'sci'      => $sci,
+            'min_conf' => $minConf,
+            'limit'    => $limit,
+            'offset'   => $offset,
+            'as_of'    => date('c'),
+        ]);
+        break;
+    }
+
+    case 'activity': {
+        // Day x hour-of-day counts - the rhythm heatmap's source. Sparse:
+        // only cells with detections are returned; the client backfills
+        // zeros (the same convention timeseries documents for its daily
+        // rows). `today` is SQLite's localtime clock - the clock that wrote
+        // the Date column - so the client anchors its grid on the server's
+        // day, not the browser's.
+        $days = max(1, min(366, (int)($_GET['days'] ?? 28)));
+        $sci  = $_GET['sci'] ?? null;
+        if ($sci !== null && (!is_string($sci) || $sci === '' || strlen($sci) > 100)) {
+            http_response_code(400); echo json_encode(['error' => 'sci= invalid']); break;
+        }
+        $bind = [];
+        $sciSql = '';
+        if ($sci !== null) { $sciSql = ' AND Sci_Name = :sn'; $bind[':sn'] = $sci; }
+        $cells = rows($db,
+          "SELECT Date AS date, CAST(strftime('%H', Time) AS INT) AS hour, COUNT(*) AS n "
+        . 'FROM detections '
+        . "WHERE Date >= DATE('now','localtime','-" . ($days - 1) . " day')" . $sciSql
+        . ' GROUP BY Date, hour ORDER BY Date, hour',
+          $bind
+        );
+        $today = one($db, "SELECT DATE('now','localtime') AS d")['d'] ?? date('Y-m-d');
+        echo json_encode([
+            'days'  => $days,
+            'sci'   => $sci,
+            'today' => $today,
+            'cells' => $cells,
+            'as_of' => date('c'),
         ]);
         break;
     }
