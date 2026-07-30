@@ -3020,6 +3020,75 @@ test('T1 every band heading is TRUE of every row beneath it', () => {
     `"${SUB}" → "${SUB_NOW}" is one word away once the subgenus is set aside`,
   );
 
+  // ── AND THE REST OF THE SENTENCE ───────────────────────────────────────────
+  //
+  // LABEL_CLAIMS binds a PHRASE and leaves the rest of the label free, and a
+  // sweep walked straight through that door: drop the second disjunct from the
+  // spelling band —
+  //
+  //   'the same bird one word away — a Victorian spelling, or a second name
+  //    since replaced'   ->   'the same bird one word away — a Victorian spelling'
+  //
+  // — and the registered phrase 'one word away' survives, still holds of all 14
+  // rows, and the suite stays at 117 green. But the sentence now says those 14
+  // are Victorian ORTHOGRAPHY, and measured: only 2 of them are. The other 12
+  // changed a real word — `Alcedo ispida` → `Alcedo atthis`. That is the
+  // original defect back, in different words, with the whole apparatus green.
+  // Two independent reviewers reproduced it; so did I.
+  //
+  // No predicate can read English, so this does the only honest thing: it PINS
+  // each sentence to the measurement that makes it true. A label change is
+  // deliberate now — the lock fails until someone re-derives the sentence
+  // against its rows and says, in the same commit, what makes it hold.
+  const LABEL_LOCK: Record<string, { label: string; because: string }> = {
+    unchanged: {
+      label: 'the same binomial in 1838 and now — letter for letter',
+      because: '15 rows, all 15 byte-identical. "letter for letter" is exact, not rhetoric.',
+    },
+    spelling: {
+      label: 'the same bird one word away — a Victorian spelling, or a second name since replaced',
+      because:
+        '14 rows: 2 move zero words (Hæmatopus/Haematopus, Sitta Europea/europaea — those are ' +
+        'the Victorian spellings), 12 move exactly one. BOTH halves of the sentence carry rows. ' +
+        'Delete "or a second name since replaced" and it is false of the 12.',
+    },
+    genus: {
+      label: 'the name has moved further — a different genus, or a different species within it',
+      because:
+        '21 rows: 13 move one word, 8 move both. The disjunction covers `Anser ferus` → ' +
+        '`Anser anser`, which never left its genus — drop the second clause and that row ' +
+        'falsifies the heading.',
+    },
+    family: {
+      label: 'both halves of the name changed — the bird was refiled entirely',
+      because:
+        '1 row, `Sylvia hippolais` → `Phylloscopus collybita`, wordsMoved 2. The Long-tailed ' +
+        'Tit was here until its subgenus stopped being counted as its epithet; it moved one ' +
+        'half and belongs under genus.',
+    },
+    collision: {
+      label: 'the 1838 name now belongs to a DIFFERENT bird',
+      because:
+        '1 row. Not provable from the two strings — E9 proves it from the 1838 page and the ' +
+        'recorded collision_name.',
+    },
+  };
+  for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
+    const lock = LABEL_LOCK[drift];
+    assert.ok(lock, `band '${drift}' has no locked heading — add one with the measurement that makes it true`);
+    assert.equal(
+      band.label,
+      lock.label,
+      `band '${drift}' heading changed and its lock did not.\n\n` +
+        `  now : ${band.label}\n  was : ${lock.label}\n\n` +
+        `  what made the old one true: ${lock.because}\n\n` +
+        `  A heading is a claim about the rows under it, and shortening one is how the ` +
+        `retired falsehood came back with every predicate still passing. Re-derive the new ` +
+        `sentence against the tier, then update the lock in the same commit.`,
+    );
+    assert.ok(lock.because.length > 40, `band '${drift}' is locked with no stated evidence`);
+  }
+
   const testSrc = readFileSync(new URL('./jardine.test.ts', import.meta.url), 'utf8');
   for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
     const rows = j.species.filter((s) => s.drift === drift);
@@ -3331,6 +3400,28 @@ test('E8 a plate caption says everything the plate obliges it to say', () => {
     `both the printed caption and the enlarged viewer must discharge the obligations ` +
       `through the one component — found ${obligations} call sites`,
   );
+
+  // THE THRESHOLD, which two lenses of a sweep found independently.
+  // Collapsing the sentences into one component fixed the duplication and left
+  // the CONDITION unguarded: `also.length > 0` -> `> 1` is one character, reads
+  // like a fencepost tidy, and every corpus shared plate carries EXACTLY ONE
+  // co-occupant — so it silences all five at once. Each of those engravings
+  // then names one bird while showing two, which is the single claim this whole
+  // caption exists to prevent.
+  const coOccupants = j.species.map((s) => s.plate_also.length).filter((n) => n > 0);
+  assert.ok(coOccupants.length > 0, 'no shared plate in the corpus — this check is vacuous');
+  assert.equal(
+    Math.min(...coOccupants),
+    1,
+    'no shared plate carries exactly one co-occupant any more — re-read the threshold below',
+  );
+  assert.match(
+    src,
+    /\{also\.length > 0 && \(/,
+    `the two-bird sentence is gated on something other than "there is a co-occupant". ` +
+      `Every shared plate in this corpus has exactly ${Math.min(...coOccupants)}, so any ` +
+      `threshold above 0 prints nothing on any of the ${coOccupants.length} of them`,
+  );
   assert.match(src, /plateCaption\(/, 'the view no longer derives its caption obligations from plateCaption()');
 });
 
@@ -3494,8 +3585,45 @@ test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
     );
   }
 
-  // And amber stays out of both. It means a measured number or an unmoved
-  // binomial; a hand is neither.
+  // AMBER, BY ALLOWLIST RATHER THAN BY DENYLIST.
+  //
+  // This used to name four classes that must NOT be amber, and a sweep simply
+  // used a fifth: `.lib-roll-o` is every binomial cell in the Roll, and giving
+  // it `color: var(--amber)` paints all 52 names — the marker then says every
+  // 1838 name is unmoved, when 37 of them moved. T2 proves the CLASS is applied
+  // to the right rows and had no idea the colour had leaked to their neighbour.
+  // A denylist can only ever forbid the selectors I thought of.
+  //
+  // So: enumerate every rule in the sheet that uses --amber, and require each to
+  // be a known amber-bearer. A new one fails until someone says which of the two
+  // things it is — a Pi measurement, or a binomial that has not moved.
+  const AMBER_ALLOWED: Record<string, string> = {
+    '.lib-band-head': 'the playhead sweeping the spectrogram — the Pi\'s own recording, playing now',
+    ".lib-answer[data-kind='heard']": 'the quiz reveal for a bird this garden has recorded — a measurement',
+    '.lib-fig': "the errata slips' big figure — a call count measured by the Pi",
+    '.lib-plate-open:focus-visible': 'the focus ring, not type — carries no claim',
+    '.lib-tally b': 'the shelf tally — a measured number of volumes',
+    ".lib-spine[data-lit='yes'] .lib-spine-foil": 'a volume this garden has been heard from — measured',
+    '.lib-roll-un': 'THE unmoved 1838 binomial — the other half of the law',
+    '.lib-sil-n': 'the Index of Silences count — measured by the Pi',
+  };
+  // Comments must go FIRST or the captured "selector" is the comment above it —
+  // my own first attempt reported `.lib-band-head` as an unknown selector
+  // spelled "/* The one thing that moves… */ .lib-band-head".
+  const bareCss = css.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const amberRules = [...bareCss.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter((m) => /var\(--amber\)/.test(m[2]))
+    .map((m) => m[1].trim().replace(/\s+/g, ' '));
+  assert.ok(amberRules.length > 0, 'nothing in the Library uses amber — re-point this guard');
+  for (const sel of amberRules) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(AMBER_ALLOWED, sel),
+      `"${sel}" uses amber and is not on the allowlist. Amber means exactly two things ` +
+        `here — a number the Pi measured, or an 1838 binomial that has not moved a letter. ` +
+        `If this is one of them, add it with which one; if it is neither, it must not be amber. ` +
+        `(A denylist missed .lib-roll-o, which would have painted all 52 names.)`,
+    );
+  }
   for (const cls of ['lib-cite', 'lib-lab', 'lib-prose', 'lib-plate-k']) {
     assert.doesNotMatch(
       ruleFor(cls) ?? '',
@@ -3518,8 +3646,43 @@ test('T3 the crow line counts the birds its own sentence describes', () => {
   // passage in it — is four birds: the Carrion Crow, the Rook, the Jackdaw and
   // the Magpie. That is the tab's whole argument, and it was unreachable.
   const j = normalize(corpusRaw());
-  const CORVIDS = ['Corvus', 'Coloeus', 'Pica', 'Garrulus', 'Nucifraga', 'Pyrrhocorax'];
+  const viewSrc = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+
+  // THE GENUS LIST IS ITSELF A CLAIM, AND NOTHING BOUND IT.
+  //
+  // A sweep changed one entry — `Cyanopica` to `Cyanistes`, the kind of edit
+  // that looks like clearing a stale name — and the line went from "4 of this
+  // garden's crows" to "5", the fifth being Cyanistes caeruleus, the Blue Tit.
+  // This garden's loudest bird, and its central silence, counted as a crow, with
+  // the suite green. Reproduced here before fixing.
+  //
+  // So the list is read from the SOURCE (never copied here, or the copy drifts)
+  // and cross-checked against 1838's own naming: Jardine titles every one of
+  // these birds a Crow, Rook, Jackdaw, Jay or Magpie. A genus that drags in a
+  // Titmouse fails on the book's own words, which is a better authority than a
+  // second list of mine.
+  const generaBlock = /const CORVID_GENERA = \[([\s\S]*?)\];/.exec(viewSrc);
+  assert.ok(generaBlock, 'CORVID_GENERA is gone from the view — re-point this guard');
+  const CORVIDS = [...generaBlock[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
+  assert.ok(CORVIDS.length >= 4, `only ${CORVIDS.length} corvid genera parsed — re-point this guard`);
   const isCorvid = (sci: string) => CORVIDS.some((g) => sci.startsWith(`${g} `));
+
+  const CORVID_WORDS = /\b(crow|rook|jackdaw|jay|magpie|chough|nutcracker|raven)\b/i;
+  let matched = 0;
+  for (const s of j.species) {
+    if (!isCorvid(s.sci_name)) continue;
+    matched++;
+    assert.match(
+      s.jardine_title ?? '',
+      CORVID_WORDS,
+      `CORVID_GENERA matches ${s.sci_name}, which Jardine titles ` +
+        `${JSON.stringify(s.jardine_title)} — that is not a crow by the book's own naming, ` +
+        `and the Roll would count it in a sentence about the family`,
+    );
+  }
+  assert.ok(matched > 0, 'CORVID_GENERA matches nothing in the corpus — the line cannot print');
 
   const withAccountNoVoice = j.species.filter((s) => s.voice === null && isCorvid(s.sci_name));
   assert.ok(
