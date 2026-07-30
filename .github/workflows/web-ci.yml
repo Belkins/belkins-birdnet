@@ -53,5 +53,23 @@ jobs:
       # does not commit anything — it only proves the source still compiles, so a
       # broken build is caught here rather than at the next dist rebuild.
       # --base=/collage/ mirrors the only build this repo ever commits (guard 4b).
+      #
+      # It writes to RUNNER_TEMP rather than web/dist so the checked-out committed
+      # bundle survives the job and the two sides of the next step stay obviously
+      # distinct. That is HYGIENE, not correctness: dist-fresh reads the committed
+      # side from the git INDEX, so an in-place build still fails correctly
+      # (verified by doing it). Don't add a guard asserting this flag.
+      # (--emptyOutDir is required by vite for an outDir outside the project root.)
       - name: Build
-        run: npm run build -- --base=/collage/
+        run: npm run build -- --base=/collage/ --outDir "$RUNNER_TEMP/fresh-dist" --emptyOutDir
+
+      # The committed bundle is what the wall actually serves — deploy-christina.sh
+      # prefers web/dist over rebuilding. Guard 4 proves its assets are in the index
+      # and 4b proves they are /collage/-based, but neither can tell an OLD bundle
+      # from a current one: edit a view, forget to rebuild, commit, and every gate
+      # stays green while the museum shows last week's build.
+      # This compares the committed asset-name SET against the set the current
+      # source emits. repo-guards.sh guard 10 fails the python build if this step
+      # is ever dropped.
+      - name: Committed dist is not stale
+        run: bash ../scripts/repo-guards.sh dist-fresh "$RUNNER_TEMP/fresh-dist"

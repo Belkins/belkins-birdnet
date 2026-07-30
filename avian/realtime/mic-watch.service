@@ -5,6 +5,12 @@ Description=Christina mic-loss watchdog (dead/re-enumerated USB mic detector + s
 # birdnet_recording.sh for the mic.
 ConditionPathExists=/etc/birdnet/birdnet.conf
 After=network.target
+# The watchdog's own death is the one failure it cannot report about itself.
+# ConditionPathExists= failing SKIPS the unit (inactive, not failed) and therefore
+# does NOT fire this -- that is correct, a box without birdnet.conf is not this
+# unit's problem; but a crashing mic_watch.py now is. See
+# avian/realtime/christina-alert@.service.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot

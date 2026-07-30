@@ -1,6 +1,19 @@
 [Unit]
 Description=Belkins BirdNET birdcast realtime SSE service
 After=network-online.target
+OnFailure=christina-alert@%n.service
+# Restart=on-failure + RestartSec=10 against the systemd DEFAULT start limit
+# (5 starts / 10s, measured on the live Pi 2026-07-30) meant a hard crash loop
+# could never reach 'failed': one restart per 10s never fills a 10s window, so
+# birdcast could die and be resurrected forever, silently, and OnFailure= above
+# would never fire once. Widened so 20 crashes inside 10 minutes -- ~3.5 minutes
+# of solid crash-looping, which is not a transient -- ends in 'failed' and shouts.
+# birdcast.py serves forever (birdcast.py:555), so exiting at all is a real fault.
+# TRADE-OFF, on purpose: after the limit is hit the unit stays down until someone
+# runs `systemctl reset-failed birdcast && systemctl start birdcast`. A frame that
+# is visibly dead beats a frame that is invisibly dying.
+StartLimitIntervalSec=600
+StartLimitBurst=20
 
 [Service]
 Type=simple

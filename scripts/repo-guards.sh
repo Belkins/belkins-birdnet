@@ -2,10 +2,184 @@
 # repo-guards.sh — $0 static tripwires for the failure classes that have
 # actually bitten this repo. Run by CI (python-app.yml) and runnable locally.
 # Each guard names the incident it prevents; keep that discipline when adding.
+#
+# Called with NO ARGUMENTS it runs the static guard list (1..10) — that is the
+# python-app.yml entry point. It also has three SCOPED modes, each of which runs
+# ONE dist check and exits, because each needs an artefact the python CI has no
+# way to produce:
+#
+#   dist-fresh  <freshly-built-dir>   compare the committed bundle to the source
+#                                     (web-ci.yml, after `vite build`)
+#   dist-static <dir>                 is this directory a deployable /collage/
+#                                     bundle at all (deploy-christina.sh, before
+#                                     it copies web/dist onto the wall)
+#   dist-served <base-url> <dir>      does the LIVE host actually serve that
+#                                     bundle (deploy-christina.sh self-check)
+#
+# A scoped mode that nobody invokes is decoration, so guard 10 below asserts the
+# wiring for all three from source — dropping a call site turns the build red.
 set -u
 cd "$(dirname "$0")/.."
 FAIL=0
 fail() { printf 'GUARD FAIL: %s\n' "$*"; FAIL=1; }
+
+# --- shared dist helpers ----------------------------------------------------
+# The INDEX ones deliberately read git, never the worktree: worktree-vs-tree
+# divergence IS the failure guard 4 was written for, and it is half of the
+# failure guard 10 is written for.
+_dist_assets_index() { git ls-files 'web/dist/assets/*' | sed 's#^web/dist/assets/##' | sort; }
+_dist_html_index()   { git ls-files 'web/dist/*.html'   | sed 's#^web/dist/##'        | sort; }
+_dist_refs_index()   { git show ":web/dist/$1" 2>/dev/null | _dist_refs_stdin; }
+_dist_assets_dir()   { ls -1 "$1/assets" 2>/dev/null | sort; }
+_dist_html_dir()     { ( cd "$1" 2>/dev/null && ls -1 -- *.html 2>/dev/null ) | sort; }
+_dist_refs_file()    { _dist_refs_stdin < "$1"; }
+# Matches both `/collage/assets/x.js` and a base-less `/assets/x.js` — the base
+# prefix is checked separately, on purpose: normalising it away here would make
+# a lost --base=/collage/ invisible to every caller.
+_dist_refs_stdin()   { grep -oE 'assets/[A-Za-z0-9_.-]+\.(js|css)' | sed 's#^assets/##' | sort -u; }
+
+case "${1:-}" in
+dist-fresh)
+  # THE STALE-BUNDLE GUARD. web/dist is COMMITTED (force-added past web/.gitignore)
+  # and deploy-christina.sh PREFERS it over rebuilding, so the committed bundle is
+  # literally what hangs on the wall. Guard 4 proves the committed HTML's assets are
+  # in the index and 4b proves they are /collage/-based — but NOTHING compared the
+  # bundle to the SOURCE it was built from. Edit a view, forget to rebuild, commit:
+  # all four existing gates stay green while the museum serves last week's build.
+  # Same shape as both blank-wall incidents, from a third direction.
+  #
+  # For the CHUNKS: compare the emitted asset-name SET, never a byte diff. Vite is
+  # caret-pinned ("vite": "^8.1.1"), so minified bytes may legitimately move under
+  # a patch bump; the name set is derived from `npm ci` against the COMMITTED
+  # package-lock.json, so it is stable until someone edits the lockfile.
+  # The five ~1.2-1.8 KB ENTRY HTML files are the one deliberate exception and ARE
+  # compared byte-for-byte — see the reasoning at the per-entry loop below, and the
+  # measured gap that forced it (an HTML-only edit moves no chunk hash at all).
+  FRESH="${2:-}"
+  [ -n "$FRESH" ] || { echo "usage: $0 dist-fresh <freshly-built-dist-dir>" >&2; exit 2; }
+  # A missing/empty build dir must be LOUD. If this returned green, the guard
+  # would pass hardest exactly when the build step it depends on had failed.
+  [ -d "$FRESH/assets" ] \
+    || { fail "dist-fresh: '$FRESH/assets' does not exist — the fresh build did not run or wrote elsewhere. Refusing to compare nothing and call it green."; exit 1; }
+
+  _fa=$(_dist_assets_dir "$FRESH"); _ca=$(_dist_assets_index)
+  [ -n "$_fa" ] || fail "dist-fresh: the fresh build emitted NO assets — nothing to compare against"
+  [ -n "$_ca" ] || fail "dist-fresh: no web/dist/assets/* in the git index — the committed bundle is gone; if that is intentional, remove this guard and the deploy's prefer-committed-dist branch together"
+
+  # The fresh build must itself be /collage/-based, or the reference sets below
+  # are not comparable — and a web-ci.yml that lost --base=/collage/ is its own
+  # bug (guard 4b's class, caught before it can be committed).
+  for _f in $(_dist_html_dir "$FRESH"); do
+    grep -qE '(src|href)="/assets/' "$FRESH/$_f" \
+      && fail "dist-fresh: the FRESH build's $_f references /assets/... — it was built without --base=/collage/, so this comparison is meaningless. Fix the build step in .github/workflows/web-ci.yml."
+  done
+
+  if [ "$_fa" != "$_ca" ]; then
+    echo "  committed-only (STALE — these came from an older source tree):"
+    comm -23 <(printf '%s\n' "$_ca") <(printf '%s\n' "$_fa") | sed 's/^/    /'
+    echo "  fresh-only (what the current source actually builds):"
+    comm -13 <(printf '%s\n' "$_ca") <(printf '%s\n' "$_fa") | sed 's/^/    /'
+    fail "committed web/dist is STALE — its asset set does not match a build of the current source. Someone edited web/src and did not rebuild. Fix: (cd web && npm run build -- --base=/collage/) && git add -f web/dist && commit. The wall serves the COMMITTED bundle, so until then it shows the old museum."
+  fi
+
+  _fh=$(_dist_html_dir "$FRESH"); _ch=$(_dist_html_index)
+  [ "$_fh" = "$_ch" ] \
+    || fail "committed web/dist HTML entries [$(echo $_ch)] != freshly built [$(echo $_fh)] — an entry page was added to or removed from web/vite.config.ts without rebuilding the committed dist"
+
+  # Per-entry reference sets. Catches the case where two entries happen to share
+  # a total asset set but one entry stopped importing a chunk.
+  for _f in $_fh; do
+    # Membership must be tested line-wise. An earlier draft used
+    # `case " $_ch " in *" $_f "*)` — but $_ch is NEWLINE separated, so the
+    # " name " pattern never matched, every entry hit `continue`, and BOTH
+    # per-entry checks below silently never ran. Green, permanently, doing
+    # nothing. Caught only by negative-testing this specific assertion rather
+    # than trusting the guard's overall red on a different case.
+    printf '%s\n' "$_ch" | grep -qxF "$_f" || continue
+    _rf=$(_dist_refs_file "$FRESH/$_f"); _rc=$(_dist_refs_index "$_f")
+    [ "$_rf" = "$_rc" ] \
+      || fail "committed web/dist/$_f references a different asset set than a fresh build of it — the committed bundle is stale for that entry"
+    # Entry-HTML CONTENT. The asset-set checks above cannot see an edit that
+    # changes only the emitted HTML shell — a <title>, a <meta>, a favicon path
+    # in web/index.html — because no chunk's content hash moves. MEASURED: a
+    # title change in web/index.html left all 15 asset names identical and this
+    # guard green while the committed HTML was genuinely stale.
+    # This IS a byte comparison, deliberately scoped to the five ~1.2-1.8 KB
+    # entry files and never to the minified chunks. The caret-pinned-vite
+    # false-red the asset-set rule exists to avoid does not really apply here:
+    # CI installs from the COMMITTED package-lock.json, so the toolchain only
+    # moves when someone edits the lockfile — and a lockfile bump changes chunk
+    # hashes too, so the asset-set check would already be red. Either way the
+    # remedy is identical and correct: rebuild and commit the dist.
+    git show ":web/dist/$_f" 2>/dev/null | cmp -s - "$FRESH/$_f" \
+      || fail "committed web/dist/$_f differs from a fresh build of it — an edit to web/$_f (title, meta, entry markup) never made it into the committed bundle. Rebuild: (cd web && npm run build -- --base=/collage/) && git add -f web/dist"
+  done
+  # Positive evidence in the log. A guard that passes SILENTLY is indistinguishable
+  # from a guard that never ran, which is how several of this repo's checks stayed
+  # green for weeks while doing nothing.
+  [ "$FAIL" = "0" ] && printf 'dist-fresh: committed web/dist matches a build of the current source (%s assets, %s entries)\n' \
+    "$(printf '%s\n' "$_ca" | grep -c .)" "$(printf '%s\n' "$_ch" | grep -c .)"
+  exit $FAIL
+  ;;
+
+dist-static)
+  # Is <dir> a deployable /collage/ bundle AT ALL? deploy-christina.sh prefers an
+  # on-disk web/dist over rebuilding, and guards 4/4b only ever see the git INDEX
+  # — so a local `npm run build` with no --base, or a half-written dist, walks
+  # straight onto the wall. Every asset then 404s, and caddy's php try_files
+  # turns each 404 into 200 text/html (MEASURED on the live box 2026-07-30:
+  # /collage/assets/<missing>.js -> 200 text/html). That is the blank wall.
+  D="${2:-}"
+  [ -n "$D" ] || { echo "usage: $0 dist-static <dist-dir>" >&2; exit 2; }
+  [ -d "$D" ] || { fail "dist-static: '$D' is not a directory"; exit 1; }
+  _h=$(_dist_html_dir "$D")
+  [ -n "$_h" ] || fail "dist-static: '$D' contains no *.html — copying it onto the wall would publish an empty directory"
+  for _f in $_h; do
+    grep -qE '(src|href)="/assets/' "$D/$_f" \
+      && fail "dist-static: $D/$_f references /assets/... — built without --base=/collage/. Every asset would 404 behind a 200 text/html. Rebuild: (cd web && npm run build -- --base=/collage/)"
+    _r=$(_dist_refs_file "$D/$_f")
+    [ -n "$_r" ] || fail "dist-static: $D/$_f references no assets at all — that is not a built bundle"
+    for _a in $_r; do
+      [ -f "$D/assets/$_a" ] \
+        || fail "dist-static: $D/$_f references assets/$_a but $D/assets/$_a is MISSING — the 6274ec2 blank-wall class, on disk this time"
+    done
+  done
+  [ "$FAIL" = "0" ] && printf 'dist-static: %s is a complete /collage/-based bundle (%s entries)\n' "$D" "$(printf '%s\n' "$_h" | grep -c .)"
+  exit $FAIL
+  ;;
+
+dist-served)
+  # Post-deploy: does the LIVE host serve the bundle we just copied? An HTTP
+  # STATUS check is worthless here — caddy answers 200 for every missing path
+  # under /collage/ — so this asserts CONTENT-TYPE and the served reference set.
+  BASE="${2:-}"; D="${3:-}"
+  [ -n "$BASE" ] && [ -n "$D" ] \
+    || { echo "usage: $0 dist-served <base-url> <deployed-dir>" >&2; exit 2; }
+  BASE="${BASE%/}"
+  [ -f "$D/index.html" ] || { fail "dist-served: no $D/index.html to compare against"; exit 1; }
+  _curl_rc=0; _body=$(curl -sS --max-time 15 "$BASE/" 2>/dev/null) || _curl_rc=$?
+  [ "$_curl_rc" = "0" ] \
+    || fail "dist-served: could not reach $BASE/ at all (curl rc=$_curl_rc) — the web server is down or not listening; the wall shows nothing"
+  _rs=$(printf '%s\n' "$_body" | _dist_refs_stdin)
+  _rl=$(_dist_refs_file "$D/index.html")
+  [ -n "$_rs" ] || [ "$_curl_rc" != "0" ] \
+    || fail "dist-served: $BASE/ answered, but served nothing that references a bundle — that is the php try_files fallback, i.e. the wall is blank"
+  [ "$_rs" = "$_rl" ] \
+    || fail "dist-served: $BASE/ serves a DIFFERENT asset set than $D/index.html — the copy did not take effect (stale cache, wrong docroot, or a half-finished copy)"
+  for _a in $_rs; do
+    _ct=$(curl -sS --max-time 15 -o /dev/null -w '%{content_type}' "$BASE/assets/$_a" 2>/dev/null) || _ct=""
+    case "$_ct" in
+      *javascript*|*ecmascript*|*css*) : ;;
+      *) fail "dist-served: $BASE/assets/$_a is served as '${_ct:-<none>}', not JS/CSS — that is caddy's php try_files fallback answering 200 text/html for a MISSING file. The wall will render blank." ;;
+    esac
+  done
+  [ "$FAIL" = "0" ] && printf 'dist-served: %s serves the deployed bundle (%s assets, all JS/CSS content-types)\n' "$BASE" "$(printf '%s\n' "$_rs" | grep -c .)"
+  exit $FAIL
+  ;;
+
+"") : ;;
+*) echo "$0: unknown mode '${1:-}' (expected: dist-fresh | dist-static | dist-served, or no argument)" >&2; exit 2 ;;
+esac
 
 # 1. species-notes.json must parse. It is a hand-edited file of 1.5-4.8k-char
 #    prompt blobs (churned 4x on 2026-07-03 alone) and app.py loads it with a
@@ -246,6 +420,120 @@ if ls web/tests/*.test.ts >/dev/null 2>&1; then
     || fail "$_wwf no longer runs 'npm test' — restore the step or the web suite silently stops running"
   grep -qF "node --test tests/*.test.ts" web/package.json \
     || fail "web/package.json's test script must glob 'tests/*.test.ts' — a pinned filename means a NEW web test never runs, and 'node --test tests/' is not a legal substitute (node resolves a bare dir as a module)"
+fi
+
+# 10. Stale-bundle WIRING guard. The three dist modes at the top of this file are
+#     the only things comparing the committed bundle to its source and to the
+#     wall — and none of them run in python-app.yml, which is the workflow this
+#     script is invoked from. So the modes themselves cannot assert they are
+#     alive; this guard does it, from the python CI that always runs.
+#     Without it the whole mechanism disarms silently by deleting one YAML line,
+#     which is the exact failure shape of guards 3b and 9.
+#     Only meaningful while a dist is actually committed: if web/dist stops being
+#     committed, this failure class stops existing (and so does the deploy's
+#     prefer-committed-dist branch — remove them together).
+if [ -n "$(git ls-files 'web/dist/*.html')" ]; then
+  _dwf=.github/workflows/web-ci.yml
+  if [ -f "$_dwf" ]; then
+    # Strip YAML comments first: this file DOCUMENTS the guard at length, so a
+    # bare grep for the mode name passes on prose alone — the decorative-grep
+    # sin guards 6 and 7 were rewritten to avoid.
+    _dci=$(grep -vE '^[[:space:]]*#' "$_dwf")
+    printf '%s\n' "$_dci" | grep -qF 'repo-guards.sh dist-fresh' \
+      || fail "$_dwf no longer invokes 'repo-guards.sh dist-fresh' — nothing compares the COMMITTED web/dist to the source any more, so an un-rebuilt bundle ships green (guards 4/4b cannot see it: the files are all present and correctly prefixed, they are just OLD)"
+    printf '%s\n' "$_dci" | grep -qE 'npm run build( --)? .*--base=/collage/' \
+      || fail "$_dwf's build step no longer passes --base=/collage/ — the fresh bundle would then be /assets/-based, dist-fresh would abort as non-comparable, and the stale check would red for the wrong reason (measured: it does)"
+    # NOT asserted: that the build writes to a separate --outDir. An earlier draft
+    # of this guard claimed an in-place build would make dist-fresh compare the
+    # fresh output against itself and always pass. That was FALSE and was caught
+    # by testing it: dist-fresh reads the committed side from the GIT INDEX
+    # (git ls-files / git show :path), which an in-place build does not touch, so
+    # it still goes red correctly. The workflow uses RUNNER_TEMP for tidiness, not
+    # correctness — asserting it here would be a guard defending a fiction.
+  else
+    fail "$_dwf is missing but web/dist is committed — the stale-bundle guard has nowhere to run"
+  fi
+  # Same for the deploy side: the prefer-committed-dist branch and the post-deploy
+  # self-check each have exactly one call site.
+  _dep=$(grep -vE '^[[:space:]]*#' deploy-christina.sh)
+  printf '%s\n' "$_dep" | grep -qF 'repo-guards.sh" dist-static' \
+    || fail "deploy-christina.sh no longer validates web/dist with 'repo-guards.sh dist-static' before copying it onto the wall — an unbased or half-written on-disk dist deploys unchecked (guards 4/4b only see the git index, not the worktree the deploy actually copies)"
+  printf '%s\n' "$_dep" | grep -qF 'repo-guards.sh" dist-served' \
+    || fail "deploy-christina.sh no longer runs 'repo-guards.sh dist-served' after deploying — nothing then verifies WHAT the wall serves, and the existing http_code probe cannot tell: caddy answers 200 text/html for every missing path under /collage/"
+fi
+
+# 11. THE ALERT PATH MUST ACTUALLY REACH THE BOX.
+#     Every unit here declares OnFailure=christina-alert@%n.service so a red unit
+#     shouts instead of waiting to be discovered by someone typing
+#     `systemctl --failed`. That declaration is worthless three ways, and all
+#     three had happened at once when this guard was written:
+#       a) the handler it names was installed by nothing, so systemd logged
+#          "could not enqueue" and said no more;
+#       b) birdcast.service is written by an inline HEREDOC in both deploy
+#          scripts, not rendered from the repo file — so the repo file grew an
+#          OnFailure= line that could never reach the Pi (measured: 0 OnFailure
+#          lines in the installed unit);
+#       c) a hand-written list of units would have silently omitted
+#          avian/forwarding/avian-mqtt.service, which is exactly how an earlier
+#          guard here came to assert 5 of 11 gated paths.
+#     So this DERIVES the set from find and pins a COUNT. A new unit without an
+#     alert path fails the build on the day it is added.
+_units=$(find avian -name '*.service' ! -name 'christina-alert@.service' | sort)
+_n_units=$(printf '%s\n' "$_units" | grep -c . || true)
+[ "$_n_units" -ge 7 ] \
+  || fail "only $_n_units units found under avian/ — the OnFailure guard is looking in the wrong place and would pass vacuously"
+for _u in $_units; do
+  grep -q '^OnFailure=christina-alert@%n\.service' "$_u" \
+    || fail "$_u carries no OnFailure=christina-alert@%n.service — when it dies, nothing will say so"
+done
+
+# 11a. THE HANDLER ITSELF MUST BE INSTALLED BY SOMETHING. Every OnFailure= line
+#      above names christina-alert@%n.service; if that template is not on the box
+#      systemd logs "could not enqueue" once and is otherwise silent, so seven
+#      units would DECLARE an alert path and none could take it. That was the
+#      live state when this guard was written — `ls /etc/systemd/system/ | grep
+#      christina` returned nothing.
+#      It is checked separately because the handler is excluded from the loop
+#      above (it must not alert on itself), and excluding it from the loop is
+#      what left it unchecked the first time I wrote this.
+if [ -f avian/realtime/christina-alert@.service ]; then
+  grep -rqF 'christina-alert@.service' deploy-christina.sh deploy-realtime.sh 2>/dev/null \
+    || fail "no deploy script installs christina-alert@.service — every OnFailure= in this repo then points at a unit that does not exist on the box, and systemd will say so exactly once, to nobody"
+fi
+
+# 11b. The handler must NOT alert on itself: systemd would enqueue
+#      christina-alert@christina-alert@... forever. Its own failure is visible
+#      where a red unit is supposed to be, and nowhere else — on purpose.
+if [ -f avian/realtime/christina-alert@.service ]; then
+  grep -q '^OnFailure=' avian/realtime/christina-alert@.service \
+    && fail "christina-alert@.service declares OnFailure= — a failure handler that handles its own failure is an infinite loop"
+  grep -q '^User=' avian/realtime/christina-alert@.service \
+    || fail "christina-alert@.service has no User= line, so it runs as ROOT and render_unit's User= rewrite is a no-op — every other unit in this repo drops privileges"
+fi
+
+# 11c. Every unit that DECLARES the alert path must be installed by something,
+#      or the declaration is a comment. Checked against the deploy scripts by
+#      name, because that is the gap that let a fully-written, fully-tested
+#      off-box backup sit uninstalled on the box for days.
+#      A unit with no installer may instead be DECLARED in avian/NOT-INSTALLED
+#      with a written reason. That is the only way to answer this guard without
+#      installing something, and it costs an explanation — so an uninstalled
+#      unit becomes a recorded decision rather than the oversight that left the
+#      off-box backup absent from the box for days.
+for _u in $_units; do
+  _base=$(basename "$_u")
+  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh avian/backup/install-backup.sh 2>/dev/null && continue
+  grep -qE "^[[:space:]]*$_base[[:space:]]*$" avian/NOT-INSTALLED 2>/dev/null \
+    || fail "$_base declares an alert path but NO installer mentions it, and it is not declared in avian/NOT-INSTALLED — it will never reach the Pi (this is how offbox-backup shipped and was never installed)"
+done
+
+# 11d. A NOT-INSTALLED entry must name a unit that still exists, or the file
+#      rots into permission for units nobody can find.
+if [ -f avian/NOT-INSTALLED ]; then
+  grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED | while read -r _d; do
+    find avian -name "$_d" | grep -q . \
+      || fail "avian/NOT-INSTALLED names $_d, which no longer exists — the exemption outlived the unit"
+  done
 fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"

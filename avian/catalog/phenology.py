@@ -41,6 +41,42 @@ THE TWO CLAMPS (both load-bearing, both verified with python3 on a real date)
   late December, 1 for early January. ``min(52, max(1, iso_week))`` applies only
   to the remaining, ordinary cases.
 
+THE CURVE (why a peak week is not enough)
+  ``_note_year`` accumulates a FULL weekly histogram; until 2026-07-30 only
+  ``peak_week``/``peak_week_n`` survived into the entry and the rest was thrown
+  away. Since a closed year is never recomputed, that discard was PERMANENT the
+  day the year closed: no later run could add the curve back. So each entry now
+  freezes the whole histogram.
+
+  SHAPE: a DENSE, fixed-length list of ``MAX_ISO_WEEK`` (52) integers, cell
+  ``i`` = ISO week ``i + 1``, exactly the index arithmetic
+  ``web/src/almanac.ts:113`` already ships (``min(52, max(1, w)) - 1``). Dense
+  and fixed-length for three reasons:
+    * a 53-week ISO year cannot silently DROP a week -- the weeks reaching this
+      list come from ``year_week()`` and are already folded into 1..52, and
+      anything outside that range RAISES (``_curve_index``) instead of being
+      skipped or wrapped;
+    * year-over-year comparison is a positional zip -- no key normalisation, no
+      sparse-vs-dense mismatch, no string week keys;
+    * every cell is its own line under ``indent=2``, so a diff of two ledger
+      revisions names the exact weeks that moved.
+
+THE EFFORT FIELD (and the sentence it must never license)
+  ``birds.db`` records DETECTIONS, not uptime. A March with the microphone
+  unplugged and a genuinely silent March are IDENTICAL in the only source this
+  script reads. So the effort field is named for precisely what it counts:
+  ``station_weekly_dates_with_detections[i]`` = the number of DISTINCT DATES in
+  ISO week ``i + 1`` of that calendar year on which ``birds.db`` holds at least
+  one detection of ANY class -- birds, dogs, sirens, anything. It is evidence
+  the recorder produced rows that day; it is NOT listening coverage, NOT uptime
+  and NOT observation hours, and it may never be rendered or described as any
+  of those. Its sum over the 52 cells is the year's distinct detection-dates
+  (each date falls in exactly one week), so no separate scalar is stored.
+  It is station-wide, so it is identical for every species of the same year --
+  duplicated into each entry ON PURPOSE, because only entries are frozen: a
+  top-level block would be recomputed from live rows and would decay to nothing
+  the moment those rows are purged, taking the curve's denominator with it.
+
 PROVENANCE (why every entry carries three extra fields)
   A frozen year is unfalsifiable: the rows behind it are gone. So each entry
   records ``source_rows_at_freeze``, ``min_date_seen`` and ``frozen_at``, and the
@@ -136,6 +172,26 @@ NOTES = {
         "known: an entry whose min_date_seen is late in its year is a partial "
         "stump, not a season."
     ),
+    "curve": (
+        "weekly_detections is a dense 52-cell list: cell i counts the detection "
+        "ROWS of that species in ISO week i+1 of that calendar year, on the same "
+        "1..52 fold as peak_week and web/src/almanac.ts. peak_week is simply its "
+        "highest cell (ties to the lower week). Entries written before "
+        "2026-07-30 predate this field and legitimately lack it -- a closed year "
+        "is never recomputed, so its curve is gone for good."
+    ),
+    "effort": (
+        "station_weekly_dates_with_detections[i] is the number of DISTINCT DATES "
+        "in ISO week i+1 of that calendar year on which birds.db holds at least "
+        "one detection of ANY class -- birds, dogs, sirens, anything. It is "
+        "station-wide, not per species, and it is the same for every species of "
+        "that year. It is NOT listening coverage, NOT uptime and NOT observation "
+        "hours: birds.db records detections, so a week with the microphone "
+        "unplugged and a genuinely silent week are indistinguishable here. A "
+        "zero in weekly_detections where this field is also zero says only that "
+        "the station produced no rows that week -- it is NOT evidence the bird "
+        "was absent."
+    ),
 }
 
 
@@ -229,6 +285,11 @@ def _new_acc():
         "max_date": None,       # coverage: latest   PARSEABLE Date in birds.db
         "com_counts": {},       # sci -> {com: n}
         "yr": {},               # (sci, calendar_year) -> per-year accumulator
+        # THE EFFORT FIELD's raw material, station-wide and species-blind:
+        # (calendar_year, week) -> set of distinct dates that produced >=1 row of
+        # ANY class. Non-birds count -- a Dog row still proves the recorder wrote
+        # something that day, which is the whole (and only) claim being made.
+        "station_wk": {},
     }
 
 
@@ -237,6 +298,18 @@ def _note_coverage(acc, date_s):
         acc["min_date"] = date_s
     if acc["max_date"] is None or date_s > acc["max_date"]:
         acc["max_date"] = date_s
+
+
+def _note_station(acc, year, week, date_s):
+    """Record that SOME class was detected on ``date_s``, in ``(year, week)``.
+
+    Called for every row with a parseable Date, before any is_bird filtering --
+    the claim is about the recorder, not about birds."""
+    dates = acc["station_wk"].get((year, week))
+    if dates is None:
+        dates = set()
+        acc["station_wk"][(year, week)] = dates
+    dates.add(date_s)
 
 
 def _new_year_acc():
@@ -279,6 +352,7 @@ def _scan_row(acc, row):
         return
     date_s = str(raw_date)[:10]
     _note_coverage(acc, date_s)
+    _note_station(acc, year, week, date_s)
     # dt mirrors rebuild_catalog.aggregate() exactly: only rows carrying BOTH a
     # Date and a Time contribute a timestamp.
     dt = "%s %s" % (raw_date, time_s) if time_s is not None else None
@@ -319,14 +393,61 @@ def _peak_week(week_counts):
     return (best_week, best_n)
 
 
+def _curve_index(week):
+    """Cell index (0-based) for a week that came out of ``year_week()``.
+
+    RAISES on anything outside 1..MAX_ISO_WEEK instead of skipping it. This is
+    the guard that makes "a 53-week ISO year cannot silently drop a week" a fact
+    rather than a hope: if ``year_week``'s fold is ever reverted to a raw
+    ``isocalendar()[1]``, week 53 arrives here and the whole run fails loud
+    (exit 5, nothing written) instead of quietly discarding late December from
+    every curve it freezes. Negative-tested in
+    tests/test_phenology.py::test_a_week_outside_the_fold_fails_loud_*.
+    """
+    if not isinstance(week, int) or isinstance(week, bool) \
+            or week < 1 or week > MAX_ISO_WEEK:
+        raise ValueError(
+            "week %r is outside the 1..%d fold year_week() guarantees; refusing "
+            "to freeze a curve that silently drops it (see the two-clamp note)"
+            % (week, MAX_ISO_WEEK))
+    return week - 1
+
+
+def _weekly_curve(week_counts):
+    """``{week: n}`` -> dense ``MAX_ISO_WEEK``-cell list, cell i = week i+1."""
+    cells = [0] * MAX_ISO_WEEK
+    for wk in sorted(week_counts):
+        cells[_curve_index(wk)] += week_counts[wk]
+    return cells
+
+
+def _station_curves(station_wk):
+    """``{(year, week): {dates}}`` -> ``{year: dense MAX_ISO_WEEK-cell list}``.
+
+    Each cell is a COUNT OF DISTINCT DATES that produced at least one detection
+    of any class -- see THE EFFORT FIELD in the module docstring for the claim
+    this does and does not make."""
+    out = {}
+    for (year, week), dates in station_wk.items():
+        cells = out.get(year)
+        if cells is None:
+            cells = [0] * MAX_ISO_WEEK
+            out[year] = cells
+        cells[_curve_index(week)] += len(dates)
+    return out
+
+
 def _compute_entries(acc, bird_set, com_by_sci, built_at):
     """Build ``{(sci, year): entry}`` from LIVE rows only. Entry shape LOCKED."""
     out = {}
+    station_by_year = _station_curves(acc["station_wk"])
     for key, e in acc["yr"].items():
         sci, year = key
         if sci not in bird_set:
             continue
         peak_week, peak_n = _peak_week(e["weeks"])
+        # list() so no two entries share one mutable object.
+        station = list(station_by_year.get(year, [0] * MAX_ISO_WEEK))
         out[key] = {
             "sci_name": sci,
             "com_name": com_by_sci.get(sci),
@@ -338,6 +459,12 @@ def _compute_entries(acc, bird_set, com_by_sci, built_at):
             "detections": e["detections"],
             "peak_week": peak_week,
             "peak_week_n": peak_n,
+            # THE CURVE. peak_week is just this list's highest cell; the list is
+            # what a closed year can never get back, so it is frozen with it.
+            "weekly_detections": _weekly_curve(e["weeks"]),
+            # THE EFFORT FIELD. Distinct dates with >=1 detection of ANY class,
+            # per week, station-wide. NOT coverage, NOT uptime -- see NOTES.
+            "station_weekly_dates_with_detections": station,
             # PROVENANCE. A frozen year is unfalsifiable -- its rows are gone --
             # so the entry has to bound what the freeze could possibly have seen.
             "source_rows_at_freeze": acc["source_rows"],
@@ -356,6 +483,12 @@ def _load_ledger(path):
     A file that EXISTS but is unreadable / not JSON / wrong-shaped RAISES. This
     is the deliberate divergence from rebuild_catalog._load_accessions, which
     degrades to an empty ledger -- see the module docstring.
+
+    An entry is OPAQUE beyond its ``(sci_name, year)`` key: it is validated on
+    those two fields and otherwise carried through byte-for-byte. That is what
+    makes new entry fields strictly additive -- a ledger frozen before
+    ``weekly_detections`` existed still loads, merges and round-trips unchanged
+    rather than being "upgraded" from rows that may no longer exist.
     """
     if not os.path.exists(path):
         return {}

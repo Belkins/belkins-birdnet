@@ -1,0 +1,57 @@
+[Unit]
+Description=Christina — SHOUT that %i failed (OnFailure handler: journal + the shared ntfy topic)
+# Instantiated as christina-alert@<failed-unit>.service by OnFailure=christina-alert@%n.service
+# on every unit this repo installs. Before this existed, a red unit was visible
+# ONLY to someone who happened to type `systemctl --failed` — which is how the
+# off-box backup could be written, tested, committed and then never installed
+# without anything ever saying so.
+#
+# DELIBERATELY NO OnFailure= IN THIS UNIT. A failure handler that handles its own
+# failure is an infinite loop: systemd would enqueue
+# christina-alert@christina-alert@... forever. When THIS unit fails it is visible
+# exactly where a red unit is supposed to be visible — `systemctl --failed` — and
+# nowhere else. install-backup.sh asserts, at install time, that this file still
+# carries no OnFailure= line; the ExecStart below refuses a second way, at run
+# time, if it is ever asked to alert about an instance of itself.
+
+[Service]
+Type=oneshot
+# Drops privileges like every other unit in this repo. Without this line
+# render_unit's `s|^User=.*|User=...|` matches nothing and the handler runs as
+# ROOT — an unstated escalation relative to the units it reports on, for a job
+# whose whole work is one journal line and one HTTP POST.
+User=belkins
+# Shared operator env. NOTIFY_URL is the SAME ntfy topic that railway_liveness.py
+# :28-38, mic_watch.py, weekly_digest.py and offbox_backup.py:110-121 already push
+# to — no second channel is invented here. Leading '-' so a box without the file
+# still gets the journal record below, and then goes RED for the missing push.
+EnvironmentFile=-/home/belkins/.christina/forwarder.env
+
+# A oneshot with an unbounded start timeout can never be reported failed — the
+# same reasoning as catalog.service:28-32. The push itself has timeout=10.
+TimeoutStartSec=60
+
+# 1. LOCAL RECORD FIRST. It must not depend on the network or on NOTIFY_URL: if
+#    the push cannot go out, the journal is the only record there will ever be.
+#    Both lines are '-' prefixed because `systemctl status` of a FAILED unit
+#    exits 3, and an un-prefixed non-zero ExecStart means "the rest are not
+#    executed" (systemd.service(5)) — the exact trap that let a loud exit-3
+#    signal silently skip derive.py for 24 days, see catalog.service:34-39.
+#    The push below must run no matter what these two do.
+ExecStart=-/usr/bin/systemctl --no-pager --full --lines=0 status %i
+ExecStart=-/usr/bin/journalctl --no-pager --lines=60 --unit=%i
+#
+# 2. THE PUSH. Un-prefixed on purpose: if the phone push does not happen, this
+#    unit is RED, and `systemctl --failed` names it as christina-alert@<unit>,
+#    which still says which unit died.
+#
+#    Written inline rather than as a helper .py because the alert must exist
+#    even in the checkout states where a helper file has not been deployed yet —
+#    a handler that is missing its own script is a handler that fails silently,
+#    which is the entire disease this unit treats. No shell is involved:
+#    ExecStart execve()s python3 directly and %i is passed as its own argv word,
+#    never interpolated into a command string. Contains no '%' by construction
+#    (systemd would read one as a specifier) and no double quote.
+ExecStart=/usr/bin/python3 -c "import os,sys,urllib.request as R; u=(sys.argv[1] if len(sys.argv)>1 else 'UNKNOWN'); (sys.exit('christina-alert REFUSES to alert about itself ('+u+'): a handler that handles its own failure is an infinite loop.') if u.startswith('christina-alert@') else None); n=os.environ.get('NOTIFY_URL','').strip(); m='SYSTEMD UNIT FAILED: '+u+' on '+os.uname().nodename+'. Nothing else in this repo reports this. Diagnose: systemctl status '+u+' ; journalctl -u '+u+' -n 60'; print(m,flush=True); (sys.exit('christina-alert: NOTIFY_URL is unset or empty in forwarder.env, so '+u+' FAILED and NO push was sent. This unit is RED on purpose; the journal line above is the only record.') if not n else None); R.urlopen(R.Request(n,data=m.encode('utf-8'),headers={'Title':'Christina: '+u+' FAILED','Priority':'urgent','Tags':'rotating_light'}),timeout=10); print('christina-alert: pushed to the shared ntfy topic',flush=True)" %i
+
+# No [Install] section: a template is instantiated by OnFailure=, never enabled.

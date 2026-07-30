@@ -3,6 +3,16 @@ Description=Christina auto-gen watcher forwarder (birdcast -> Railway detections
 # Start after the network is up and birdcast (the SSE source) is available.
 After=network-online.target birdcast.service
 Wants=network-online.target
+OnFailure=christina-alert@%n.service
+# Same blind spot as birdcast.service: RestartSec=3 under the default 5-starts-
+# per-10s limit did reach 'failed' quickly, but EnvironmentFile= here is
+# mandatory (no leading '-'), so the loudest case -- a missing forwarder.env --
+# is a start failure, and it needs a handler more than a crash does. The wider
+# window below is safe because forwarder.py never exits on a network fault: it
+# reconnects internally with backoff (forwarder.py:343,378-384), so an outage
+# produces zero restarts. 20 restarts inside 10 minutes is a genuine fault.
+StartLimitIntervalSec=600
+StartLimitBurst=20
 
 [Service]
 Type=simple

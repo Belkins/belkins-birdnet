@@ -2,6 +2,10 @@
 Description=Christina species catalog rebuild (christina.db from birds.db, read-only)
 # Build after birds.db has had time to exist on boot; ordering only, not a hard dep.
 After=network-online.target
+# nightly.sh aggregates the exit codes so this unit goes red on a real fault --
+# but until now "red" meant "visible to whoever types `systemctl --failed`", i.e.
+# nobody, at 03:30. See avian/realtime/christina-alert@.service.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot

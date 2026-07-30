@@ -1,0 +1,28 @@
+# Units that exist in this repo and are DELIBERATELY not installed on the Pi.
+#
+# WHY THIS FILE EXISTS. The off-box backup was written, tested, committed and
+# never installed — the units simply did not exist on the box, nothing said so,
+# and a month of irreplaceable detections sat on one SD card with no copies while
+# a green tree implied otherwise. That is this project's signature failure:
+# machinery built carefully and never switched on.
+#
+# scripts/repo-guards.sh (guard 11c) now fails the build when a unit declares an
+# alert path but no installer mentions it. This file is the ONE way to answer
+# that guard without installing something — and it costs a written reason, so an
+# uninstalled unit is a recorded decision rather than an oversight.
+#
+# Format: one basename per line, then a reason. Blank lines and # comments
+# ignored. Removing a line here means the guard demands an installer.
+
+avian-mqtt.service
+#   Forwards detections to an MQTT broker. No broker exists on this LAN and
+#   nothing consumes the topic, so installing it would start a service with no
+#   listener. Install it the day a broker exists — the unit is ready and now
+#   carries the alert path.
+
+weekly_digest.service
+#   Pushes a weekly summary to the shared ntfy topic. It is complete and tested,
+#   and turning it on is a PRODUCT decision (does the operator want a weekly
+#   push?) rather than an engineering one, so it stays off until asked for.
+#   Note its own guard: weekly_digest.py refuses to push when derived.json is
+#   older than 72h, so it cannot broadcast a stale museum.

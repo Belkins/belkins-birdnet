@@ -2,6 +2,12 @@
 Description=Christina — off-box backup of the irreplaceable state (birds.db + accession + phenology ledgers + Railway plates)
 After=network-online.target
 Wants=network-online.target
+# Exit 2 (REFUSED) and 4 (FAULT) already push to ntfy from inside the script, but
+# only when the script itself runs far enough to push. This catches everything
+# outside that: a python that will not start, an EnvironmentFile systemd cannot
+# read, a SIGKILL from TimeoutStartSec=1800 on a hung mount. See
+# avian/realtime/christina-alert@.service.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot
