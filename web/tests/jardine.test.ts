@@ -2638,3 +2638,39 @@ test('S2 a tie means nobody is "the most-recorded bird"', () => {
   // an all-zero catalog has no top bird at all
   assert.equal(closingHolds(e, map([row(subj, 0), row('Zzz zzz', 0)])), false);
 });
+
+test('T1 every drift class the Roll can print has a band heading', () => {
+  // WHY: the Roll is ordered by how far a name travelled between 1838 and 2026,
+  // not alphabetically, and until now nothing said so — the alphabet appeared to
+  // restart four times, which reads as a broken sort. Each tier now prints a
+  // heading, and the heading comes from a lookup keyed on the drift value.
+  //
+  // A lookup with a missing key does not throw here, it renders NOTHING: the
+  // band would silently vanish and the sort would look broken again, for exactly
+  // the birds whose names moved in a way nobody had catalogued yet. That is this
+  // project's fail-open signature, so the coverage is asserted rather than
+  // assumed — over the enum AND over the data, because either can grow first.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+  const bandBlock = /const DRIFT_BAND: Record<string, string> = \{([^}]*)\}/.exec(src);
+  assert.ok(bandBlock, 'DRIFT_BAND is gone — the Roll prints an unexplained sort again');
+  const banded = new Set([...bandBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
+
+  const rankBlock = /const DRIFT_RANK: Record<string, number> = \{([^}]*)\}/.exec(src);
+  assert.ok(rankBlock, 'DRIFT_RANK is gone — find the Roll sort and re-point this guard');
+  const ranked = [...rankBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+  assert.ok(ranked.length > 0, 'no drift classes in DRIFT_RANK — this guard would be vacuous');
+  for (const d of ranked) {
+    assert.ok(banded.has(d), `drift '${d}' is sorted into its own tier and prints no heading`);
+  }
+
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const inData = new Set(j.species.map((s) => s.drift).filter((d): d is string => d !== null));
+  assert.ok(inData.size > 1, 'fewer than two drift classes in the corpus — the banding is vacuous');
+  for (const d of inData) {
+    assert.ok(banded.has(d), `the corpus contains drift '${d}' and the Roll has no heading for it`);
+  }
+});

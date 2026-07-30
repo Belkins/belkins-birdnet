@@ -75,6 +75,22 @@ const DRIFT_RANK: Record<string, number> = {
   collision: 4,
 };
 
+/** THE ROLL IS NOT SORTED ALPHABETICALLY AND NEVER WAS. It is ordered by how far
+ *  each bird's name travelled between 1838 and 2026 — the tab's own argument,
+ *  made by the order of a table — and alphabetically only WITHIN each tier.
+ *
+ *  Nothing said so. A reader saw the alphabet restart four times with no visible
+ *  reason, which reads as a broken sort, and a museum arguing for its own rigour
+ *  cannot afford a table that looks miscompiled. One line per boundary, in the
+ *  modern hand, stating what the tier below it has in common. */
+const DRIFT_BAND: Record<string, string> = {
+  unchanged: 'names Linnæus set that have not moved in 188 years',
+  spelling: 'the same name, spelled the way 1838 spelled it',
+  genus: 'still the same bird, moved to another genus since',
+  family: 'moved further than a genus — the family itself was redrawn',
+  collision: 'the 1838 name now belongs to a DIFFERENT bird',
+};
+
 
 /** The catalog's 'YYYY-MM-DD HH:MM:SS' split the way BirdPopup already splits a
  *  stamp for fmtRelative — the one relative-time helper in the tree. */
@@ -1425,6 +1441,18 @@ export function LibraryView({
                 <tbody>
                   {roll.flatMap(({ c, j }, i) => {
                     const out: ReactNode[] = [];
+                    // Name the tier the moment it starts. Derived from the row
+                    // itself, so a band with no members prints no heading and a
+                    // new drift class cannot appear unannounced.
+                    const band = j?.drift ? DRIFT_BAND[j.drift] : null;
+                    const prev = i > 0 ? roll[i - 1].j?.drift : undefined;
+                    if (band && j?.drift !== prev) {
+                      out.push(
+                        <tr className="lib-roll-band" key={`band-${j?.drift}`}>
+                          <td colSpan={4}>{band}</td>
+                        </tr>,
+                      );
+                    }
                     // The one dry line the ledger is allowed, and only when it
                     // is literally true of the silent rows below it.
                     if (i === firstSilent && silentCorvids > 0) {

@@ -1101,6 +1101,21 @@
   color: var(--ink-2);
   width: 8em;
 }
+/* The tier headings. Modern hand, label voice — they name a column of the
+   argument, they are not sentences to read. Quieter than the break line below,
+   which is a remark rather than a heading. */
+.lib-roll-band td {
+  padding: var(--s-5) var(--s-3) var(--s-1);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  border-bottom: 1px solid var(--line-2);
+}
+.lib-roll-r:first-child td {
+  border-top: 0;
+}
 .lib-roll-break td {
   padding-top: 22px;
   font-family: var(--display);
