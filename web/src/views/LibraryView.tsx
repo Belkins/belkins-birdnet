@@ -49,6 +49,9 @@ import {
   sicSpans,
   speciesBySci,
   volumeRoman,
+  DRIFT_BANDS,
+  plateCaption,
+  stationClaimAllowed,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -82,18 +85,10 @@ const DRIFT_RANK: Record<string, number> = {
  *  each bird's name travelled between 1838 and 2026 — the tab's own argument,
  *  made by the order of a table — and alphabetically only WITHIN each tier.
  *
- *  Nothing said so. A reader saw the alphabet restart four times with no visible
- *  reason, which reads as a broken sort, and a museum arguing for its own rigour
- *  cannot afford a table that looks miscompiled. One line per boundary, in the
- *  modern hand, stating what the tier below it has in common. */
-const DRIFT_BAND: Record<string, string> = {
-  unchanged: 'names Linnæus set that have not moved in 188 years',
-  spelling: 'the same name, spelled the way 1838 spelled it',
-  genus: 'still the same bird, moved to another genus since',
-  family: 'moved further than a genus — the family itself was redrawn',
-  collision: 'the 1838 name now belongs to a DIFFERENT bird',
-};
-
+ *  The band headings live in jardine.ts as DRIFT_BANDS, where each caption is
+ *  stored WITH the predicate that makes it true, because three of the five I
+ *  wrote here were false of the rows printed underneath them. A heading is a
+ *  claim; it is now a checked one. */
 
 /** The catalog's 'YYYY-MM-DD HH:MM:SS' split the way BirdPopup already splits a
  *  stamp for fmtRelative — the one relative-time helper in the tree. */
@@ -456,7 +451,9 @@ function StationBird({
 }) {
   const url = birdImageUrl(slug, sci);
   const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
-  if (phase !== 'ready' || !src) return null;
+  // The decision lives in jardine.ts so a test can CALL it — a regex over this
+  // line could not see an operator flip, and that flip re-opens 25 fabrications.
+  if (!stationClaimAllowed(phase, src)) return null;
   return (
     <figure className="lib-fig-plate lib-fig-modern">
       <PlateOpener
@@ -537,7 +534,8 @@ function SpeciesPlate({
   // page whose entire argument is provenance cannot show a picture of a bird
   // and leave a reader to guess where it came from.
   if (!src) return <StationBird sci={sp.sci_name} com={com} slug={slug} art={art} />;
-  const cited = sp.plate_attribution === 'plate-list';
+  const cap = plateCaption(sp);
+  const cited = cap.mustDisclaimCitation;
   const also = sp.plate_also;
   const plate = sp.plate_ref ? sp.plate_ref.replace(/-/g, ' ') : 'plate';
   return (
@@ -1715,7 +1713,7 @@ export function LibraryView({
                     // Name the tier the moment it starts. Derived from the row
                     // itself, so a band with no members prints no heading and a
                     // new drift class cannot appear unannounced.
-                    const band = j?.drift ? DRIFT_BAND[j.drift] : null;
+                    const band = j?.drift ? DRIFT_BANDS[j.drift]?.label : null;
                     const prev = i > 0 ? roll[i - 1].j?.drift : undefined;
                     if (band && j?.drift !== prev) {
                       out.push(

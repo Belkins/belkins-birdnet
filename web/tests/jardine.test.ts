@@ -88,6 +88,18 @@ try {
 }
 
 const normalize = jardineMod.normalize as (raw: unknown) => Jardine;
+const stationClaimAllowed = jardineMod.stationClaimAllowed as (p: string, s: string | null) => boolean;
+const plateCaption = jardineMod.plateCaption as (sp: JardineSpecies) => {
+  mustName: string[];
+  mustDisclaimCitation: boolean;
+  note: string | null;
+  where: string | null;
+};
+/** Each Roll band caption WITH the predicate that makes it true — see T1. */
+const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
+  string,
+  { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
+>;
 const EMPTY = jardineMod.EMPTY_JARDINE as Jardine;
 const fetchJardine = jardineMod.fetchJardine as () => Promise<Jardine>;
 const speciesBySci = jardineMod.speciesBySci as (j: Jardine) => Map<string, JardineSpecies>;
@@ -2639,40 +2651,58 @@ test('S2 a tie means nobody is "the most-recorded bird"', () => {
   assert.equal(closingHolds(e, map([row(subj, 0), row('Zzz zzz', 0)])), false);
 });
 
-test('T1 every drift class the Roll can print has a band heading', () => {
-  // WHY: the Roll is ordered by how far a name travelled between 1838 and 2026,
-  // not alphabetically, and until now nothing said so — the alphabet appeared to
-  // restart four times, which reads as a broken sort. Each tier now prints a
-  // heading, and the heading comes from a lookup keyed on the drift value.
+test('T1 every band heading is TRUE of every row beneath it', () => {
+  // A HEADING IS A CLAIM, AND THREE OF MINE WERE FALSE.
   //
-  // A lookup with a missing key does not throw here, it renders NOTHING: the
-  // band would silently vanish and the sort would look broken again, for exactly
-  // the birds whose names moved in a way nobody had catalogued yet. That is this
-  // project's fail-open signature, so the coverage is asserted rather than
-  // assumed — over the enum AND over the data, because either can grow first.
-  const src = stripComments(
-    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
-  );
-  const bandBlock = /const DRIFT_BAND: Record<string, string> = \{([^}]*)\}/.exec(src);
-  assert.ok(bandBlock, 'DRIFT_BAND is gone — the Roll prints an unexplained sort again');
-  const banded = new Set([...bandBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
-
-  const rankBlock = /const DRIFT_RANK: Record<string, number> = \{([^}]*)\}/.exec(src);
-  assert.ok(rankBlock, 'DRIFT_RANK is gone — find the Roll sort and re-point this guard');
-  const ranked = [...rankBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
-  assert.ok(ranked.length > 0, 'no drift classes in DRIFT_RANK — this guard would be vacuous');
-  for (const d of ranked) {
-    assert.ok(banded.has(d), `drift '${d}' is sorted into its own tier and prints no heading`);
-  }
-
+  // I authored the Roll's five tier captions from memory and shipped them over
+  // rows that contradicted them:
+  //   · "names Linnæus set" — 15 rows, only 8 attribute to Linnæus in any
+  //     spelling; two say Latham, one Willughby, four carry no authority at all.
+  //   · "the same name, spelled the way 1838 spelled it" — 14 rows, ZERO with an
+  //     identical binomial. `Alcedo ispida` → `Alcedo atthis` is not a spelling.
+  //   · "moved to another genus since" — false for `Anser ferus` → `Anser anser`.
+  //
+  // Nothing caught it: T1 only checked that every drift class HAD a heading, not
+  // that the heading was true. Coverage is not correctness. The captions now
+  // live in jardine.ts beside the predicate that makes each one true, and this
+  // asserts every row satisfies its own band's predicate.
   const raw = corpusRaw();
   if (raw === null) return;
   const j = normalize(raw);
-  const inData = new Set(j.species.map((s) => s.drift).filter((d): d is string => d !== null));
-  assert.ok(inData.size > 1, 'fewer than two drift classes in the corpus — the banding is vacuous');
-  for (const d of inData) {
-    assert.ok(banded.has(d), `the corpus contains drift '${d}' and the Roll has no heading for it`);
+
+  const seen = new Set<string>();
+  for (const s of j.species) {
+    if (!s.drift) continue;
+    seen.add(s.drift);
+    const band = DRIFT_BANDS[s.drift];
+    assert.ok(band, `drift '${s.drift}' is sorted into its own tier and prints no heading`);
+    assert.ok(
+      band.holds(s.jardine_binomial, s.sci_name),
+      `the Roll files ${s.sci_name} under "${band.label}" — but ${JSON.stringify(
+        s.jardine_binomial,
+      )} → ${JSON.stringify(s.sci_name)} does not satisfy it`,
+    );
   }
+  assert.ok(seen.size > 1, 'fewer than two drift classes in the corpus — this guard is vacuous');
+
+  // Every band must earn its place: a caption with no rows is a claim about
+  // nothing, and a predicate no row exercises has never been run.
+  for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
+    const rows = j.species.filter((s) => s.drift === drift);
+    assert.ok(rows.length > 0 || drift === 'family', `band '${drift}' has no rows — remove it or the caption is decorative`);
+    assert.ok(band.label.trim().length > 0, `band '${drift}' has an empty caption`);
+  }
+
+  // And the Roll must actually render them from this source, not a local copy.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+  assert.match(src, /DRIFT_BANDS\[[^\]]+\]\?\.label/, 'the Roll no longer prints the checked captions');
+  assert.doesNotMatch(
+    src,
+    /const DRIFT_BAND\b/,
+    'a second, unchecked copy of the band captions is back in LibraryView',
+  );
 });
 
 test('E5 a declared plate size is the size of the file, and the file has a picture in it', () => {
@@ -2739,72 +2769,107 @@ test('E5 a declared plate size is the size of the file, and the file has a pictu
 });
 
 test('E6 the station may only claim a bird it actually painted', () => {
-  // THE REQUIREMENT, AND THE FAILURE IT IS BUILT FROM.
+  // A MUTATION SWEEP BEAT THE PREVIOUS VERSION OF THIS TEST.
   //
-  // Jardine figured 25 of these 52 birds. The other 27 render the station's own
-  // painting instead — but the first version of that rendered BirdThumb
-  // unconditionally, and BirdThumb's `none` phase is BirdSilhouette(): ONE
-  // hard-coded generic SVG, byte-identical for every species. Measured on a
-  // real page: 25 of the 27 plateless birds showed that glyph, under a caption
-  // reading "drawn by this station, not by Jardine".
+  // It pinned the regex `phase !== 'ready' … return null` against the source.
+  // That regex cannot see the OPERATOR: flipping `||` to `&&` keeps it matching
+  // and re-opens the exact bug it was written for, because `!src` is always
+  // false on the live station (birdImageUrl returns a string whenever MOCK is
+  // off), so `A && false` never fires and StationBird renders cutout.php's
+  // X-Av-Real:0 placeholder — one generic silhouette, byte-identical for every
+  // species — under "AI visualized by this station".
   //
-  // Twenty-five fabricated attributions, on the page whose entire argument is
-  // provenance, in the same room as its corrections of Jardine. Nothing threw,
-  // nothing logged, every test was green, and it LOOKED like a broken image —
-  // which is what this file's own CSS calls the one thing a museum of
-  // provenance must never look like.
-  //
-  // So the claim must be gated on the art being READY. No painting, no figure,
-  // no sentence — silence, which was always the honest fallback.
+  // A regex over source is a guard on spelling. The decision now lives in
+  // jardine.ts and this CALLS it, with arguments, and checks the answers.
+  assert.equal(stationClaimAllowed('ready', '/x.png'), true, 'a real painting must be claimable');
+  for (const phase of ['loading', 'pending', 'none', '', 'READY', 'ready ']) {
+    assert.equal(
+      stationClaimAllowed(phase, '/x.png'),
+      false,
+      `phase '${phase}' is not a painting — the station must not claim it`,
+    );
+  }
+  for (const src of [null, '']) {
+    assert.equal(
+      stationClaimAllowed('ready', src),
+      false,
+      'no image means no claim, whatever the phase says',
+    );
+  }
+
+  // And the view must route through it rather than re-deriving the condition.
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   );
-
-  const plate = /function SpeciesPlate\([\s\S]*?\n\}\n/.exec(src);
-  assert.ok(plate, 'SpeciesPlate is gone — find what renders a bird and re-point this guard');
-  assert.match(plate[0], /jardineImageUrl/, 'SpeciesPlate no longer renders the 1838 engraving');
-  assert.match(plate[0], /StationBird/, "SpeciesPlate no longer reaches the station's own bird");
-
   const station = /function StationBird\([\s\S]*?\n\}\n/.exec(src);
-  assert.ok(station, 'StationBird is gone — the station-bird path has no guard');
-  // THE LOAD-BEARING LINE. Without it the caption prints over a generic glyph.
+  assert.ok(station, 'StationBird is gone — the station-bird path has no gate');
   assert.match(
     station[0],
-    /phase !== 'ready'[\s\S]{0,40}return null/,
-    'StationBird no longer requires READY art before claiming the station painted the bird',
+    /if \(!stationClaimAllowed\(/,
+    'StationBird no longer gates on stationClaimAllowed — it has its own copy of the condition',
   );
-  // And the claim itself must live inside the gated component, so it cannot be
-  // rendered from anywhere that skips the gate.
-  // The claim must say the word AI. A reader looking at a picture of a bird on a
-  // page of scanned engravings owes nobody an inference about where it came from.
-  //
-  // Pin the FULL caption, not the phrase: the phrase also appears in the image's
-  // alt text (same claim, same gated component, correct) and in the colophon
-  // (a separate and equally correct statement). Counting the phrase would fail
-  // on two things that ought to exist — a guard that goes red on correct code
-  // gets weakened or deleted, which is how a real one dies.
   const claim = /AI visualized by this station · not an engraving, not a photograph/;
-  assert.match(station[0], claim, 'the station claim left StationBird');
+  assert.match(station[0], claim, 'the station claim left the gated component');
   assert.equal(
     (src.match(new RegExp(claim.source, 'g')) || []).length,
     1,
-    'the station claim appears more than once — a second, ungated copy can fabricate an attribution',
+    'a second, ungated copy of the caption can fabricate an attribution',
   );
 
-  // The colophon must keep saying which pictures are scanned and which painted.
   assert.match(
     src.replace(/\s+/g, ' '),
     /the engravings are Jardine's, scanned[^<]*the birds in colour are AI visualized by this station/,
     'the colophon no longer distinguishes the scanned engravings from the painted birds',
   );
 
-  // The split must be real in the data, or the whole feature is moot.
   const raw = corpusRaw();
   if (raw === null) return;
   const j = normalize(raw);
   const withPlate = j.species.filter((s) => s.image !== null).length;
   assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
   assert.ok(j.species.length - withPlate > 0, 'every species has an engraving — the station path is untested');
+});
+
+test('E8 a plate caption says everything the plate obliges it to say', () => {
+  // E4 guards the shared-plate DATA. Nothing guarded the CAPTION — the sweep
+  // deleted one <span> and a two-bird engraving named one bird with the suite
+  // green. Same for the citation disclaimer: the Wren's plate could be promoted
+  // from "the volume assigns this" to "Jardine drew this" undetected.
+  //
+  // plateCaption() states the obligation; this checks the obligation is real and
+  // that the view renders each part of it.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+
+  let dual = 0;
+  let cited = 0;
+  for (const s of j.species) {
+    const cap = plateCaption(s);
+    if (cap.mustName.length) {
+      dual++;
+      assert.ok(s.image, `${s.sci_name} must name a co-occupant but hangs no plate`);
+      assert.ok(cap.where, `${s.sci_name} names a co-occupant but does not place itself`);
+      for (const n of cap.mustName) {
+        assert.ok(n.trim().length > 0, `${s.sci_name}: an unnamed co-occupant is worse than none`);
+      }
+    }
+    if (cap.mustDisclaimCitation) {
+      cited++;
+      assert.ok(cap.note && cap.note.trim().length > 20, `${s.sci_name}: a citation with no stated reason is a bare claim`);
+    }
+  }
+  assert.ok(dual > 0, 'no shared plate carries a co-occupant — E8 would be vacuous');
+  assert.ok(cited > 0, 'no plate is cited from the plate list — E8 would be vacuous');
+
+  // The view must render BOTH obligations. These are the two sentences that
+  // stop a picture asserting something the corpus does not support.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(src, /two birds on this sheet/, 'the two-bird naming is gone from the captions');
+  assert.match(src, /the volume assigns this plate; the picture does not say so/, 'the citation disclaimer is gone');
+  assert.match(src, /plateCaption\(/, 'the view no longer derives its caption obligations from plateCaption()');
 });
 
 test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', () => {

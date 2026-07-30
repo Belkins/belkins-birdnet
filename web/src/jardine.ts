@@ -679,6 +679,125 @@ export function jardineImageUrl(image: string | null): string | null {
   return `${BASE}${image.replace(/^\/+/, '')}`;
 }
 
+/** ── THE ROLL'S BANDS — a caption and its proof, as one object ───────────────
+ *
+ *  The Roll is ordered by how far a name travelled since 1838, and each tier
+ *  prints a line explaining what its rows have in common. I wrote those lines
+ *  from my head and shipped them, and three of the five were FALSE of the data
+ *  sitting directly underneath them:
+ *
+ *  · "names Linnæus set" — 15 rows, of which only 8 attribute to Linnæus in any
+ *    spelling. Two say Latham, one Willughby, four carry no authority at all.
+ *    The museum credited a man for names its own cells credit to someone else.
+ *  · "the same name, spelled the way 1838 spelled it" — 14 rows, of which ZERO
+ *    have an identical binomial. `Alcedo ispida` → `Alcedo atthis` is not a
+ *    spelling variant, it is a different bird's worth of epithet.
+ *  · "moved to another genus since" — false for `Anser ferus` → `Anser anser`.
+ *
+ *  A heading is a claim. So each band now carries the predicate that makes its
+ *  sentence true, and a test asserts every row in the tier satisfies it. The
+ *  caption cannot drift from the data again without the suite going red,
+ *  because the caption and the check are the same object. */
+export interface JardineDriftBand {
+  /** What the tier below this heading has in common. Must be TRUE of every row. */
+  label: string;
+  /** The property that makes the label true, per species. */
+  holds: (jardineBinomial: string, sciName: string) => boolean;
+}
+
+/** Victorian orthography, normalised away: æ/ae/oe → e, accents stripped, case
+ *  folded. `Hæmatopus` and `Haematopus` are the same word printed twice. */
+function orth(word: string): string {
+  return word
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/æ|ae|oe/g, 'e');
+}
+function binomialWords(b: string): [string, string] {
+  const p = b.trim().split(/\s+/);
+  return [p[0] ?? '', p[1] ?? ''];
+}
+/** How many of the two words differ once Victorian spelling is normalised. */
+function wordsMoved(a: string, b: string): number {
+  const x = binomialWords(a);
+  const y = binomialWords(b);
+  return (orth(x[0]) !== orth(y[0]) ? 1 : 0) + (orth(x[1]) !== orth(y[1]) ? 1 : 0);
+}
+
+export const DRIFT_BANDS: Record<string, JardineDriftBand> = {
+  unchanged: {
+    label: 'the same binomial in 1838 and now — letter for letter',
+    holds: (j, s) => j === s,
+  },
+  spelling: {
+    label: 'the same bird one word away — a Victorian spelling, or a second name since replaced',
+    holds: (j, s) => wordsMoved(j, s) <= 1,
+  },
+  genus: {
+    label: 'the name has moved further — a different genus, or a different species within it',
+    holds: (j, s) => j !== s,
+  },
+  family: {
+    label: 'both halves of the name changed — the bird was refiled entirely',
+    holds: (j, s) => wordsMoved(j, s) === 2,
+  },
+  collision: {
+    label: 'the 1838 name now belongs to a DIFFERENT bird',
+    holds: (j, s) => j !== s,
+  },
+};
+
+/** ── TWO DECISIONS LIFTED OUT OF JSX, SO A TEST CAN CALL THEM ────────────────
+ *
+ *  A mutation sweep proved both of the guards protecting these were blind to
+ *  the thing they guarded, because both asserted SOURCE TEXT:
+ *
+ *  · E6 pinned the regex `phase !== 'ready' … return null`, which cannot see the
+ *    OPERATOR. Flipping `||` to `&&` keeps the regex matching and re-opens the
+ *    25 fabricated attributions the guard was written for — `!src` is always
+ *    false on the live station (birdImageUrl always returns a string off MOCK),
+ *    so `A && false` never fires and StationBird renders the placeholder
+ *    silhouette under "AI visualized by this station".
+ *  · E4 guards the shared-plate DATA. Nothing guarded the CAPTION, so deleting
+ *    one <span> made a two-bird engraving name one bird, suite green.
+ *
+ *  A regex over source is a guard on spelling. These are the decisions
+ *  themselves; the tests call them with arguments and check the answers. */
+/** A type predicate, so the COMPILER also refuses a caption over a null image —
+ *  two independent walls between the claim and a picture that cannot support it. */
+export function stationClaimAllowed(phase: string, src: string | null): src is string {
+  return phase === 'ready' && !!src;
+}
+
+/** Everything a plate's caption is REQUIRED to say about this bird. */
+export interface JardinePlateCaption {
+  /** Co-occupants that must be named, or the caption asserts the other bird is this one. */
+  mustName: string[];
+  /** True when the VOLUME assigns the plate and the picture does not identify itself. */
+  mustDisclaimCitation: boolean;
+  /** The reason a citation is only a citation. Printed, never hidden. */
+  note: string | null;
+  /** Where this bird stands, so a dual caption can point. */
+  where: string | null;
+}
+
+export function plateCaption(sp: JardineSpecies): JardinePlateCaption {
+  // NO PLATE, NO OBLIGATIONS. `plate_attribution` defaults to the weaker claim
+  // ('plate-list') for any row that does not say 'depicted' — deliberately, so a
+  // corrupt field cannot promote a citation into an assertion — which means all
+  // 27 birds Jardine never figured also carry it, with no note. They are not
+  // cited from a plate list; they have no plate at all, and a caption cannot
+  // disclaim an attribution that was never made.
+  if (!sp.image) return { mustName: [], mustDisclaimCitation: false, note: null, where: null };
+  return {
+    mustName: sp.plate_also.map((a) => a.common || a.sci_name),
+    mustDisclaimCitation: sp.plate_attribution === 'plate-list',
+    note: sp.plate_note,
+    where: sp.plate_where,
+  };
+}
+
 /** sci_name → account. The ONE join, built once per corpus by the callers. */
 export function speciesBySci(j: Jardine): Map<string, JardineSpecies> {
   const m = new Map<string, JardineSpecies>();
