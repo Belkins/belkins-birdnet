@@ -125,7 +125,9 @@ for f in avian/realtime/forwarder.py avian/realtime/railway_liveness.py \
          avian/realtime/railway-liveness.timer avian/realtime/mic_watch.py \
          avian/realtime/mic-watch.service avian/realtime/mic-watch.timer \
          avian/backup/offbox_backup.py avian/backup/restore_offbox.py \
-         avian/backup/offbox-backup.service avian/backup/offbox-backup.timer; do
+         avian/backup/offbox-backup.service avian/backup/offbox-backup.timer \
+         avian/realtime/weekly_digest.py avian/realtime/weekly_digest.service \
+         avian/realtime/weekly_digest.timer; do
   [ -f "$HERE/$f" ] || die "missing $f — pull the full Belkins/belkins-birdnet repo"
 done
 
@@ -207,6 +209,19 @@ render_unit "$HERE/avian/realtime/mic-watch.service" /etc/systemd/system/mic-wat
 sudo install -m 644 "$HERE/avian/realtime/mic-watch.timer" /etc/systemd/system/mic-watch.timer
 sudo systemctl daemon-reload
 sudo systemctl enable --now mic-watch.timer && ok "mic-watch timer enabled (checks every 15min)" || warn "could not enable mic-watch.timer"
+
+say "7b. Weekly recap push (Sunday 18:00 — the honest digest, quiet when nothing is new)"
+# The units were committed on 2026-07-03 and this installer never referenced
+# them, so on the live Pi the timer simply did not exist and the recap had NEVER
+# been sent — for four weeks, silently. A weekly push that never fires reads
+# exactly like a quiet season, which is the failure mode the digest itself is
+# written to avoid. Installed here so a fresh box gets it too; hand-installing
+# it on the Pi (2026-07-30) fixed that box and nothing else.
+"$PY" -m py_compile "$HERE/avian/realtime/weekly_digest.py"
+render_unit "$HERE/avian/realtime/weekly_digest.service" /etc/systemd/system/weekly_digest.service
+sudo install -m 644 "$HERE/avian/realtime/weekly_digest.timer" /etc/systemd/system/weekly_digest.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now weekly_digest.timer && ok "weekly_digest timer enabled (Sundays 18:00)" || warn "could not enable weekly_digest.timer"
 
 say "8. Off-box backup (birds.db + accession ledger + phenology ledger + Railway plates leave the card nightly)"
 # 8a. Compile here rather than folding into 6a: that call's success line says
