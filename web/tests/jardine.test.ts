@@ -2674,3 +2674,66 @@ test('T1 every drift class the Roll can print has a band heading', () => {
     assert.ok(banded.has(d), `the corpus contains drift '${d}' and the Roll has no heading for it`);
   }
 });
+
+test('E5 a declared plate size is the size of the file, and the file has a picture in it', () => {
+  // TWO FAILURES THIS GUARD IS BUILT FROM, both of which shipped.
+  //
+  // The three plates committed before the drop declared their SOURCE dimensions
+  // (3330x1936) for files that ship at 1200x698. The aspect ratio happened to
+  // match, so nothing jumped and nothing looked wrong — the numbers were simply
+  // false, in a museum whose entire argument is that it states only what it can
+  // source. A wrong ratio would reserve the wrong box and shift the page as
+  // every plate lands.
+  //
+  // And a JPEG that decodes to flat colour reports complete=true with a real
+  // naturalWidth. A capture agent in this project was fooled by exactly that and
+  // reported empty frames as loaded images, twice. Existence is not content, so
+  // the header is read and the file is required to be a real, non-trivial JPEG.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+
+  /** Width and height from the JPEG SOFn marker — no decoder, no dependency. */
+  const jpegSize = (buf: Buffer): { w: number; h: number } | null => {
+    if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const m = buf[i + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+      }
+      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) {
+        i += 2;
+        continue;
+      }
+      i += 2 + buf.readUInt16BE(i + 2);
+    }
+    return null;
+  };
+
+  let checked = 0;
+  const check = (where: string, image: string | null, w: number | null, h: number | null) => {
+    if (image === null) return;
+    const buf = readFileSync(new URL(`../public/${image}`, import.meta.url));
+    // 8KB is far below any real plate here (the smallest ships at 57KB) and far
+    // above an error page saved under a .jpg name.
+    assert.ok(buf.length > 8192, `${where}: ${image} is ${buf.length} bytes — that is not an engraving`);
+    const size = jpegSize(buf);
+    assert.ok(size, `${where}: ${image} has no JPEG frame header — it is not a JPEG`);
+    assert.equal(
+      `${w}x${h}`,
+      `${size.w}x${size.h}`,
+      `${where}: ${image} is declared ${w}x${h} and the file is ${size.w}x${size.h}`,
+    );
+    checked++;
+  };
+  for (const s of j.species) check(`species ${s.sci_name}`, s.image, s.image_w, s.image_h);
+  for (const e of j.errata) {
+    for (const s of e.subjects) check(`errata ${e.no}`, s.image, s.image_w, s.image_h);
+  }
+  assert.ok(checked > 0, 'no image references checked — this guard is vacuous');
+});
