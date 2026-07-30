@@ -120,7 +120,7 @@
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 /* DEPARTURES — the wall's only subtraction. A species heard here and then not
    heard for a fortnight gets ONE more caption under its "first seen" date;
@@ -136,7 +136,7 @@
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .wall-gone[data-gone='away'] {
   color: var(--mut);
@@ -164,7 +164,7 @@
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .wall-rarity[data-band='rare'] {
   color: var(--amber);

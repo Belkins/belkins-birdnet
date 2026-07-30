@@ -155,7 +155,7 @@
   margin-top: 5px;
   font-family: var(--mono);
   font-size: 11px;
-  color: var(--mut-2);
+  color: var(--mut);
   font-variant-numeric: tabular-nums lining-nums;
 }
 .lv-pulse {
@@ -226,7 +226,7 @@
 
 /* (b) RECENT DETECTIONS feed */
 .lv-feed-h { display: flex; align-items: center; justify-content: space-between; }
-.lv-feed-count { color: var(--mut-2); }
+.lv-feed-count { color: var(--mut); }
 .lv-list { list-style: none; margin: 0; padding: 0; }
 .lv-row {
   display: grid;
@@ -260,7 +260,7 @@
 .lv-conf {
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--mut-2);
+  color: var(--mut);
   font-variant-numeric: tabular-nums lining-nums;
 }
 .lv-feed-empty {

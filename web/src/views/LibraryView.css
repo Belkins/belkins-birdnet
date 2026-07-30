@@ -20,8 +20,16 @@
 .lib {
   /* The reading measure. Everything on the desk — the passage, the band, the
      citation — shares it, which is what makes the band read as the printed rule
-     under the type rather than as a chart in a box. */
-  --measure: 38ch;
+     under the type rather than as a chart in a box.
+
+     IT MUST NOT BE EXPRESSED IN ch. `ch` is the width of "0" IN THE FONT OF THE
+     ELEMENT THAT USES IT, so a single `--measure: 38ch` shared by the passage
+     (Cormorant 26px), the citation (Space Mono 10px) and the band (inherited
+     16px) resolves to three DIFFERENT widths. The one thing this section's
+     comment claims — that the band is the printed rule under the type, at the
+     same measure — was the one thing the unit made impossible. A length in rem
+     resolves once, so the alignment is now real rather than asserted. */
+  --w-read: 46rem; /* ≈ 736px — about 66 characters of Cormorant at 26px */
 
   /* ── THE SCALE ────────────────────────────────────────────────────────────
      This tab was built section by section over several days and never once
@@ -60,7 +68,6 @@
      identical boxes, identically spaced, so a reference table shouted exactly
      as loudly as the tab's argument. Width and air are now a function of what a
      section IS. */
-  --w-read: 62ch;   /* prose meant to be read continuously */
   --w-text: 820px;  /* text-dominant sections */
   --w-wide: 1180px; /* tables, grids, the ledger */
 }
@@ -130,15 +137,15 @@
   line-height: 1.9;
 }
 .lib-ledger {
-  color: var(--mut-2);
+  color: var(--mut);
   margin-top: 8px;
 }
 
 /* ── 2 · THE READING DESK — the signature ──────────────────────────────────── */
 .lib-desk {
-  max-width: calc(var(--measure) + 96px);
-  margin: 0 auto 64px;
-  padding: 40px 48px 30px;
+  max-width: calc(var(--w-read) + 2 * var(--s-7));
+  margin: 0 auto var(--s-8);
+  padding: var(--s-6) var(--s-7) var(--s-5);
   background: var(--card);
   border-radius: 14px;
   border-top: 1px solid var(--line);
@@ -150,24 +157,35 @@
     0 18px 40px -22px rgba(0, 0, 0, 0.8);
 }
 
-/* PROSE IS THE REAL DESIGN PROBLEM. 30px / 1.5 / 38ch / --ink-2 — full ink at
-   this size and length glares on obsidian, and body size would fail the tab. */
+/* PROSE IS THE REAL DESIGN PROBLEM — and it was the page's single worst defect.
+   The passage rendered at --t-display (34px, the MASTHEAD's step) inside a
+   column the broken ch measure had squeezed to 390px: about 27 characters, or
+   under five words, per line. One 2,704-character passage became a hundred
+   lines and 5,100px — one paragraph was 35% of the entire page, a poem-narrow
+   ribbon down the centre of a 1440px screen with 950px of dead black either
+   side. Not one of those numbers was a decision; they were what two wrong units
+   multiplied out to.
+
+   Three steps now, descending by ROLE, so the desk's own hierarchy is legible:
+   the passage leads, the second movement answers it, an errata quotation is
+   evidence inside someone else's argument and sits at reading size. Full ink at
+   any of these sizes glares on obsidian, so 1838 prose stays --ink-2. */
 .lib-prose {
   font-family: var(--display);
-  font-size: var(--t-display);
+  font-size: var(--t-title);
   line-height: 1.5;
   color: var(--ink-2);
-  max-width: var(--measure);
-  margin: 0 0 18px;
+  max-width: var(--w-read);
+  margin: 0 0 var(--s-4);
   text-align: left; /* ragged right */
 }
 .lib-prose-coda {
-  font-size: var(--t-title);
+  font-size: var(--t-lead);
   color: var(--mut);
 }
 .lib-prose-slip {
-  font-size: var(--t-lead);
-  margin-bottom: 12px;
+  font-size: var(--t-body);
+  margin-bottom: var(--s-3);
 }
 
 /* An OCR artefact, preserved verbatim and admitted in the margin. Never
@@ -180,7 +198,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-left: 2px;
   vertical-align: super;
 }
@@ -196,13 +214,13 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
-  max-width: var(--measure);
+  max-width: var(--w-read);
 }
 .lib-cite-who {
   color: var(--ink-2);
 }
 .lib-cite-w {
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-cite-l {
   color: var(--mut);
@@ -217,7 +235,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: var(--measure);
+  max-width: var(--w-read);
   margin: 26px 0 10px;
 }
 .lib-another {
@@ -225,7 +243,7 @@
   font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   background: none;
   border: none;
   padding: 4px 0;
@@ -243,7 +261,7 @@
 .lib-band {
   position: relative;
   height: 44px;
-  max-width: var(--measure);
+  max-width: var(--w-read);
   border-radius: 4px;
   border: 1px solid var(--line-2);
   overflow: hidden;
@@ -405,7 +423,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-bottom: 10px;
 }
 .lib-says {
@@ -462,7 +480,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   text-align: center;
 }
 
@@ -519,7 +537,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-mount-t {
   font-family: var(--display);
@@ -536,6 +554,11 @@
   min-height: 120px;
   background: var(--line);
 }
+/* The ONE label that cannot use --mut: the gutter sits on the errata slip's
+   raised card (#36333c), the lightest surface in the museum, where even the
+   lifted --mut only reaches 3.8:1. "190 years" was the least readable string on
+   the whole page at 1.81:1 — a number that IS the argument of the slip. It
+   moves up the ramp rather than the token moving down. */
 .lib-gutter-k {
   position: absolute;
   top: 0;
@@ -544,7 +567,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -593,7 +616,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   line-height: 1.8;
 }
 .lib-modern-none {
@@ -658,7 +681,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-ear-opts {
   display: grid;
@@ -683,7 +706,7 @@
   font-family: var(--mono);
   font-size: var(--t-micro);
   letter-spacing: 0.2em;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-opt-p {
   font-family: var(--display);
@@ -710,7 +733,7 @@
 }
 .lib-opt[data-state='wrong'] .lib-opt-p,
 .lib-opt[data-state='off'] .lib-opt-p {
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-opt[data-state='wrong'],
 .lib-opt[data-state='off'] {
@@ -807,7 +830,7 @@
   font-size: var(--t-label);
   line-height: 1.1;
   letter-spacing: 0.02em;
-  color: var(--mut-2);
+  color: var(--mut);
   max-height: 150px;
   overflow: hidden;
   white-space: nowrap;
@@ -820,7 +843,7 @@
   font-family: var(--mono);
   font-size: var(--t-micro);
   letter-spacing: 0.04em;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-shelf-cap {
   max-width: 1180px;
@@ -846,7 +869,7 @@
   font-weight: 400;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   text-align: left;
   padding: 0 10px 10px;
   border-bottom: 1px solid var(--line);
@@ -887,7 +910,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-roll-vol,
 .lib-roll th.lib-roll-vol {
@@ -919,7 +942,7 @@
   font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 
 /* The closing line beneath the ledger: what is present, signed off by an 1838
@@ -953,7 +976,7 @@
   font-size: var(--t-micro);
   line-height: 1.9;
   letter-spacing: 0.08em;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-bottom: 10px;
 }
 
@@ -961,17 +984,20 @@
    horizontally scrolls. ───────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .lib {
-    --measure: 28ch;
+    /* The phone has no room to choose a measure: the column IS the screen. */
+    --w-read: 100%;
   }
   .lib-desk {
-    padding: 28px 22px 22px;
+    padding: var(--s-5) var(--s-4) var(--s-4);
     max-width: 100%;
   }
+  /* One step down each, holding the same three-step role ramp as the desktop —
+     a phone reads at arm's length, not across a room. */
   .lib-prose {
-    font-size: var(--t-title);
+    font-size: var(--t-lead);
   }
   .lib-prose-coda {
-    font-size: var(--t-lead);
+    font-size: var(--t-body);
   }
   .lib-epi {
     font-size: var(--t-title);

@@ -478,7 +478,7 @@
   justify-content: space-between;
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-top: 6px;
 }
 .stats-panels {
@@ -814,7 +814,7 @@
   font-size: 8.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 /* Knockout ink-ghost silhouette — the tier between the illustration and the
    letter plate (spec §10.4). Higher specificity than the glow rules above so it
