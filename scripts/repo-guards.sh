@@ -375,6 +375,27 @@ grep -q 'hash_equals' avian/api/_auth.php \
   || fail "avian/api/_auth.php no longer uses hash_equals — a loose comparison is timing-unsafe and exposed to PHP type juggling"
 grep -q "expected === ''" avian/api/_auth.php \
   || fail "avian/api/_auth.php lost its empty-password guard — a station with no CADDY_PWD configured must be LOCKED, never open"
+#    STATION_OPEN is an opt-OUT, and an opt-out is one rename away from becoming
+#    the very fail-open shape this guard exists for. It must be read from
+#    birdnet.conf (never an env var — an unset env var is exactly how
+#    AV_REQUIRE_AUTH left three endpoints open), compared STRICTLY to '1' so
+#    that 'true'/'yes'/''/absent all mean CLOSED, and it must appear in exactly
+#    the two auth entry points and nowhere else.
+for _f in scripts/common.php avian/api/_auth.php; do
+  grep -qE "STATION_OPEN'\]? *\?\? *''\) === '1'|av_conf_value\('STATION_OPEN'\) === '1'" "$_f" \
+    || fail "$_f no longer tests STATION_OPEN with a strict === '1' — a loose comparison makes 'true', 'yes' or any non-empty value open the whole station"
+done
+_stationopen=$(grep -rlE "STATION_OPEN" --include='*.php' scripts avian 2>/dev/null | sort)
+[ "$_stationopen" = "avian/api/_auth.php
+scripts/common.php" ] \
+  || fail "STATION_OPEN is read in unexpected PHP files (found: $(echo $_stationopen)) — it must gate only the two auth entry points, or a surface can open itself without going through either"
+#    Scoped to *.php: this file necessarily CONTAINS the pattern it hunts, so an
+#    unscoped grep matches its own source and fails on correct code — the exact
+#    self-match that made the Tools-button check lie earlier the same day.
+! grep -rq --include='*.php' "getenv('STATION_OPEN')\|getenv(\"STATION_OPEN\")" scripts avian 2>/dev/null \
+  || fail "STATION_OPEN is being read from the ENVIRONMENT — an unset env var reads identically to a deliberate 'closed' and that is the AV_REQUIRE_AUTH bug verbatim. Read it from birdnet.conf."
+grep -q 'STATION_OPEN.*= *"1"' scripts/update_caddyfile.sh && grep -q 'exit 2' scripts/update_caddyfile.sh \
+  || fail "scripts/update_caddyfile.sh no longer refuses to run under STATION_OPEN=1 — regenerating would silently restore every password gate the owner removed"
 #    Strip comment lines before searching: the docblocks in these three files
 #    NAME the old variable while explaining why it is gone, so a naive grep here
 #    would fail on correct code — the precise antipattern flagged below.
