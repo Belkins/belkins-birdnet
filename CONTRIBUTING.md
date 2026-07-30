@@ -50,6 +50,43 @@ Concretely, for a PR:
 - **Keep changes surgical.** Touch what the change needs; don't refactor adjacent code in the same PR.
 - Write a clear description of what changed and why it honors the pillars above.
 
+## Commit hygiene: keep source and built artifacts in separate commits
+
+`web/dist` is listed in `web/.gitignore` **and** force-tracked (`git add -f`), because
+the Pi deploys a prebuilt bundle. That combination has two sharp edges, and both have
+drawn blood:
+
+- **A new build's entry assets are invisible to `git add`.** They are gitignored, so a
+  plain `git add web/dist` stages the modified `index.html` and silently skips the new
+  hashed `index-*.js`/`.css` it points at. The result is a committed bundle referencing
+  files that are not in the repo — and because Caddy's `try_files` answers those 404s
+  with `200 text/html`, nothing downstream notices. Always `git add -f` the assets, then
+  prove the tree is self-consistent before committing:
+
+  ```bash
+  for a in $(git show :web/dist/index.html | grep -oE 'assets/[A-Za-z0-9_.-]+\.(js|css)'); do
+    git ls-files --cached --error-unmatch "web/dist/$a" >/dev/null 2>&1 || echo "MISSING $a"
+  done
+  ```
+
+- **A dist commit bakes in whatever source was in the tree when you built.** If someone
+  else's work is present — likely here, where several agents and sessions share a
+  checkout — your bundle contains their unreleased changes. Such a commit cannot be
+  cherry-picked to `main` without dragging their work along or leaving `main`'s dist
+  encoding source `main` does not have.
+
+**So: put source changes in one commit and the rebuilt `web/dist` in another.** A
+source-only commit lifts cleanly to `main` on its own; a build-artifact commit can wait
+for whoever owns the rest of the tree.
+
+When two sessions are genuinely working the same branch at once:
+
+- Stage **by explicit path** (`git add <path> …`), never `git add -A`.
+- To land your work on `main`, `git worktree add <tmp> main` and cherry-pick there.
+  Never `git checkout` in the shared tree — uncommitted changes travel with you, and
+  the other session's in-flight rebuild is exactly what you would carry.
+- Leave their untracked files alone. They are not yours to tidy.
+
 ## The role of art contributions
 
 The illustrations *are* the product. New or improved *kachō-e* birds — every species ships in a perched **and** a flight pose — are genuinely welcome, as are region-specific styling improvements to the Gemini pipeline in `avian/scripts/`. If you're contributing art, aim for the bundled house style (see `avian/scripts/prompt.template.md`) and confirm the ground is cleanly cut so the collage masks build correctly. Open an issue first for a whole new set so we can coordinate.
