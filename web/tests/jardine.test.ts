@@ -105,6 +105,10 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
   string,
   { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
 >;
+const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
+const artProvenance = jardineMod.artProvenance as (
+  rows: ReadonlyArray<{ art_status: string; art_source: string }>,
+) => { station: number; shipped: number; unattributed: number };
 const LABEL_CLAIMS = jardineMod.LABEL_CLAIMS as ReadonlyArray<{
   phrase: string;
   holds: ((jardineBinomial: string, sciName: string) => boolean) | null;
@@ -3077,40 +3081,73 @@ test('E6 the station may only claim a bird it actually painted', () => {
   // Two of the caption's three clauses were true even for those three — bundled
   // art IS AI-generated and is neither engraving nor photograph. Only the
   // agency was false. So only the agency is gated here.
-  const table = /const STATION_CAPTION: Record<string, string> = \{([\s\S]*?)\};/.exec(src);
-  assert.ok(table, 'STATION_CAPTION is gone — the caption no longer varies by who made the picture');
-  const autogen = /autogen:\s*'([^']*)'/.exec(table[1]);
-  const bundled = /bundled:\s*'([^']*)'/.exec(table[1]);
-  assert.ok(autogen && bundled, 'STATION_CAPTION must cover both bundled and autogen art');
-  assert.match(autogen[1], /by this station/, 'station-painted art no longer says the station painted it');
-  assert.doesNotMatch(
-    bundled[1],
-    /by this station/,
-    'BUNDLED art claims the station painted it — it shipped with the repo and never could have',
-  );
-  const unknown = /const STATION_CAPTION_UNKNOWN = '([^']*)'/.exec(src);
-  assert.ok(unknown, 'there is no caption for art whose source could not be read');
-  assert.doesNotMatch(
-    unknown[1],
-    /by this station/,
-    'an unreadable art_source falls back to CLAIMING the station painted it — it must fall to the weaker claim',
-  );
-  // And the agency sentence must exist nowhere else, gated or not.
-  assert.equal(
-    (src.match(/by this station · not an engraving/g) || []).length,
-    1,
-    'a second copy of the agency claim exists outside STATION_CAPTION',
-  );
-  assert.match(station[0], /STATION_CAPTION/, 'StationBird no longer selects its caption by art source');
-
+  // THE SELECTION, NOT THE TABLE. This block used to regex the entries of a
+  // STATION_CAPTION literal in the view and assert their wording. Six reviewers
+  // found the same hole in one sweep: which entry is CHOSEN was never checked,
+  // so `TABLE[artSource || 'autogen']` re-arms the agency claim for every bird
+  // with an unreadable source — and until the station began emitting
+  // art_source, that was EVERY bird on the wall. So this calls the decision.
+  //
+  // Exactly one input may reach a caption claiming this station painted the
+  // bird. Everything else — including inputs that look almost right — must not.
   assert.match(
-    src.replace(/\s+/g, ' '),
-    /the engravings are Jardine's, scanned[^<]*the birds in colour are AI visualized by this station/,
-    'the colophon no longer distinguishes the scanned engravings from the painted birds',
+    stationCaption('autogen'),
+    /by this station/,
+    'station-painted art no longer says the station painted it',
+  );
+  for (const s of ['bundled', '', ' ', 'AUTOGEN', 'autogen ', ' autogen', 'unknown', 'none', 'x']) {
+    assert.doesNotMatch(
+      stationCaption(s),
+      /by this station/,
+      `art_source ${JSON.stringify(s)} is not proof this station painted the bird, and its ` +
+        `caption claims it did`,
+    );
+  }
+  assert.match(stationCaption('bundled'), /shipped with this museum/, 'bundled art no longer says where it came from');
+
+  // The view must ASK, and must not pre-cook the answer: no 'autogen' literal
+  // may exist in LibraryView at all, which is what a `|| 'autogen'` default is.
+  assert.match(station[0], /stationCaption\(/, 'StationBird no longer selects its caption by art source');
+  assert.doesNotMatch(
+    src,
+    /'autogen'|"autogen"/,
+    "LibraryView names 'autogen' — the only legitimate place for that string is the caption " +
+      'table in jardine.ts, and a copy here is how the fallback gets re-pointed at the strong claim',
+  );
+
+  // THE COLOPHON. This assertion used to require the sentence
+  // "the birds in colour are AI visualized by this station" — a blanket claim
+  // that is FALSE of the eight birds whose art ships in the repo. The guard was
+  // holding the falsehood in place: correcting the sentence turned this test
+  // red. It is counted from the catalog now.
+  const flat = src.replace(/\s+/g, ' ');
+  assert.match(flat, /the engravings are Jardine's, scanned/, 'the colophon no longer names the engravings');
+  assert.doesNotMatch(
+    flat,
+    /birds in colour are AI visualized by this station/,
+    'the colophon makes the blanket agency claim again — it is false for every bundled bird',
+  );
+  assert.match(
+    flat,
+    /artProvenance\(/,
+    'the colophon no longer counts who painted what — it is asserting again',
+  );
+  // and the counter itself must never hand a bundled bird to the station
+  const prov = artProvenance([
+    { art_status: 'ready', art_source: 'autogen' },
+    { art_status: 'ready', art_source: 'bundled' },
+    { art_status: 'ready', art_source: '' },
+    { art_status: 'none', art_source: 'autogen' },
+    { art_status: 'unknown', art_source: '' },
+  ]);
+  assert.deepEqual(
+    prov,
+    { station: 1, shipped: 1, unattributed: 1 },
+    'artProvenance miscounts: a bird with no picture, or none this station painted, is being ' +
+      'credited to it',
   );
 
   const raw = corpusRaw();
-  if (raw === null) return;
   const j = normalize(raw);
   const withPlate = j.species.filter((s) => s.image !== null).length;
   assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');

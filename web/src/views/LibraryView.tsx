@@ -52,6 +52,8 @@ import {
   DRIFT_BANDS,
   plateCaption,
   stationClaimAllowed,
+  stationCaption,
+  artProvenance,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -441,25 +443,14 @@ function PlateOpener({ plate, children }: { plate: PlateView | null; children: R
  *  sentence: back to silence, which was always the honest fallback. On the live
  *  station art coverage is 47/47, so this renders; in a dev tree with no Pi it
  *  does not, and that difference is exactly what it should be. */
-/** The three honest captions, by who actually made the picture.
- *
- *  A sweep verified by sha256 against the live station that three of these
- *  birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
- *  IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
- *  with a fresh clone. This station never painted them, and cutout.php serves
- *  them with X-Av-Real:1 exactly as it serves generated art, so no header can
- *  tell them apart. The caption said "AI visualized by THIS STATION" over all
- *  of them.
- *
- *  Two of that sentence's three clauses were true — the bundled art IS
- *  AI-generated, and it is neither engraving nor photograph. Only the agency
- *  was false, so only the agency changes. An unreadable art_source falls to the
- *  claim with no agency in it at all, never to the strong one. */
-const STATION_CAPTION: Record<string, string> = {
-  autogen: 'AI visualized by this station · not an engraving, not a photograph',
-  bundled: 'AI illustration, shipped with this museum · not painted here, not a photograph',
-};
-const STATION_CAPTION_UNKNOWN = 'AI illustration · not an engraving, not a photograph';
+/** The captions that say who made each coloured bird have MOVED to jardine.ts,
+ *  as stationCaption(). The table lived here and E6 asserted its entries — that
+ *  one string says "by this station" and the others do not. Six reviewers found
+ *  the same gap in one sweep: pinning the entries says nothing about which entry
+ *  is SELECTED, and a single defaulted lookup re-arms the agency claim for every
+ *  bird whose source cannot be read. Until the station began emitting
+ *  art_source, that was every bird on the wall. The selection is the decision,
+ *  so it lives where a test can call it with arguments. */
 
 function StationBird({
   sci,
@@ -472,10 +463,10 @@ function StationBird({
   com: string;
   slug: string;
   art: Map<string, string> | null;
-  /** 'bundled' | 'autogen' | '' — see STATION_CAPTION. */
+  /** 'bundled' | 'autogen' | '' — see stationCaption() in jardine.ts. */
   artSource: string;
 }) {
-  const caption = STATION_CAPTION[artSource] ?? STATION_CAPTION_UNKNOWN;
+  const caption = stationCaption(artSource);
   const url = birdImageUrl(slug, sci);
   const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
   // The decision lives in jardine.ts so a test can CALL it — a regex over this
@@ -1875,10 +1866,25 @@ export function LibraryView({
                 reader would reasonably read the line above as covering
                 everything on the page; leaving it to do so would be the exact
                 failure this tab exists to correct, on the tab's own colophon. */}
+            {/* COUNTED, NOT ASSERTED. This line used to say the coloured birds
+                "are AI visualized by this station", full stop — false for the
+                eight whose art ships inside the repo, on the one label whose
+                job is to be exact. It is composed from the catalog now, and the
+                birds this station cannot attribute are named rather than
+                folded into whichever number reads better. */}
             <div className="lib-col-l">
               the engravings are Jardine's, scanned from the 1833–1843 volumes · the birds in
-              colour are AI visualized by this station from the species name — not engraved, not
-              photographed · which is which is printed under every image
+              colour are AI illustrations — not engraved, not photographed
+              {(() => {
+                const p = artProvenance(catalog ?? []);
+                if (p.station + p.shipped + p.unattributed === 0) return null;
+                const parts: string[] = [];
+                if (p.station) parts.push(`${p.station} painted by this station from the species name`);
+                if (p.shipped) parts.push(`${p.shipped} shipped with the museum`);
+                if (p.unattributed) parts.push(`${p.unattributed} this station cannot attribute`);
+                return ` · ${parts.join(', ')}`;
+              })()}{' '}
+              · which is which is printed under each
             </div>
             <div className="lib-col-l">
               Sir William Jardine, The Naturalist's Library, Edinburgh 1833–1843.{' '}
