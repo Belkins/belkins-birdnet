@@ -441,7 +441,7 @@ export function Lab(): JSX.Element {
 
       {seen.has('archive') && (
         <div className={tab === 'archive' ? 'lab-tabbody' : 'lab-tabbody lab-hide'}>
-          <Archive cat={cat} />
+          <Archive cat={cat} active={tab === 'archive'} />
         </div>
       )}
       {seen.has('rhythms') && (

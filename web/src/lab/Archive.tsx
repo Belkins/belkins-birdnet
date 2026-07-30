@@ -28,7 +28,7 @@ const CONF_OPTS = [
   { label: '≥ 90%', value: 0.9 },
 ];
 
-export function Archive({ cat }: { cat: CatalogSpecies[] }): JSX.Element {
+export function Archive({ cat, active }: { cat: CatalogSpecies[]; active: boolean }): JSX.Element {
   const [sci, setSci] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -46,6 +46,14 @@ export function Archive({ cat }: { cat: CatalogSpecies[] }): JSX.Element {
   );
 
   const badRange = from !== '' && to !== '' && from > to;
+
+  // Tab-hide is display:none, which does NOT pause a media element - only
+  // unmounting does. Without this, a playing recording keeps sounding,
+  // invisibly, after switching to RHYTHMS or SERVICES, with its controls
+  // hidden and no way to stop it short of coming back.
+  useEffect(() => {
+    if (!active) setOpen(null);
+  }, [active]);
 
   useEffect(() => {
     if (badRange) return;
