@@ -39,15 +39,20 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // Every entry was probed on the live Pi (2026-07-30) and answered. Deliberately
 // ABSENT: /terminal — the web terminal unit is installed but dead, so linking it
 // would ship a broken door; and Adminer, removed in the 2026-07-27 security pass.
+// The two LIVE instruments — the stream and its picture — no longer leave the
+// wall. They open in StationPanel, one window, because the spectrogram IS the
+// picture of what the stream is playing and reading one without the other was
+// always two tabs. The two entries below stay external: they are whole
+// applications, not instruments, and embedding a PHP admin UI in an iframe here
+// would be a worse lie about where you are than a new tab is.
+//
+// views.php dispatches these to two DIFFERENT files and the names invite the
+// wrong one: view=System Controls is system_controls.php (reboot, shutdown,
+// update), while the per-service Enable/Disable switches — including the Live
+// Audio Stream one that turns the microphone feed on — are view=Services →
+// service_controls.php:36. Verified by fetching both authenticated: only the
+// Services page contains the "Live Audio Stream" heading.
 const STATION: { href: string; name: string; desc: string }[] = [
-  { href: '/index.php?stream=play', name: 'Live Audio', desc: 'listen to the garden microphone, right now' },
-  { href: '/views.php?view=Spectrogram', name: 'Live Spectrogram', desc: 'see what the microphone is hearing' },
-  // views.php dispatches these to two DIFFERENT files and the names invite the
-  // wrong one: view=System Controls is system_controls.php (reboot, shutdown,
-  // update), while the per-service Enable/Disable switches — including the Live
-  // Audio Stream one that turns the microphone feed on — are view=Services →
-  // service_controls.php:36. Verified by fetching both authenticated: only the
-  // Services page contains the "Live Audio Stream" heading.
   {
     href: '/views.php?view=Services',
     name: 'Service Controls',
@@ -140,8 +145,9 @@ export function SettingsPanel(props: {
   onChange: (patch: Partial<Settings>) => void;
   onClose: () => void;
   onEnterFrame: () => void;
+  onOpenStation: () => void;
 }) {
-  const { open, settings, onChange, onClose, onEnterFrame } = props;
+  const { open, settings, onChange, onClose, onEnterFrame, onOpenStation } = props;
 
   // Golden Hour is structurally silent without a configured location — the
   // toggle stays interactive (the engine gate makes it harmless) and the note
@@ -283,6 +289,12 @@ export function SettingsPanel(props: {
           {!MOCK && (
             <Section title="STATION">
               <nav className="set-links">
+                <button type="button" className="set-link set-link-btn" onClick={onOpenStation}>
+                  <span className="set-link-n">Live Audio &amp; Spectrogram</span>
+                  <span className="set-link-d">
+                    hear the garden microphone and see what it is hearing — here, in this window
+                  </span>
+                </button>
                 {STATION.map((s) => (
                   <a key={s.href} className="set-link" href={s.href} target="_blank" rel="noopener">
                     <span className="set-link-n">
@@ -293,7 +305,8 @@ export function SettingsPanel(props: {
                 ))}
               </nav>
               <p className="set-note">
-                These ask for the station password. The wall is open to the house; the controls are not.
+                The spectrogram is open to the house. The microphone and the controls ask for the
+                station password — once per visit now, not once per link.
               </p>
             </Section>
           )}

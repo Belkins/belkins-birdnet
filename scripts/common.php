@@ -95,7 +95,12 @@ function is_authenticated() {
 
 function ensure_authenticated($error_message = 'You cannot edit the settings for this installation') {
   if (!is_authenticated()) {
-    header('WWW-Authenticate: Basic realm="My Realm"');
+    // The realm string MUST match Caddy's basic_auth realm and avian/api/_auth.php.
+    // Browsers cache Basic credentials per (origin, REALM) — with Caddy on
+    // realm="restricted" and this on "My Realm", one sign-in unlocked only half
+    // the station and every hop re-prompted. Same password the whole time; the
+    // browser just had no way to know that. Three places, one string.
+    header('WWW-Authenticate: Basic realm="Belkins BirdNET station"');
     header('HTTP/1.0 401 Unauthorized');
     echo '<table><tr><td>' . $error_message . '</td></tr></table>';
     exit;
