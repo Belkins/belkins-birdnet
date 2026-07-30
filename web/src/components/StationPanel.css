@@ -1,0 +1,205 @@
+/* The station panel — the microphone in the museum's own window. Deliberately
+   the same shell vocabulary as the bird dossier (scrim + card + round close),
+   narrower because this is one instrument, not a two-column dossier. Every
+   colour resolves from the :root / [data-theme='day'] custom properties so it
+   reads in both night (obsidian) and day (cream). */
+
+.st-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 210; /* above the settings drawer that opens it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: st-fade 0.18s ease;
+}
+
+.st-card {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 32px 34px 26px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
+  animation: st-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.st-x {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  z-index: 2;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--mut);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.st-x:hover,
+.st-x:focus-visible {
+  color: var(--ink);
+  border-color: var(--amber);
+  outline: none;
+}
+
+/* ── head ──────────────────────────────────────────────────── */
+.st-kicker {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--mut);
+}
+.st-title {
+  margin: 6px 0 20px;
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+/* ── spectrogram ───────────────────────────────────────────── */
+.st-figure {
+  margin: 0 0 22px;
+}
+.st-spec {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--page);
+}
+.st-spec-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 132px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+.st-cap {
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--mut);
+}
+/* A frame that stopped arriving must not read as a quiet garden. */
+.st-stale {
+  color: var(--red);
+}
+
+/* ── listen ────────────────────────────────────────────────── */
+.st-listen {
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.st-label {
+  display: block;
+  margin-bottom: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--mut);
+}
+.st-audio {
+  width: 100%;
+  height: 38px;
+}
+.st-note {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.02em;
+  color: var(--mut);
+}
+.st-unlock {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--amber);
+}
+.st-unlock:hover {
+  color: var(--amber);
+}
+.st-retry {
+  padding: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.st-retry:hover {
+  color: var(--amber);
+  border-bottom-color: var(--amber);
+}
+
+/* ── the two surfaces that stay full pages ─────────────────── */
+.st-more {
+  display: flex;
+  gap: 20px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.st-more a {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--mut);
+  text-decoration: none;
+  transition: color 0.18s ease;
+}
+.st-more a:hover {
+  color: var(--amber);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes st-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes st-rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+}
+
+@media (max-width: 560px) {
+  .st-card {
+    padding: 26px 20px 20px;
+  }
+  .st-title {
+    font-size: 24px;
+  }
+  .st-more {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
