@@ -1,0 +1,54 @@
+http:// {
+	root * /home/belkins/BirdSongs/Extracted
+	# Compression. Measured on the real bundles: catalog JS 194410 -> 60923
+	# (69% off), index CSS 64016 -> 11737 (82% off). Caddy encodes only the
+	# content types in its default match list, so images/mp3 are untouched.
+	# EXCLUDES /events: SSE is text/event-stream, which DOES match that list,
+	# and buffering it would silently stop live wall updates while every
+	# asset check still passed.
+	@nostream not path /events*
+	encode @nostream zstd gzip
+	# The wall front door: / used to resolve to Extracted/index.html, the
+	# symlink to the LEGACY avian/frontend collage, while the real museum
+	# sat at /collage/. Exact root only; /index.html still reaches legacy.
+	redir / /collage/ 302
+	# DNS-rebinding defence: a hostile page cannot rebind its own name to this
+	# box and drive it, because the Host header will not match. Add names here
+	# if you reach the Pi by another hostname.
+	@badhost not host birdnet.local birdnet birdnet.local. localhost 127.0.0.1 192.168.1.236
+	abort @badhost
+	# Always revalidate HTML docs so versioned (?v=) asset refs propagate on the
+	# next reload without a hard refresh (ETag makes it a cheap 304). Hashed/
+	# versioned JS+CSS stay cacheable via their own ?v= token.
+	@html path / /collage/ *.html
+	header @html Cache-Control "no-cache"
+	# Content-hashed filenames (assets/name-HASH.js) can never change content,
+	# so they are safe to cache permanently. Without this they fall back to
+	# ETag revalidation, costing a round trip per asset on every single load.
+	# The @html no-cache rule above is deliberate and stays as it is.
+	@immutable path /collage/assets/*
+	header @immutable Cache-Control "public, max-age=31536000, immutable"
+	file_server browse
+	handle /By_Date/* {
+		file_server browse
+	}
+	handle /Charts/* {
+		file_server browse
+	}
+	reverse_proxy /stream localhost:8000
+	# AvianVisitors overlay drops an index.html alongside BirdNET-Pi's
+	# index.php. The default try_files for php_fastcgi prefers index.php
+	# over index.html, so override it - this is a no-op on stock installs
+	# since EXTRACTED has no index.html there.
+	php_fastcgi unix//run/php/php-fpm.sock {
+		try_files {path} {path}/index.html {path}/index.php index.php
+	}
+	reverse_proxy /log* localhost:8080
+	reverse_proxy /stats* localhost:8501
+	reverse_proxy /terminal* localhost:8888
+
+	# Project Christina realtime SSE spine
+	reverse_proxy /events localhost:8090 {
+		flush_interval -1
+	}
+}
