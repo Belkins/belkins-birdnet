@@ -1,40 +1,37 @@
 // STATION PANEL — the live microphone, in the museum's own window.
 //
-// REBUILT 2026-07-30 after a fair complaint: the first version invented a raw
-// <audio controls> and a bordered <img>, when this app already had both a real
-// audio control and a real spectrogram treatment. It now uses them:
+// Two rebuilds, both from fair complaints:
+//   1. It invented a raw <audio controls> and a bordered <img> when this app
+//      already had <Listen> and the .bp-spectro band. Fixed: it uses those.
+//   2. The picture was /spectrogram.png — the still sox re-renders once per
+//      15-second analysis cycle. A slideshow of stills is not a live instrument;
+//      "it's just like static" was right. Fixed: <LiveSpectrogram> paints a
+//      scrolling waterfall from the very audio <Listen> is playing.
 //
-//   * <Listen> — the museum's own play/pause control (▶ / ❚❚, idle→loading→
-//     playing→error states, "No audio" when the source fails). It already did
-//     everything a live stream needs; it only lacked a way to be pointed at a
-//     url that is not a recording, so it gained an optional `src`.
-//   * .bp-spectro / .bp-spectro-img — the same greyscaled band the bird dossier
-//     draws a clip's spectrogram into. Identical vocabulary, so the live picture
-//     reads as the same instrument as the one on every recording row.
+// TWO STATES, each labelled for what it actually is — no state pretends to be
+// the other:
+//   before you press play  the last frame BirdNET analysed, with its real
+//                          timestamp. Honest: it is a still, and it says so.
+//   playing                a live waterfall of the sound reaching your speakers.
 //
-// Nothing here is a new visual element. The only bespoke CSS left is layout.
-//
-// AUTH: both halves are open now (STATION_OPEN=1), so there is no lock state to
-// handle — /spectrogram.png and /stream both answer without credentials. If the
-// gates ever come back, <Listen> already degrades to a disabled "No audio" pill
-// on a 401, which is the honest failure, so this needs no lock probe.
-//
-// HONESTY: the spectrogram updates per analysis cycle, not per second. An image
-// that quietly stopped refreshing would read as "the garden is quiet" — the lie
-// this project exists not to tell. So we poll Last-Modified, swap the src only
-// when it genuinely changes, print the real timestamp, and say so plainly once
-// the frame goes stale.
-import { useEffect, useRef, useState } from 'react';
+// The live canvas draws only while audio is genuinely playing. Silence produces
+// no new columns rather than a synthesised animation implying the garden is
+// being heard — this station spent four hours recording digital silence on
+// 2026-07-30 while the wall said LISTENING, and a spectrogram that animates
+// without input is exactly how that stays invisible.
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Listen } from './Listen';
+import { LiveSpectrogram } from './LiveSpectrogram';
 import './BirdPopup.css'; // the .bp-spectro band — reused, not reimplemented
 import './StationPanel.css';
 
 const SPECTROGRAM_URL = '/spectrogram.png';
 const STREAM_URL = '/stream';
+const BAND_H = 168;
 
-/** HEAD poll cadence — cheap, no body. */
+/** HEAD poll cadence for the idle still. Stops entirely once you are live. */
 const POLL_MS = 5_000;
-/** Past this, say the picture is old rather than letting it imply "now". */
+/** Past this the still is old; say so rather than let it imply "now". */
 const STALE_MS = 3 * 60_000;
 
 function clockOf(d: Date): string {
@@ -42,6 +39,8 @@ function clockOf(d: Date): string {
 }
 
 export function StationPanel({ onClose }: { onClose: () => void }) {
+  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
   const [shotAt, setShotAt] = useState<Date | null>(null);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
@@ -49,7 +48,33 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const lastMod = useRef<string | null>(null);
 
-  // Esc closes, matching BirdPopup and the Settings drawer.
+  // Once <Listen> has ever made an element, the live canvas owns the band.
+  const live = audio !== null;
+
+  const onAudio = useCallback((el: HTMLAudioElement | null) => setAudio(el), []);
+
+  // Follow the element's own events rather than adding another prop to Listen.
+  useEffect(() => {
+    if (!audio) {
+      setPlaying(false);
+      return;
+    }
+    const on = () => setPlaying(true);
+    const off = () => setPlaying(false);
+    audio.addEventListener('playing', on);
+    audio.addEventListener('pause', off);
+    audio.addEventListener('ended', off);
+    audio.addEventListener('error', off);
+    return () => {
+      audio.removeEventListener('playing', on);
+      audio.removeEventListener('pause', off);
+      audio.removeEventListener('ended', off);
+      audio.removeEventListener('error', off);
+    };
+  }, [audio]);
+
+  // Esc closes, matching BirdPopup and the Settings drawer. Pause on close so
+  // the stream does not keep playing behind a dismissed dialog.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -59,8 +84,10 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Poll Last-Modified; swap the frame only on a real change.
+  // The idle still. Polled ONLY while not live — once the waterfall is running
+  // this is dead weight and a request every 5s for a picture nobody can see.
   useEffect(() => {
+    if (live) return;
     let alive = true;
     const tick = async () => {
       try {
@@ -85,7 +112,7 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
       window.clearInterval(iv);
       window.clearInterval(age);
     };
-  }, []);
+  }, [live]);
 
   const stale = shotAt !== null && now - shotAt.getTime() > STALE_MS;
 
@@ -107,16 +134,17 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
           <h2 className="st-title">Listening now</h2>
         </div>
 
-        {/* The dossier's spectrogram band, pointed at the live frame instead of
-            a clip. Same classes, so it greyscales in night and reads identically
-            to the one under every recording row. */}
+        {/* The dossier's band. Live waterfall once there is audio to read;
+            before that, the last frame BirdNET analysed. */}
         <figure className="st-figure">
           <div className="bp-spectro st-spectro">
-            {imgSrc && !imgFailed ? (
+            {live ? (
+              <LiveSpectrogram audio={audio} playing={playing} height={BAND_H} />
+            ) : imgSrc && !imgFailed ? (
               <img
                 className="bp-spectro-img"
                 src={imgSrc}
-                alt="Live spectrogram of the garden microphone"
+                alt="The last frame the station analysed"
                 onError={() => setImgFailed(true)}
               />
             ) : (
@@ -126,26 +154,38 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
           <figcaption className="st-cap">
-            what the microphone is hearing
-            {shotAt && (
+            {live ? (
+              playing ? (
+                <>
+                  <span className="st-livedot" aria-hidden="true" /> live — what the microphone is hearing
+                </>
+              ) : (
+                'paused — press Listen live to resume the waterfall'
+              )
+            ) : (
               <>
-                {' · '}
-                <span className={stale ? 'st-stale' : undefined}>
-                  {stale ? `last frame ${clockOf(shotAt)} — not updating` : `updated ${clockOf(shotAt)}`}
-                </span>
+                the last frame the station analysed
+                {shotAt && (
+                  <>
+                    {' · '}
+                    <span className={stale ? 'st-stale' : undefined}>
+                      {stale ? `${clockOf(shotAt)} — not updating` : clockOf(shotAt)}
+                    </span>
+                  </>
+                )}
+                {' · press Listen live for the real-time picture'}
               </>
             )}
           </figcaption>
         </figure>
 
-        {/* The museum's own control, pointed at the live mount. */}
         <div className="st-listen">
-          <Listen sci="live" src={STREAM_URL} idleLabel="Listen live" playingLabel="Stop" />
+          <Listen sci="live" src={STREAM_URL} idleLabel="Listen live" playingLabel="Stop" onAudio={onAudio} />
         </div>
 
         <nav className="st-more">
-          <a href="/views.php?view=Services" target="_blank" rel="noopener">
-            Service Controls ↗
+          <a href="/views.php?view=Spectrogram" target="_blank" rel="noopener">
+            Station spectrogram page ↗
           </a>
           <a href="/index.php" target="_blank" rel="noopener">
             Station Console ↗
