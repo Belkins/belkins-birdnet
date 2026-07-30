@@ -15,7 +15,7 @@
 // Nothing is hand-written that could be derived, and nothing is derived that is
 // not true: every section degrades to silence rather than to a placeholder, and
 // the whole tab renders its honest empty state when /jardine.json is absent.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { API_BASE } from '../config';
 import type { CatalogSpecies } from '../catalog';
@@ -33,6 +33,7 @@ import type {
   JardineErratumSubject,
   JardinePassage,
   JardineSic,
+  JardinePlateFigure,
   JardineAccounts,
   JardineSpecies,
 } from '../jardine';
@@ -316,6 +317,113 @@ function Attribution({ p, link = true }: { p: JardinePassage; link?: boolean }) 
   );
 }
 
+/** A plate, opened. Everything needed to show it large and caption it honestly. */
+interface PlateView {
+  src: string;
+  w: number | null;
+  h: number | null;
+  /** "plate iii · vol. XXIV" — the 2026 hand's locator. */
+  locator: string;
+  /** Jardine's own title for the bird. */
+  subject: string;
+  also: JardinePlateFigure[];
+  where: string | null;
+  cited: boolean;
+  note: string | null;
+  station: boolean;
+}
+
+/** Opening a plate has to reach the errata vitrine, the reading desk and the
+ *  full account, and the vitrine sits three components deep inside a slip that
+ *  has no business knowing about a viewer. A context carries it instead of four
+ *  layers of prop drilling. */
+const OpenPlateCtx = createContext<((p: PlateView) => void) | null>(null);
+
+/** THE PLATE, LARGE — because a 114px vignette is a thumbnail of an argument,
+ *  not the argument.
+ *
+ *  The vitrine deliberately prints Jardine's OWN relative sizes: the Waxwing's
+ *  full plate beside the Robin's vignette at 0.38 of it, because Erratum I is
+ *  about a book that gave a rare vagrant a full page and this garden's second
+ *  loudest bird a corner sketch. That ratio is the whole point and it stays.
+ *  But a ratio can be honoured at any base, and at a 300px base the vignettes
+ *  came out 114px wide — too small to see the bird the slip is arguing about.
+ *
+ *  So: the ratio survives, the base grows, and every plate opens. Here it is
+ *  shown at up to 88vh with its full caption, which is the only place the
+ *  engraver's line is actually legible. */
+function PlateViewer({ plate, onClose }: { plate: PlateView; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div className="lib-view-back" onClick={onClose}>
+      <div
+        className="lib-view"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${plate.subject}, ${plate.locator}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button type="button" className="lib-acct-x lib-view-x" onClick={onClose} ref={closeRef}>
+          ✕
+        </button>
+        <div className={plate.station ? 'lib-view-mat lib-view-bare' : 'lib-view-mat'}>
+          <img
+            className="lib-view-img"
+            src={plate.src}
+            alt={`${plate.subject}, ${plate.locator}`}
+            style={
+              plate.w && plate.h ? ({ aspectRatio: `${plate.w} / ${plate.h}` } as CSSProperties) : undefined
+            }
+          />
+        </div>
+        <div className="lib-view-cap">
+          <span className="lib-plate-k">{plate.locator}</span>
+          <span className="lib-view-t">{plate.subject}</span>
+          {plate.also.length > 0 && (
+            <span className="lib-plate-two">
+              two birds on this sheet — {plate.subject} {plate.where}
+              {plate.also.map((a) => (
+                <span key={a.sci_name}>
+                  , and the {a.common} {a.where}
+                </span>
+              ))}
+            </span>
+          )}
+          {plate.cited && (
+            <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>
+          )}
+          {plate.cited && plate.note && <span className="lib-plate-why">{plate.note}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Wraps a plate so it can be opened — a real button, so it is reachable by
+ *  keyboard and announces itself, not a div with an onClick. */
+function PlateOpener({ plate, children }: { plate: PlateView | null; children: ReactNode }) {
+  const open = useContext(OpenPlateCtx);
+  if (!plate || !open) return <>{children}</>;
+  return (
+    <button
+      type="button"
+      className="lib-plate-open"
+      onClick={() => open(plate)}
+      aria-label={`Examine ${plate.subject}, ${plate.locator}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** THE STATION'S OWN BIRD, and ONLY when there is one.
  *
  *  It must gate on the art actually being READY, and the first version did not.
@@ -351,7 +459,27 @@ function StationBird({
   if (phase !== 'ready' || !src) return null;
   return (
     <figure className="lib-fig-plate lib-fig-modern">
-      <img className="lib-plate lib-plate-station" src={src} alt={`${com || sci}, AI visualized by this station`} decoding="async" />
+      <PlateOpener
+        plate={{
+          src,
+          w: null,
+          h: null,
+          locator: 'no plate — AI visualized by this station',
+          subject: com || sci,
+          also: [],
+          where: null,
+          cited: false,
+          note: null,
+          station: true,
+        }}
+      >
+        <img
+          className="lib-plate lib-plate-station"
+          src={src}
+          alt={`${com || sci}, AI visualized by this station`}
+          decoding="async"
+        />
+      </PlateOpener>
       <figcaption className="lib-plate-cap">
         <span className="lib-plate-k">no plate — the book never figured this bird</span>
         <span className="lib-plate-modern">AI visualized by this station · not an engraving, not a photograph</span>
@@ -414,6 +542,20 @@ function SpeciesPlate({
   const plate = sp.plate_ref ? sp.plate_ref.replace(/-/g, ' ') : 'plate';
   return (
     <figure className="lib-fig-plate">
+      <PlateOpener
+        plate={{
+          src,
+          w: sp.image_w,
+          h: sp.image_h,
+          locator: `${plate} · vol. ${volumeRoman(sp.volume)}`,
+          subject: sp.jardine_title,
+          also: sp.plate_also,
+          where: sp.plate_where,
+          cited,
+          note: sp.plate_note,
+          station: false,
+        }}
+      >
       <img
         className="lib-plate"
         src={src}
@@ -445,6 +587,7 @@ function SpeciesPlate({
            so it is fetched with the passage it faces. */
         decoding="async"
       />
+      </PlateOpener>
       <figcaption className="lib-plate-cap">
         <span className="lib-plate-k">
           {plate} · vol. {volumeRoman(sp.volume)}
@@ -788,17 +931,39 @@ function Engraving({ sub, caption }: { sub: JardineErratumSubject; caption: stri
   return (
     <figure className="lib-mount" style={style}>
       {src ? (
-        <span className="lib-mat">
-          <img
-            className="lib-plate"
-            src={src}
-            width={sub.image_w ?? undefined}
-            height={sub.image_h ?? undefined}
-            alt={`Jardine's ${sub.jardine_plate ?? 'plate'} of ${sub.sci_name}`}
-            loading="lazy"
-            decoding="async"
-          />
-        </span>
+        <PlateOpener
+          plate={{
+            src,
+            w: sub.image_w,
+            h: sub.image_h,
+            locator: sub.jardine_plate ? sub.jardine_plate.replace(/-/g, ' ') : 'plate',
+            subject: caption,
+            also: [],
+            where: null,
+            cited: false,
+            note: null,
+            station: false,
+          }}
+        >
+          <span className="lib-mat">
+            <img
+              className="lib-plate"
+              src={src}
+              width={sub.image_w ?? undefined}
+              height={sub.image_h ?? undefined}
+              alt={`Jardine's ${sub.jardine_plate ?? 'plate'} of ${sub.sci_name}`}
+              /* The vitrine's whole argument is the RELATIVE size of these
+                 mounts, so the box must be right before the JPEG lands or the
+                 comparison assembles itself in front of the reader. */
+              style={
+                sub.image_w && sub.image_h
+                  ? ({ aspectRatio: `${sub.image_w} / ${sub.image_h}` } as CSSProperties)
+                  : undefined
+              }
+              decoding="async"
+            />
+          </span>
+        </PlateOpener>
       ) : (
         <span className="lib-mat lib-mat-empty" aria-hidden="true" />
       )}
@@ -1331,6 +1496,12 @@ export function LibraryView({
   // affordance never renders and the tab behaves exactly as it did.
   const [accounts, setAccounts] = useState<JardineAccounts | null>(null);
   const [openSci, setOpenSci] = useState<string | null>(null);
+  // THE PLATE VIEWER. Every engraving on this tab is openable — the vitrine's
+  // vignettes especially, which print at Jardine's own 0.38 scale because the
+  // ratio IS Erratum I's argument, and are therefore far too small to actually
+  // look at. The ratio stays; the plate opens.
+  const [plate, setPlate] = useState<PlateView | null>(null);
+  const openPlate = useCallback((p: PlateView) => setPlate(p), []);
   useEffect(() => {
     if (openSci === null || accounts !== null) return;
     let live = true;
@@ -1356,7 +1527,9 @@ export function LibraryView({
   const empty = jardine !== null && volumes.length === 0 && jardine.species.length === 0;
 
   return (
+    <OpenPlateCtx.Provider value={openPlate}>
     <div className="view lib">
+      {plate && <PlateViewer plate={plate} onClose={() => setPlate(null)} />}
       {/* 1 · MASTHEAD + THE EPIGRAPH — one borrowed sentence, then it shuts up. */}
       <div className="view-mast">
         <div className="eyebrow">the naturalist's library · edinburgh, 1833–1843</div>
@@ -1685,5 +1858,6 @@ export function LibraryView({
         </>
       )}
     </div>
+    </OpenPlateCtx.Provider>
   );
 }
