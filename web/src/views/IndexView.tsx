@@ -13,17 +13,20 @@ import { windowHeadline } from '../window';
 export function IndexView({
   rows,
   archiveDay = null,
-  windowHours = 24,
+  windowHours,
 }: {
   rows: RosterRow[];
   /** Pinned past day the roster reflects, or null = live window — the ledger
    *  must never headline archive counts as "Heard Today". */
   archiveDay?: string | null;
-  /** The window `rows` was actually counted over. The headline is a CLAIM about
-   *  these numbers, so it has to come from the same place they do. The `label`
-   *  prop that used to sit beside it is gone: passing a NAME alongside the
-   *  hours is how the two came apart, because only one of them was true. */
-  windowHours?: number;
+  /** The window `rows` was actually counted over, and REQUIRED — that is the
+   *  guard. The `label` prop that used to sit beside it is gone: passing a NAME
+   *  alongside the hours is how the two came apart, because only one was true. A sweep dropped this prop at the call
+   *  site and the suite stayed green, because the default silently named a
+   *  window nobody had selected. A window's name is a claim about the numbers
+   *  under it; there is no honest default for it, so the compiler refuses the
+   *  omission instead of a test having to notice it. */
+  windowHours: number;
 }) {
   const headline = windowHeadline(windowHours);
   const total = rows.reduce((a, r) => a + r.n, 0);

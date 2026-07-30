@@ -1422,7 +1422,12 @@ export function LibraryView({
   /** The active period in hours. Under ALL the window is a non-claim (the same
    *  reasoning as BirdPopup's showWindowStat), so the desk stops answering
    *  "in this window" and falls to its daily rotation. */
-  windowHours?: number;
+  /** REQUIRED, and that is the guard. A sweep dropped this prop at the call
+   *  site and the suite stayed green, because the default silently named a
+   *  window nobody had selected. A window's name is a claim about the numbers
+   *  under it; there is no honest default for it, so the compiler refuses the
+   *  omission instead of a test having to notice it. */
+  windowHours: number;
   /** ?read= — the bird the reader named from a dossier. Tier zero of the desk. */
   aim?: string | null;
   /** Called when the reader turns the page: the aim is spent and the URL should
@@ -1504,7 +1509,7 @@ export function LibraryView({
         species: jardine?.species ?? [],
         rows,
         catalog: catalog ?? [],
-        windowHours: windowHours ?? 24,
+        windowHours,
         now: new Date(),
         aim,
         step,

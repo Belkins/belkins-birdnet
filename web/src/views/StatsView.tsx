@@ -14,14 +14,19 @@ import { fetchCatalog, type CatalogSpecies } from '../catalog';
 export function StatsView({
   rows,
   archiveDay = null,
-  windowHeadline = 'These 24 Hours',
+  windowHeadline,
 }: {
   /** How to describe the window `rows` was counted over. The Top Species panel
    *  is built from `rows`, so labelling it "today" is a claim about numbers that
    *  may be an hour's worth or four weeks' — see IndexView's WINDOW_HEADLINE.
    *  (The NOW/TODAY/WEEK/ALL block below is NOT affected: it reads fixed buckets
    *  straight from the API and labels each with its own period.) */
-  windowHeadline?: string;
+  /** REQUIRED, and that is the guard. A sweep dropped this prop at the call
+   *  site and the suite stayed green, because the default silently named a
+   *  window nobody had selected. A window's name is a claim about the numbers
+   *  under it; there is no honest default for it, so the compiler refuses the
+   *  omission instead of a test having to notice it. */
+  windowHeadline: string;
   rows: RosterRow[];
   /** Pinned past day the roster reflects, or null = live window. The station
    *  panels below carry their own all-time labels and stay truthful either way. */
