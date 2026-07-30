@@ -72,10 +72,44 @@ if (!empty($_GET['sil']) || !empty($_GET['fb'])) {
 // next reload — no hard-refresh, no 10-min wait — at near-zero Pi cost.
 // Placeholders/substitutes keep a short max-age (they self-clear fast and a
 // brief stale silhouette is harmless).
+// WEBP VARIANTS (added 2026-07-30). A measured wall load pulled 9,488,094 B of
+// full-size PNG across 13 species — 93.3% of all first-load bytes — into boxes
+// ~130-190 CSS px wide. Re-encoding the same plates measured 26.1% of original
+// lossless and ~7.0% at q90, so this is the single largest win available.
+//
+// Every tier below funnels through serve_png(), so negotiation lives here once
+// rather than in five places. Contract preserved exactly: same URL, same
+// X-Av-Real / X-Av-Sub semantics, same Cache-Control, same 304 behaviour. With
+// no .webp sibling present the response is byte-identical to before.
+//
+// STALENESS: the variant is used only when its mtime is >= the plate's. A
+// repaint/reclean rewrites the .png, which instantly demotes an older .webp and
+// falls back to the PNG — so the "mutilated gull outlived its own fix" failure
+// class cannot recur through this path even if variant regeneration lags.
+function pick_variant(string $path, string &$type): string {
+    if (strpos((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'image/webp') === false) return $path;
+    $webp = preg_replace('/\.png$/i', '.webp', $path);
+    if (!is_string($webp) || $webp === $path || !is_file($webp)) return $path;
+    $pst = @stat($path);
+    $wst = @stat($webp);
+    if ($pst === false || $wst === false) return $path;
+    if ($wst['size'] <= 0 || $wst['mtime'] < $pst['mtime']) return $path;
+    $type = 'image/webp';
+    return $webp;
+}
+
 function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub = false): void {
     $cc = $real ? 'no-cache' : ('public, max-age=' . $maxAge);
+    $type = 'image/png';
+    $path = pick_variant($path, $type);
+    // Mandatory once the BODY depends on the request's Accept header: without it
+    // a shared cache can hand a webp to a client that cannot decode it.
+    header('Vary: Accept');
     $st = @stat($path);
     if ($st !== false) {
+        // Keyed on the SERVED file, so png and webp carry distinct ETags and a
+        // client that switches representation cannot be answered with a 304 for
+        // the other one.
         $etag = sprintf('"%x-%x"', $st['mtime'], $st['size']);
         header('ETag: ' . $etag);
         $inm = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
@@ -90,7 +124,7 @@ function serve_png(string $path, int $maxAge = 600, bool $real = true, bool $sub
     }
     header('X-Av-Real: ' . ($real ? '1' : '0'));
     if ($sub) header('X-Av-Sub: 1');
-    header('Content-Type: image/png');
+    header('Content-Type: ' . $type);
     header('Cache-Control: ' . $cc);
     header('Content-Length: ' . (string)filesize($path));
     readfile($path);
