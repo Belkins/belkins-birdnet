@@ -4,24 +4,24 @@
 // Returns the list of links shown in the side drawer when a user clicks
 // the menu button. The live JS expects {items: [{label, href, native}]}.
 //
-// Default LAN deploy: returns items immediately, no auth.
-// Forwarded deploy:  set AV_REQUIRE_AUTH=1 in /etc/avian/env (or in your
-// php-fpm pool's env block) AND configure Caddy basic_auth on /avian/api/
-// to force the lock screen.
+// AUTH: always required. Every item below is an ADMIN overlay, and all four
+// sections behind them (settings, system, logs, tools) are now gated, so an
+// anonymous caller has no use for this list.
+//
+// Low severity on its own — four static strings, no secrets, no writes — but it
+// carried the same opt-in AV_REQUIRE_AUTH shape as config.php and
+// birdnet-status.php, and it is the instance the first pass of that fix MISSED.
+// It surfaced only because the repo guard written for the other two was
+// negative-tested and turned out to be failing on this file for a real reason.
+// Left ungated it would have been the surviving example that justifies weakening
+// the guard later. See avian/api/_auth.php.
 
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
-// If forwarded mode is on AND no Basic-auth header arrived, 401 so the
-// frontend shows the lock screen. The actual credential check is done
-// by Caddy (basic_auth directive in forwarding/caddy-auth.caddy); this
-// PHP only checks that *some* Authorization header reached us.
-if (getenv('AV_REQUIRE_AUTH') === '1' && empty($_SERVER['HTTP_AUTHORIZATION'])) {
-    http_response_code(401);
-    echo json_encode(['error' => 'unauthorized']);
-    exit;
-}
+require_once __DIR__ . '/_auth.php';
+av_require_auth();
 
 // All four items are in-app overlays. `native: true` tells the FE to
 // route via `#admin=<section>` rather than opening a new window. We
