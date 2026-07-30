@@ -321,6 +321,47 @@ function corpusRaw(): unknown {
   return JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as unknown;
 }
 
+/** EVERY LEAF RULE IN A STYLESHEET, INCLUDING THE ONES INSIDE @media.
+ *
+ *  Both CSS guards in this file used `/([^{}]+)\{([^}]*)\}/g`, and a sweep
+ *  walked past both: that pattern cannot nest. Given
+ *
+ *      @media (max-width: 480px) { .lib-mount { min-width: 240px; } }
+ *
+ *  it captures `@media (max-width: 480px)` as the SELECTOR and the inner rule
+ *  as part of its body — so a filter on the selector never sees `.lib-mount`,
+ *  and Erratum I's ratio was flattened on every phone with the suite at 117
+ *  green. Reproduced before fixing.
+ *
+ *  A brace counter is enough: track the selector at each depth and yield only
+ *  blocks that contain no further block. `context` carries the at-rules a rule
+ *  is nested under, so a failure can name the breakpoint it happened at. */
+interface CssRule {
+  selector: string;
+  body: string;
+  context: string;
+}
+function cssRules(text: string): CssRule[] {
+  const s = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const out: CssRule[] = [];
+  const stack: string[] = [];
+  let buf = '';
+  for (const ch of s) {
+    if (ch === '{') {
+      stack.push(buf.trim().replace(/\s+/g, ' '));
+      buf = '';
+    } else if (ch === '}') {
+      const selector = stack.pop() ?? '';
+      // a block whose buffer holds declarations (no nested block survived here)
+      if (buf.trim()) out.push({ selector, body: buf, context: stack.join(' ') });
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  return out;
+}
+
 /** Strip block and line comments so a guard asserts an INVOCATION and not a
  *  mention. A commented-out call is exactly the regression these tests exist to
  *  catch, so it must never satisfy one. */
@@ -330,11 +371,32 @@ function stripComments(src: string): string {
 
 /** Every file that renders a Jardine row. A new one must be added here — which
  *  is the point: the list is the checklist. */
-const CONSUMERS = [
-  '../src/views/LibraryView.tsx',
-  '../src/views/LibraryFrameView.tsx',
-  '../src/components/BirdPopup.tsx',
-];
+/** DERIVED, NOT LISTED. This was three hand-written paths, and the Atlas was
+ *  not among them — AtlasView.tsx renders <JardineName> on its first-specimen
+ *  card and reads jardine_binomial to decide whether to, and G4 never parsed
+ *  the file. A raw binomial there would have shipped without its [sic] or its
+ *  provenance marker, on a surface the museum shows on every tab change.
+ *
+ *  A checklist maintained by hand is exactly the artefact that goes stale, and
+ *  "the list is the point" was my own comment defending it. So the list is now
+ *  the ANSWER to a question about the tree: every .tsx that touches an 1838
+ *  name is a consumer, and adding a new surface adds it here for free.
+ *  JardineName.tsx is excluded because it IS the renderer; the count is pinned
+ *  so a scan that finds nothing fails instead of passing vacuously. */
+function jardineConsumers(): string[] {
+  const roots = ['../src/views/', '../src/components/'];
+  const found: string[] = [];
+  for (const dir of roots) {
+    const base = new URL(dir, import.meta.url);
+    for (const name of readdirSync(base)) {
+      if (!name.endsWith('.tsx') || name === 'JardineName.tsx') continue;
+      const body = stripComments(readFileSync(new URL(name, base), 'utf8'));
+      if (/jardine_binomial|jardine_authority|<JardineName/.test(body)) found.push(dir + name);
+    }
+  }
+  return found.sort();
+}
+const CONSUMERS = jardineConsumers();
 
 /** The two raw 1838 strings. Both carry OCR artefacts and both belong to a
  *  provenance chain, so neither may reach the DOM except through
@@ -1564,6 +1626,19 @@ test('G4 no surface prints an 1838 name except through <JardineName>', () => {
   // spelling shipped past it: the collision slip rendered a local const built by
   // mapping subjects to their binomials. It is a parse now; see rawNameRenders()
   // for what it follows and what it deliberately does not.
+  // The derived list disagreed with the hand-written one in BOTH directions,
+  // which is the argument for deriving it. It gained AtlasView, which really
+  // does render a binomial and was never being parsed. It lost
+  // LibraryFrameView, which prints `jardine_title` — an 1838 common name — and
+  // no binomial at all, so it had been sitting in the list passing vacuously.
+  // The floor is what the tree actually contains.
+  for (const must of ['LibraryView.tsx', 'BirdPopup.tsx', 'AtlasView.tsx']) {
+    assert.ok(
+      CONSUMERS.some((c) => c.endsWith(must)),
+      `${must} renders an 1838 binomial and the scan did not find it — a broken scan ` +
+        `passes vacuously (found: ${CONSUMERS.join(', ') || 'nothing'})`,
+    );
+  }
   for (const file of CONSUMERS) {
     const found = rawNameRenders(new URL(file, import.meta.url));
     assert.deepEqual(
@@ -3470,13 +3545,12 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   //
   // So: collect every rule that targets .lib-mount anywhere in the sheet, and
   // require each to leave the width a linear function of Jardine's own scale.
-  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
-    /\.lib-mount(?![\w-])/.test(m[1]),
-  );
+  const rules = cssRules(css).filter((r) => /\.lib-mount(?![\w-])/.test(r.selector));
   assert.ok(rules.length > 0, '.lib-mount is gone — find the vitrine and re-point this guard');
   let scaled = 0;
-  for (const [, selector, body] of rules) {
-    const sel = selector.trim().replace(/\s+/g, ' ');
+  for (const rule of rules) {
+    const { body } = rule;
+    const sel = rule.context ? `${rule.context} { ${rule.selector}` : rule.selector;
     const width = /(?:^|;)\s*width\s*:([^;]*)/.exec(body);
     if (width) {
       assert.match(
@@ -3547,9 +3621,14 @@ test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
   // like 1838 text. Nothing checked. Same for every other apparatus class, and
   // for the prose in the other direction.
   const css = readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8');
+  // EVERY rule for the class, joined — not the first one the regex happens to
+  // find. A later rule (or one inside a breakpoint) overrides the first, and
+  // reading only the first is how the vitrine guard was beaten.
   const ruleFor = (cls: string): string | null => {
-    const m = new RegExp(`(?:^|\\})\\s*\\.${cls}\\s*\\{([^}]*)\\}`, 'm').exec(css);
-    return m ? m[1] : null;
+    const hits = cssRules(css).filter((r) =>
+      new RegExp(`\\.${cls}(?![\\w-])`).test(r.selector),
+    );
+    return hits.length ? hits.map((h) => h.body).join(';') : null;
   };
 
   // The 2026 hand. Every one of these annotates; none of them is Jardine.
@@ -3610,10 +3689,9 @@ test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
   // Comments must go FIRST or the captured "selector" is the comment above it —
   // my own first attempt reported `.lib-band-head` as an unknown selector
   // spelled "/* The one thing that moves… */ .lib-band-head".
-  const bareCss = css.replace(/\/\*[\s\S]*?\*\//g, ' ');
-  const amberRules = [...bareCss.matchAll(/([^{}]+)\{([^}]*)\}/g)]
-    .filter((m) => /var\(--amber\)/.test(m[2]))
-    .map((m) => m[1].trim().replace(/\s+/g, ' '));
+  const amberRules = cssRules(css)
+    .filter((r) => /var\(--amber\)/.test(r.body))
+    .map((r) => r.selector);
   assert.ok(amberRules.length > 0, 'nothing in the Library uses amber — re-point this guard');
   for (const sel of amberRules) {
     assert.ok(
