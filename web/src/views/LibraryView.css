@@ -22,6 +22,47 @@
      citation — shares it, which is what makes the band read as the printed rule
      under the type rather than as a chart in a box. */
   --measure: 38ch;
+
+  /* ── THE SCALE ────────────────────────────────────────────────────────────
+     This tab was built section by section over several days and never once
+     looked at. It accumulated 25 distinct font-sizes — including 7, 7.5, 8.5,
+     9 and 9.5px, five steps inside a 3px band nobody can tell apart — and 16
+     distinct rem spacings, mixed with px. That is not a scale, it is a pile of
+     local decisions, and it is why the page reads as undesigned even though
+     every individual value was chosen carefully.
+
+     Eight type steps, two hands. Nothing else may be introduced: if a new size
+     seems necessary, the composition is wrong, not the scale. */
+  --t-micro: 9px;    /* apparatus, the smallest thing that may exist */
+  --t-label: 10px;   /* eyebrows, captions, the 2026 hand's default */
+  --t-meta: 12px;    /* counts, tallies, table cells */
+  --t-body: 17px;    /* 1838 prose at reading size */
+  --t-lead: 21px;    /* the desk's passage; emphasis inside prose */
+  --t-title: 26px;   /* section titles */
+  --t-display: 34px; /* the masthead, the elegy */
+  --t-hero: 46px;    /* exactly one thing per screen may use this */
+
+  /* Spacing on a 4px grid. Nine steps, and the jumps get bigger as they go —
+     the difference between 4 and 8 matters, the difference between 88 and 96
+     does not. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  /* ── THE RHYTHM ───────────────────────────────────────────────────────────
+     Every section used to be `max-width: 1180px; margin: 0 auto 64px` — eight
+     identical boxes, identically spaced, so a reference table shouted exactly
+     as loudly as the tab's argument. Width and air are now a function of what a
+     section IS. */
+  --w-read: 62ch;   /* prose meant to be read continuously */
+  --w-text: 820px;  /* text-dominant sections */
+  --w-wide: 1180px; /* tables, grids, the ledger */
 }
 
 /* ── loading / empty — a composed gallery label, never a spinner ───────────── */
@@ -39,13 +80,13 @@
 .lib-loading .word {
   font-family: var(--display);
   font-style: italic;
-  font-size: 30px;
+  font-size: var(--t-display);
   color: var(--mut);
 }
 .lib-empty .word {
   font-family: var(--display);
   font-weight: 500;
-  font-size: 44px;
+  font-size: var(--t-hero);
   letter-spacing: 0.01em;
   color: var(--ink);
   max-width: 20ch;
@@ -58,7 +99,7 @@
 }
 .lib-empty .cap {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   color: var(--mut);
 }
@@ -72,7 +113,7 @@
 .lib-epi {
   font-family: var(--display);
   font-style: italic;
-  font-size: 30px;
+  font-size: var(--t-display);
   line-height: 1.45;
   color: var(--ink);
   max-width: 30em;
@@ -81,7 +122,7 @@
 .lib-epi-cite,
 .lib-ledger {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -113,7 +154,7 @@
    this size and length glares on obsidian, and body size would fail the tab. */
 .lib-prose {
   font-family: var(--display);
-  font-size: 30px;
+  font-size: var(--t-display);
   line-height: 1.5;
   color: var(--ink-2);
   max-width: var(--measure);
@@ -121,11 +162,11 @@
   text-align: left; /* ragged right */
 }
 .lib-prose-coda {
-  font-size: 24px;
+  font-size: var(--t-title);
   color: var(--mut);
 }
 .lib-prose-slip {
-  font-size: 22px;
+  font-size: var(--t-lead);
   margin-bottom: 12px;
 }
 
@@ -136,7 +177,7 @@
 }
 .lib-sic-m {
   font-family: var(--mono);
-  font-size: 7.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -151,7 +192,7 @@
   align-items: baseline;
   gap: 4px 12px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -181,7 +222,7 @@
 }
 .lib-another {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -245,7 +286,7 @@
    restated, rather than a broken control. */
 .lib-answer {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -256,9 +297,45 @@
 }
 
 /* ── section furniture (errata / blind ear / shelf / roll) ─────────────────── */
+/* ── SECTION RHYTHM ────────────────────────────────────────────────────────
+   Width and air by ROLE, not one constant for everything. The default is the
+   wide ledger measure; the modifiers below pull a section in or push it apart
+   according to what it is asking the reader to do. */
 .lib-sec {
-  max-width: 1180px;
-  margin: 0 auto 64px;
+  max-width: var(--w-wide);
+  margin: 0 auto var(--s-8);
+}
+
+/* ARGUMENT — the two sections that ARE the tab's thesis. They get the most air
+   before them, because the page should feel like it turns here. The Index of
+   Silences is not a table of birds; it is the sentence "the book had no word
+   for the loudest thing in this garden", made of eighteen rows. */
+.lib-sec.lib-silences {
+  max-width: var(--w-text);
+  margin-top: var(--s-9);
+  margin-bottom: var(--s-9);
+}
+
+/* EVIDENCE — the errata are exhibits. Wide, and the slips carry their own
+   internal frames, so the section itself stays quiet. */
+.lib-sec.lib-errata {
+  margin-bottom: var(--s-8);
+}
+
+/* PLAY — a held breath between the argument and the reference material. */
+.lib-sec.lib-ear {
+  max-width: var(--w-text);
+  margin-bottom: var(--s-8);
+}
+
+/* REFERENCE — the Shelf and the Roll are apparatus, not argument. They are the
+   two largest things on the page by area and they used to shout exactly as
+   loudly as the thesis. They keep the full measure and lose the air: a reader
+   scanning a ledger wants density, and a reader who is not scanning it should
+   be able to feel that it is not asking for them. */
+.lib-sec.lib-shelf-sec,
+.lib-sec.lib-roll-sec {
+  margin-bottom: var(--s-7);
 }
 .lib-sec-h {
   display: flex;
@@ -268,7 +345,7 @@
 }
 .lib-sec-k {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--mut);
@@ -276,7 +353,7 @@
 .lib-sec-t {
   font-family: var(--display);
   font-style: italic;
-  font-size: 19px;
+  font-size: var(--t-lead);
   color: var(--ink-2);
 }
 
@@ -309,7 +386,7 @@
 .lib-slip-no {
   flex: none;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--red);
@@ -319,13 +396,13 @@
 }
 .lib-slip-t {
   font-family: var(--display);
-  font-size: 21px;
+  font-size: var(--t-lead);
   line-height: 1.15;
   color: var(--ink);
 }
 .lib-lab {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -351,7 +428,7 @@
 /* A figure measured by the Pi. Never committed, always computed at render. */
 .lib-fig {
   font-family: var(--display);
-  font-size: 30px;
+  font-size: var(--t-display);
   font-weight: 500;
   color: var(--amber);
   line-height: 1;
@@ -361,7 +438,7 @@
 }
 .lib-fig-l {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
@@ -373,7 +450,7 @@
   border-top: 1px solid var(--line-2);
   font-family: var(--display);
   font-style: italic;
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 .lib-slip[data-tone='mut'] .lib-close {
@@ -382,7 +459,7 @@
 .lib-wall {
   margin-top: 16px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -439,14 +516,14 @@
 }
 .lib-mount-k {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--mut-2);
 }
 .lib-mount-t {
   font-family: var(--display);
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 
@@ -464,7 +541,7 @@
   top: 0;
   left: 6px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -494,26 +571,26 @@
 }
 .lib-modern-n {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--ink);
 }
 /* A number measured by the Pi. */
 .lib-tally {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
 }
 .lib-tally b {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--amber);
 }
 /* An honestly, visibly inert control — flat, unclickable, unapologetic. */
 .lib-inert {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -527,7 +604,7 @@
 .lib-coll-name {
   font-family: var(--display);
   font-style: italic;
-  font-size: 46px;
+  font-size: var(--t-hero);
   text-align: center;
   color: var(--ink);
   margin: 6px 0 10px;
@@ -557,7 +634,7 @@
 }
 .lib-coll-k {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--mut);
@@ -565,7 +642,7 @@
 .lib-coll-sci {
   font-family: var(--display);
   font-style: italic;
-  font-size: 13px;
+  font-size: var(--t-meta);
   color: var(--mut);
 }
 
@@ -578,7 +655,7 @@
 }
 .lib-ear-hint {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -604,19 +681,19 @@
 }
 .lib-opt-no {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
   color: var(--mut-2);
 }
 .lib-opt-p {
   font-family: var(--display);
-  font-size: 19px;
+  font-size: var(--t-lead);
   line-height: 1.45;
   color: var(--ink-2);
 }
 .lib-opt-true {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
@@ -655,20 +732,20 @@
 }
 .lib-ear-rev-n {
   font-family: var(--display);
-  font-size: 26px;
+  font-size: var(--t-title);
   color: var(--ink);
 }
 .lib-ear-rev-s {
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 .lib-again {
   align-self: flex-start;
   margin-top: 4px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -727,7 +804,7 @@
   writing-mode: vertical-rl;
   text-orientation: mixed;
   font-family: var(--display);
-  font-size: 10px;
+  font-size: var(--t-label);
   line-height: 1.1;
   letter-spacing: 0.02em;
   color: var(--mut-2);
@@ -741,7 +818,7 @@
 }
 .lib-spine-n {
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: var(--t-micro);
   letter-spacing: 0.04em;
   color: var(--mut-2);
 }
@@ -751,7 +828,7 @@
   text-align: right;
   min-height: 1.4em;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -765,7 +842,7 @@
 }
 .lib-roll th {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   font-weight: 400;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -775,7 +852,10 @@
   border-bottom: 1px solid var(--line);
 }
 .lib-roll td {
-  padding: 9px 10px;
+  /* was 9px 10px. The Roll is 48 rows and was one of the three sections that
+     between them made up most of the page's height. A ledger wants to be
+     scannable, not spacious. */
+  padding: var(--s-1) var(--s-3);
   border-bottom: 1px solid var(--line-2);
   vertical-align: baseline;
 }
@@ -787,13 +867,13 @@
 }
 .lib-roll-m {
   font-family: var(--display);
-  font-size: 18px;
+  font-size: var(--t-body);
   color: var(--ink);
 }
 .lib-roll-o {
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--mut);
 }
 /* A Latin string a man wrote by hand in 1838 that a neural net printed this
@@ -804,7 +884,7 @@
 .lib-roll-none {
   font-family: var(--mono);
   font-style: normal;
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -812,7 +892,7 @@
 .lib-roll-vol,
 .lib-roll th.lib-roll-vol {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--t-label);
   letter-spacing: 0.08em;
   color: var(--mut);
   width: 6em;
@@ -820,7 +900,7 @@
 .lib-roll-n,
 .lib-roll th.lib-roll-n {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--t-meta);
   text-align: right;
   color: var(--ink-2);
   width: 8em;
@@ -829,14 +909,14 @@
   padding-top: 22px;
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--mut);
   border-bottom: 1px solid var(--line);
 }
 .lib-roll-foot {
   margin-top: 14px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut-2);
@@ -852,7 +932,7 @@
 .lib-elegy-t {
   font-family: var(--display);
   font-style: italic;
-  font-size: 22px;
+  font-size: var(--t-lead);
   line-height: 1.5;
   color: var(--mut);
   margin: 0 0 12px;
@@ -870,7 +950,7 @@
 }
 .lib-col-l {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   line-height: 1.9;
   letter-spacing: 0.08em;
   color: var(--mut-2);
@@ -888,13 +968,13 @@
     max-width: 100%;
   }
   .lib-prose {
-    font-size: 26px;
+    font-size: var(--t-title);
   }
   .lib-prose-coda {
-    font-size: 21px;
+    font-size: var(--t-lead);
   }
   .lib-epi {
-    font-size: 25px;
+    font-size: var(--t-title);
   }
   /* The band keeps its full width and its 44px height, unchanged: it is the
      signature. */
@@ -931,7 +1011,7 @@
     top: 4px;
   }
   .lib-coll-name {
-    font-size: 34px;
+    font-size: var(--t-display);
   }
   .lib-ear-opts {
     grid-template-columns: minmax(0, 1fr);
@@ -957,7 +1037,7 @@
     display: none;
   }
   .lib-roll-break td {
-    font-size: 14px;
+    font-size: var(--t-meta);
   }
 }
 
@@ -985,7 +1065,7 @@
 }
 .lib-sil-com {
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--t-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-2, #d8d4cc);
@@ -993,13 +1073,13 @@
 .lib-sil-bin {
   font-family: var(--display, "Cormorant Garamond", Georgia, serif);
   font-style: italic;
-  font-size: 1.05rem;
+  font-size: var(--t-body);
   color: var(--mut, #8f8f8f);
 }
 .lib-sil-n {
   margin-left: auto;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--t-label);
   letter-spacing: 0.04em;
   color: var(--amber, #d08a3e);
   white-space: nowrap;
@@ -1012,7 +1092,7 @@
   margin: 0.55rem 0 0;
   max-width: 62ch;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--t-label);
   line-height: 1.65;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1027,7 +1107,7 @@
   display: block;
   margin-bottom: 0.25rem;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
@@ -1043,7 +1123,7 @@
   display: block;
   margin-bottom: 0.4rem;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
@@ -1055,7 +1135,7 @@
   display: block;
   margin-bottom: 0.6rem;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
@@ -1064,7 +1144,7 @@
   margin: 0 0 0.4rem;
   max-width: 62ch;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--t-label);
   line-height: 1.65;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1102,7 +1182,7 @@
 .lib-acct-k {
   display: block;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--mut);
@@ -1111,7 +1191,7 @@
   display: block;
   margin-top: 0.2rem;
   font-family: var(--display);
-  font-size: 1.5rem;
+  font-size: var(--t-title);
   color: var(--ink-2);
 }
 .lib-acct-x {
@@ -1120,7 +1200,7 @@
   border: 0;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--t-meta);
   line-height: 1;
   padding: 0.3rem 0.4rem;
   color: var(--mut);
@@ -1133,7 +1213,7 @@
   padding-bottom: 0.9rem;
   border-bottom: 1px solid var(--line);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--mut);
@@ -1158,7 +1238,7 @@
   padding-left: 0.9rem;
   border-left: 1px solid var(--line);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   line-height: 1.6;
