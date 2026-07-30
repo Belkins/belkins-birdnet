@@ -18,6 +18,7 @@ export function Listen({
   src: srcOverride,
   idleLabel,
   playingLabel,
+  onAudio,
 }: {
   sci: string;
   file?: string;
@@ -27,9 +28,18 @@ export function Listen({
   /** Verb overrides for a source that is not "a recording of <bird>". */
   idleLabel?: string;
   playingLabel?: string;
+  /** Handed the <audio> element as it is created and null as it is torn down,
+   *  so a caller can analyse the very audio you are hearing (the station's live
+   *  spectrogram taps this). Optional and additive — every existing call site is
+   *  untouched, and Listen keeps owning the element's lifecycle. */
+  onAudio?: (el: HTMLAudioElement | null) => void;
 }) {
   const [status, setStatus] = useState<Status>('idle');
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Held in a ref so the teardown effect never re-runs just because the caller
+  // passed a fresh closure — the element's lifecycle stays keyed on `src` alone.
+  const onAudioRef = useRef(onAudio);
+  onAudioRef.current = onAudio;
 
   // A specific clip when `file` is known (atlas detail modal replaying a past
   // recording); otherwise the newest recording, resolved by recording.php from
@@ -52,6 +62,7 @@ export function Listen({
         a.pause();
         a.src = '';
         audioRef.current = null;
+        onAudioRef.current?.(null);
       }
     };
   }, [src]);
@@ -68,12 +79,16 @@ export function Listen({
       // for every card that is merely rendered.
       a = new Audio(src);
       a.preload = 'none';
+      // Same-origin, but declaring it explicitly is what lets Web Audio read the
+      // samples instead of silently handing back a tainted (all-zero) stream.
+      a.crossOrigin = 'anonymous';
       a.addEventListener('playing', () => setStatus('playing'));
       a.addEventListener('waiting', () => setStatus('loading'));
       a.addEventListener('pause', () => setStatus('idle'));
       a.addEventListener('ended', () => setStatus('idle'));
       a.addEventListener('error', () => setStatus('error'));
       audioRef.current = a;
+      onAudioRef.current?.(a);
     }
 
     if (a.paused) {
