@@ -872,6 +872,58 @@ export function hangsAPlate(s: JardineSpecies): boolean {
   return s.image !== null && !s.plate_is_vignette;
 }
 
+/** What this garden can honestly say about one bird on an errata slip.
+ *
+ *  THREE STATES, and the third is the whole point. fetchCatalog() collapses
+ *  every failure — 404, offline, malformed — to `[]`, never null, so an empty
+ *  map cannot be read as an empty garden. With no catalog the slip must say
+ *  nothing rather than assert a silence nobody measured.
+ *
+ *  The order of the two checks IS the guarantee. A sweep reordered them — look
+ *  the bird up first, and `unknown` becomes unreachable while every branch that
+ *  reads it still compiles and every test stays green. That is why this lives
+ *  here now and not inside the view: a test can only prove the flag still fires
+ *  by CALLING it with an empty catalog. */
+export interface GardenFact {
+  present: boolean;
+  count: number;
+  pct: string;
+  com: string;
+  /** the ledger could not be read — claim nothing about this bird */
+  unknown?: boolean;
+}
+
+export function gardenFact(
+  sciName: string,
+  byCatalog: Map<string, CatalogSpecies>,
+  totalCalls: number,
+): GardenFact {
+  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
+  const c = byCatalog.get(sciName);
+  if (!c) return { present: false, count: 0, pct: '0', com: '' };
+  const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
+  return {
+    present: true,
+    count: c.detection_count,
+    pct: `${pct.toFixed(2)}%`,
+    com: c.com_name || c.sci_name,
+  };
+}
+
+/** The species that have BOTH a page in Jardine and a record in this garden.
+ *
+ *  The masthead says "N species heard in this garden have a page", and N was a
+ *  filter written inline. Drop it and the sentence reads "52 of the 47 species
+ *  heard in this garden have a page" — more pages than birds, in the ledger
+ *  that states the collection's own size. O3 pinned the plate half of that line
+ *  and not this one. */
+export function heardPages(
+  species: JardineSpecies[],
+  byCatalog: Map<string, CatalogSpecies>,
+): JardineSpecies[] {
+  return species.filter((s) => byCatalog.has(s.sci_name));
+}
+
 /** ── THE AMBER LAW, AS CODE ──────────────────────────────────────────────────
  *
  *  Amber marks exactly two things in this museum: a number the Pi measured, and

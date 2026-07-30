@@ -109,6 +109,15 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
 const hangsAPlate = jardineMod.hangsAPlate as (s: JardineSpecies) => boolean;
 const ambersBinomial = jardineMod.ambersBinomial as (s: JardineSpecies) => boolean;
 const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
+const gardenFact = jardineMod.gardenFact as (
+  sciName: string,
+  byCatalog: Map<string, CatalogSpecies>,
+  totalCalls: number,
+) => { present: boolean; count: number; pct: string; com: string; unknown?: boolean };
+const heardPages = jardineMod.heardPages as (
+  species: JardineSpecies[],
+  byCatalog: Map<string, CatalogSpecies>,
+) => JardineSpecies[];
 const artProvenance = jardineMod.artProvenance as (
   rows: ReadonlyArray<{ art_status: string; art_source: string }>,
 ) => { station: number; shipped: number; unattributed: number };
@@ -2353,11 +2362,10 @@ test('M2 an unreachable catalog is never reported as an absence', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(
-    src,
-    /byCatalog\.size === 0/,
-    'gardenFact() no longer distinguishes an empty catalog from a real absence',
-  );
+  // (The source-grep for `byCatalog.size === 0` that stood here is gone:
+  //  gardenFact() lives in jardine.ts now and is CALLED below, which is a
+  //  strictly stronger check — a grep for the expression could not tell whether
+  //  it still ran before the lookup, and the reorder is the whole attack.)
   assert.match(src, /unknown/, 'the unknown state was removed from the slip');
 
   // EVERY CONSUMER, NOT THE ONE. gardenFact() distinguished the two cases and
@@ -2374,6 +2382,49 @@ test('M2 an unreachable catalog is never reported as an absence', () => {
     absent >= 2,
     `only ${absent} place renders an absence through <AbsentNote> — a second, ` +
       `hand-written absence sentence is how a missing catalog became a claim about birds`,
+  );
+
+  // AND THE FLAG ITSELF MUST STILL BE REACHABLE.
+  //
+  // Auditing the branches proves each one ASKS. It cannot prove the answer can
+  // ever be yes — a sweep reordered gardenFact() so the bird is looked up
+  // before the ledger is checked, `unknown` became unreachable, every branch
+  // that reads it still compiled, and the suite stayed at 117. So this calls it.
+  const empty = new Map<string, CatalogSpecies>();
+  const noLedger = gardenFact('Turdus merula', empty, 0);
+  assert.equal(noLedger.present, false, 'an empty catalog reports a bird as present');
+  assert.equal(
+    noLedger.unknown,
+    true,
+    'an EMPTY catalog no longer reports `unknown` — the slip will state that this garden ' +
+      'has never heard the bird, when in fact species.json did not load. The order of the ' +
+      'two checks in gardenFact() is the guarantee; looking the bird up first destroys it.',
+  );
+  const oneBird = new Map<string, CatalogSpecies>([
+    ['Turdus merula', { sci_name: 'Turdus merula', com_name: 'Blackbird', detection_count: 10 } as CatalogSpecies],
+  ]);
+  const realAbsence = gardenFact('Corvus corone', oneBird, 100);
+  assert.equal(realAbsence.present, false, 'a bird outside a REAL catalog is reported present');
+  assert.ok(
+    !realAbsence.unknown,
+    'a readable catalog that simply lacks the bird is being reported as unreadable — ' +
+      'then the museum can never state a measured absence at all',
+  );
+  assert.equal(gardenFact('Turdus merula', oneBird, 100).pct, '10.00%', 'the measured share changed');
+
+  // and the masthead may only count birds this garden has actually heard
+  const pages = heardPages(
+    [
+      { sci_name: 'Turdus merula' } as JardineSpecies,
+      { sci_name: 'Corvus corone' } as JardineSpecies,
+    ],
+    oneBird,
+  );
+  assert.deepEqual(
+    pages.map((p) => p.sci_name),
+    ['Turdus merula'],
+    'the ledger counts pages for birds this garden has never heard — the masthead would ' +
+      'read "52 of the 47 species heard in this garden have a page"',
   );
 
   // EVERY BRANCH, FOUND BY THE PARSER RATHER THAN BY MY GREP.
@@ -3348,6 +3399,19 @@ test('E6 the station may only claim a bird it actually painted', () => {
     );
   }
   assert.match(stationCaption('bundled'), /shipped with this museum/, 'bundled art no longer says where it came from');
+  // AND THE UNREADABLE CASE MUST CLAIM NEITHER ORIGIN. Checking only that it
+  // avoids "by this station" let a sweep re-point the fallback at the BUNDLED
+  // entry — which does not claim agency, and does assert the art shipped with
+  // the museum, which for a bird whose source we cannot read is equally invented.
+  const unknownCap = stationCaption('');
+  assert.notEqual(unknownCap, stationCaption('autogen'), 'an unreadable art_source takes the station-painted caption');
+  assert.notEqual(unknownCap, stationCaption('bundled'), 'an unreadable art_source takes the shipped-with-the-museum caption');
+  assert.doesNotMatch(
+    unknownCap,
+    /by this station|shipped with|painted here/,
+    `the caption for art whose source cannot be read makes an origin claim anyway: ` +
+      `${JSON.stringify(unknownCap)}`,
+  );
 
   // The view must ASK, and must not pre-cook the answer: no 'autogen' literal
   // may exist in LibraryView at all, which is what a `|| 'autogen'` default is.

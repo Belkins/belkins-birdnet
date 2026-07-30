@@ -56,6 +56,9 @@ import {
   artProvenance,
   ambersBinomial,
   hangsAPlate,
+  gardenFact,
+  heardPages,
+  type GardenFact,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -928,36 +931,12 @@ function ReadingDesk({
 
 // ── THE ERRATA ───────────────────────────────────────────────────────────────
 
-interface GardenFact {
-  present: boolean;
-  count: number;
-  pct: string;
-  com: string;
-  /** true = the catalog never loaded, so presence is UNKNOWN, not false. */
-  unknown?: boolean;
-}
-
-function gardenFact(
-  sub: JardineErratumSubject,
-  byCatalog: Map<string, CatalogSpecies>,
-  totalCalls: number,
-): GardenFact {
-  // AN EMPTY CATALOG IS NOT AN ABSENCE. fetchCatalog() collapses every failure —
-  // 404, offline, malformed — to [], never null, so `catalog !== null` cannot
-  // tell "this garden has never heard it" from "species.json did not load". With
-  // no catalog at all the slip must say nothing rather than assert a silence the
-  // museum has not measured; that is the fabricated-absence class again.
-  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
-  const c = byCatalog.get(sub.sci_name);
-  if (!c) return { present: false, count: 0, pct: '0', com: '' };
-  const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
-  return {
-    present: true,
-    count: c.detection_count,
-    pct: `${pct.toFixed(2)}%`,
-    com: c.com_name || c.sci_name,
-  };
-}
+// gardenFact() MOVED to jardine.ts. It decides whether the museum may state an
+// absence, and a sweep showed the decision could be neutered by REORDERING it —
+// look the bird up before checking whether the ledger loaded and `unknown` can
+// never be true again, with every branch that reads it still intact. M2 audits
+// the branches; only a call with an empty catalog audits the flag itself, and
+// that needs the function somewhere `node --test` can reach.
 
 /** The 2026 half of any comparison: the museum's own cut specimen, its live
  *  tally in amber (a number measured by the Pi), and a working control — or one
@@ -1077,7 +1056,7 @@ function ErratumSlip({
   onOpen?: (r: RosterRow) => void;
   slugFor: (sci: string) => string;
 }) {
-  const facts = e.subjects.map((s) => gardenFact(s, byCatalog, totalCalls));
+  const facts = e.subjects.map((s) => gardenFact(s.sci_name, byCatalog, totalCalls));
   // A slip with nothing to correct is not a correction: No. V concedes, and
   // concessions are set in --mut, not --red. Derived, never tagged by hand.
   const conceded = facts.length > 0 && facts.every((f) => !f.present);
@@ -1539,7 +1518,7 @@ export function LibraryView({
   // The masthead's one derived ledger sentence, never hand-written.
   const volumes = jardine?.volumes ?? [];
   const ornithology = volumes.filter((v) => v.division === 'birds').length;
-  const withPage = (jardine?.species ?? []).filter((s) => byCatalog.has(s.sci_name));
+  const withPage = heardPages(jardine?.species ?? [], byCatalog);
   // BOTH conditions, not either. Excluding vignettes is not tidiness: Erratum
   // III three sections below argues the Robin was DENIED a plate, and counting
   // its vignette would have the ledger contradicting the erratum on the same
