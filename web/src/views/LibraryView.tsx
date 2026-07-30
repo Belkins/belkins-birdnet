@@ -54,6 +54,7 @@ import {
   stationClaimAllowed,
   stationCaption,
   artProvenance,
+  ambersBinomial,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -1841,7 +1842,7 @@ export function LibraryView({
                         {j ? (
                           <td
                             className={
-                              j.drift === 'unchanged' ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
+                              ambersBinomial(j) ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
                             }
                           >
                             {j.jardine_binomial ? <JardineName species={j} /> : '—'}

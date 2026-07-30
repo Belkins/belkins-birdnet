@@ -856,6 +856,29 @@ export function stationClaimAllowed(phase: string, src: string | null): src is s
   return phase === 'ready' && !!src;
 }
 
+/** ── THE AMBER LAW, AS CODE ──────────────────────────────────────────────────
+ *
+ *  Amber marks exactly two things in this museum: a number the Pi measured, and
+ *  an 1838 binomial that has not moved a letter in 188 years. That is the whole
+ *  reason the colour carries any weight — it is rare, and it always means the
+ *  same thing.
+ *
+ *  In the Roll it was a ternary on the drift LABEL:
+ *
+ *      j.drift === 'unchanged' ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
+ *
+ *  with nothing checking it. Widening that test by one band paints fourteen
+ *  CHANGED binomials amber — `Alcedo ispida` → `Alcedo atthis` among them —
+ *  and every one of them then asserts, in the museum's own vocabulary, that
+ *  the name never moved.
+ *
+ *  So the decision reads the STRINGS, not the label. A row earns amber when the
+ *  two names are identical, which is the claim amber makes; a drift field that
+ *  disagrees with its own row cannot mint it. */
+export function ambersBinomial(s: JardineSpecies): boolean {
+  return s.drift === 'unchanged' && !!s.jardine_binomial && s.jardine_binomial === s.sci_name;
+}
+
 /** ── WHAT THE CAPTION UNDER A COLOURED BIRD IS ALLOWED TO SAY ────────────────
  *
  *  A sweep verified by sha256 against the live station that three of these

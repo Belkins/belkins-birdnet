@@ -106,6 +106,7 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
   string,
   { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
 >;
+const ambersBinomial = jardineMod.ambersBinomial as (s: JardineSpecies) => boolean;
 const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
 const artProvenance = jardineMod.artProvenance as (
   rows: ReadonlyArray<{ art_status: string; art_source: string }>,
@@ -3373,6 +3374,50 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   assert.ok(
     scales.size > 1,
     'every errata subject now has the same scale — the vitrine has nothing left to compare',
+  );
+});
+
+test('T2 amber is only ever an unmoved 1838 name', () => {
+  // THE AMBER LAW HAD NO GUARD AT ALL, on a tab whose vocabulary is three
+  // colours wide. Amber means two things here and only two: a number the Pi
+  // measured, and a binomial that has not moved a letter since 1838. Its whole
+  // weight comes from being rare and always meaning the same thing.
+  //
+  // The Roll minted it from a ternary on the drift LABEL. Widen that test by
+  // one band and fourteen CHANGED binomials go amber — `Alcedo ispida` →
+  // `Alcedo atthis`, `Motacilla Yarrellii` → `Motacilla alba` — each then
+  // asserting in the museum's own vocabulary that the name never moved.
+  //
+  // The decision reads the STRINGS now, so a drift field that disagrees with
+  // its own row cannot mint the colour.
+  const j = normalize(corpusRaw());
+
+  let amber = 0;
+  for (const s of j.species) {
+    const earned = s.jardine_binomial === s.sci_name && !!s.jardine_binomial;
+    assert.equal(
+      ambersBinomial(s),
+      earned,
+      earned
+        ? `${s.sci_name} is byte-identical to its 1838 name and is not marked`
+        : `${s.sci_name} wears amber over ${JSON.stringify(s.jardine_binomial)} — the ` +
+          `colour states the name has not moved, and it has`,
+    );
+    if (earned) amber++;
+  }
+  assert.ok(amber > 0, 'no row earns amber — this guard is vacuous');
+  assert.ok(amber < j.species.length, 'every row earns amber — the marker distinguishes nothing');
+
+  // and the Roll must not have a second path to the class
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const mints = (src.match(/lib-roll-un/g) || []).length;
+  assert.equal(mints, 1, `the amber class is applied at ${mints} places — one is the law`);
+  assert.match(
+    src,
+    /ambersBinomial\(j\) \? 'lib-roll-o lib-roll-un'/,
+    'the Roll mints amber from something other than the two names themselves',
   );
 });
 
