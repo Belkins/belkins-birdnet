@@ -47,6 +47,31 @@ rc_der=0
 rc_phen=0
 "$PY" "$HERE/phenology.py" || rc_phen=$?
 
+# BEST-EFFORT, AND DELIBERATELY EXCLUDED FROM THE EXIT CODE.
+# Builds .webp siblings for the cutout plates (93.3% of a measured wall load was
+# full-size PNG). This must never make the unit red, because cutout.php only
+# serves a variant whose mtime is >= its plate's: if this step is missing, stale
+# or failing, the PNG is served instead, which is completely correct — just
+# heavier. Adding it to the rc_* chain would let an image optimisation mask a
+# real catalog or phenology fault, which is the exact class of bug the header of
+# this file exists to prevent. Errors go to the journal and nowhere else.
+# nice/ionice because this unit fires at 03:30 and the DAWN CHORUS is this
+# station's busiest hour (measured 2026-07-30: 43 detections in the 04:00 hour, 84
+# in 06:00, against 1 in 12:00). webp encoding is single-core CPU-bound and
+# saturates that core; the detector must always win the tie. Measured during the
+# first full run: load 1.20 of 4 cores with the analyser still logging 36
+# inference lines a minute, so this is belt-and-braces rather than a fix.
+# BOTH tiers that can serve a plate need variants, or a species whose art comes
+# from the bundled set silently keeps shipping full-size PNG. cutout.php checks
+# assets/illustrations BEFORE the dynamic cache, and the two Holarctic species
+# this UK station hears (e.g. anas-crecca) resolve there, not in the cache.
+# The bundled dir is static, so its 500 plates are built once and skipped every
+# night after; the cache dir is where new art actually lands.
+nice -n 19 ionice -c 3 "$PY" "$HERE/webp_variants.py" \
+        "$HOME/BirdSongs/Extracted/cutouts" \
+        "$HERE/../assets/illustrations" >/dev/null 2>&1 \
+    || echo "nightly: webp_variants step failed -- plates will serve as PNG (not a fault)" >&2
+
 if [ "$rc_cat" -ne 0 ] && [ "$rc_der" -ne 0 ]; then
     echo "nightly: BOTH steps failed (catalog rc=$rc_cat, derive rc=$rc_der, phenology rc=$rc_phen)" >&2
     exit 7

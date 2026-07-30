@@ -254,7 +254,11 @@ fi
 # Serving-chain smoke (pipeline-hardening P0): prove headers + cache contract
 # on one plate through the REAL cutout path. Warn-only — a transient probe
 # flake must not fail an otherwise-good deploy (open question in the plan).
-if [ -x "$HERE/scripts/verify.sh" ]; then
+# Gate on -f, NOT -x: verify.sh was committed mode 100644, so an -x gate was
+# never satisfiable and this whole block silently never ran — a check that
+# could not fire while the deploy reported success. It is invoked through
+# `bash`, so the exec bit is irrelevant to running it; only the gate needed it.
+if [ -f "$HERE/scripts/verify.sh" ]; then
   echo "   serving:"
   AV_PI_BASE=http://127.0.0.1 bash "$HERE/scripts/verify.sh" erithacus-rubecula 1 2>&1 | sed 's/^/     /' \
     || warn "verify.sh smoke flagged a serving problem (see above) — deploy completed, but eyeball the wall"

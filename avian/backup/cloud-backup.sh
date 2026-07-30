@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# cloud-backup.sh — encrypted off-site backup of the whole station to object storage.
+#
+# WHY THIS EXISTS
+# ---------------
+# Every recording and every detection this station has produced lives on ONE SD
+# card. README.md §2 already makes the argument ("a copy on the same card is not
+# a backup: it survives nothing the original does") and then rules cloud out of
+# scope: "this option needs code that does not exist yet. Do not pretend
+# otherwise." This is that code.
+#
+# It also covers what offbox_backup.py does not. That file backs up birds.db, the
+# two ledgers and the Railway plates, and asserts "everything else regenerates".
+# The 4,396 mp3 in BirdSongs/Extracted/By_Date do NOT regenerate — they are
+# microphone audio from one specific second of one specific day — and the string
+# "By_Date" appears nowhere in it. Those recordings are the point of this file.
+#
+# THE ONE RULE: NOTHING IS EVER DELETED
+# -------------------------------------
+# This script uses `rclone copy`, NEVER `rclone sync`.
+#   copy — adds and updates only. A file that disappears from the Pi REMAINS in
+#          the cloud, forever. That is what an archive is.
+#   sync — mirrors, which means it DELETES from the destination anything absent
+#          from the source. One bad mount, one purge, one accident on the Pi and
+#          the cloud faithfully reproduces the loss.
+# There is no retention window, no --max-age, no prune. If you are editing this
+# file and reaching for `sync`, stop.
+#
+# ENCRYPTION
+# ----------
+# Everything is written through an rclone `crypt` remote, so contents AND
+# filenames are encrypted on the Pi before they leave it. The provider stores
+# opaque blobs and can neither play the audio nor read the species names — which
+# matters, because these are 15-second clips from a microphone in a residential
+# garden and can capture human conversation.
+#
+# THE FAILURE MODE THAT MATTERS MOST
+# ----------------------------------
+# If the crypt passphrase exists ONLY on this SD card, this backup is worthless:
+# the card dies, and the cloud holds 1.6 GB nothing can open. The passphrase must
+# live in the operator's password manager. install-cloud-backup.sh refuses to
+# install until that has been explicitly confirmed, because a backup that cannot
+# be decrypted after the event it was built for is worse than none — it is a
+# false sense of safety.
+#
+# EXIT CODES
+#   0  complete and verified
+#   2  REFUSED  — config missing/incomplete (nothing was uploaded)
+#   3  REFUSED  — birds.db has FEWER detections than the last run (damage, not a backup)
+#   4  FAULT    — a transfer failed
+#   5  FAULT    — uploaded, but the round-trip verification did not prove it readable
+
+set -uo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENV_FILE="${CLOUD_BACKUP_ENV:-$HOME/.christina/cloud-backup.env}"
+STATE="${CLOUD_BACKUP_STATE:-$HOME/.christina/cloud-backup.state}"
+DB="${CHRISTINA_BIRDS_DB:-$REPO/scripts/birds.db}"
+MEDIA_SRC="${CHRISTINA_MEDIA_DIR:-$HOME/BirdSongs/Extracted/By_Date}"
+DRY="${DRY:-0}"
+
+log()  { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+fail() { log "FAILED($2): $1"; exit "$2"; }
+
+# --- config, fail-closed -----------------------------------------------------
+# Every refusal names what is missing and states plainly that nothing was
+# uploaded, so a half-configured install can never look like a working backup.
+[ -f "$ENV_FILE" ] || fail "no config at $ENV_FILE -- NOTHING WAS UPLOADED. Run install-cloud-backup.sh." 2
+# shellcheck disable=SC1090
+set -a; . "$ENV_FILE"; set +a
+
+: "${CHRISTINA_CLOUD_REMOTE:=}"
+[ -n "$CHRISTINA_CLOUD_REMOTE" ] || fail "CHRISTINA_CLOUD_REMOTE unset in $ENV_FILE -- NOTHING WAS UPLOADED." 2
+case "$CHRISTINA_CLOUD_REMOTE" in
+  *REPLACE_ME*) fail "CHRISTINA_CLOUD_REMOTE is still the placeholder -- NOTHING WAS UPLOADED." 2 ;;
+esac
+
+# A remote with NO COLON is not a remote at all -- rclone treats `r2crypt` as a
+# LOCAL DIRECTORY, so one deleted character silently turns the off-site backup
+# into a second copy on the very SD card it exists to survive, while the crypt
+# guard and the round-trip verify both report success. Refuse it explicitly.
+case "$CHRISTINA_CLOUD_REMOTE" in
+  *:*) ;;
+  *) fail "CHRISTINA_CLOUD_REMOTE ('$CHRISTINA_CLOUD_REMOTE') has no ':' -- rclone would treat it as a
+     LOCAL PATH and write the 'off-site' backup onto this same SD card. NOTHING WAS UPLOADED." 2 ;;
+esac
+
+command -v rclone  >/dev/null || fail "rclone is not installed -- NOTHING WAS UPLOADED." 2
+command -v sqlite3 >/dev/null || fail "sqlite3 is not installed -- NOTHING WAS UPLOADED." 2
+[ -f "$DB" ] || fail "birds.db not found at $DB -- NOTHING WAS UPLOADED." 2
+
+# Refuse a remote that is not the crypt layer. Writing to the bare S3 remote
+# would ship readable filenames and playable audio to the provider, silently
+# undoing the entire encryption decision.
+if ! rclone config show "${CHRISTINA_CLOUD_REMOTE%%:*}" 2>/dev/null | grep -q '^type = crypt'; then
+  fail "$CHRISTINA_CLOUD_REMOTE is not a crypt remote. Refusing to upload UNENCRYPTED audio from a
+     residential garden microphone. Point CHRISTINA_CLOUD_REMOTE at the crypt remote." 2
+fi
+
+RCLONE_FLAGS=(
+  --fast-list                 # one bulk listing instead of per-directory: with ~8,800
+                              # files this is the difference between a few hundred and
+                              # a few thousand Class B operations per run.
+  --transfers 4
+  --checkers 8
+  --s3-upload-concurrency 4   # stabilises large multipart uploads to R2
+  --retries 3
+  --low-level-retries 10
+  --stats-one-line
+  --stats 30s
+)
+[ -n "${CHRISTINA_CLOUD_BWLIMIT:-}" ] && RCLONE_FLAGS+=(--bwlimit "$CHRISTINA_CLOUD_BWLIMIT")
+[ "$DRY" = "1" ] && RCLONE_FLAGS+=(--dry-run)
+
+# --- transfer helpers, defined BEFORE any use ---------------------------------
+# Hoisted here after a real fail-open on 2026-07-30: the media copy was moved
+# above these definitions, so `copy_one` did not exist yet, the call returned
+# 127 (command not found) with no `|| fail` at the CALL SITE to catch it, and
+# the script printed "=== complete ===" and exited 0 having uploaded ZERO
+# recordings. Defining them first makes that class impossible.
+# A SINGLE FILE must use `copyto` (file -> file), NOT `copy`.
+# `rclone copy SRC DEST` treats DEST as a DIRECTORY, so
+#   rclone copy /tmp/birds-cloud-AbC123.db r2crypt:/db/birds.db
+# creates a DIRECTORY called birds.db holding birds-cloud-AbC123.db -- and because
+# the snapshot is a fresh mktemp name every run, each night added ANOTHER file to
+# it. `rclone cat` on that path then concatenates them all. Caught 2026-07-30 when
+# a downloaded birds.db was exactly 2x the live size with both halves identical.
+# SQLite reads page_count from the header and ignores trailing bytes, so
+# integrity_check and the row count BOTH passed on the doubled file -- which is
+# why the round-trip check below now compares sha256, not just contents.
+copyto_one() {  # $1=source FILE  $2=remote path  $3=label  [$4..]=extra flags
+  local src="$1" dst="$2" label="$3"; shift 3
+  log "copying $label"
+  rclone copyto "$src" "${CHRISTINA_CLOUD_REMOTE%/}/$dst" "${RCLONE_FLAGS[@]}" "$@" 2>&1 \
+    | sed 's/^/    /'
+  local rc=${PIPESTATUS[0]}
+  [ "$rc" -eq 0 ] || fail "rclone copyto of $label exited $rc" 4
+}
+
+copy_one() {  # $1=source DIRECTORY  $2=remote subpath  $3=label  [$4..]=extra flags
+  local src="$1" dst="$2" label="$3"; shift 3
+  log "copying $label"
+  rclone copy "$src" "${CHRISTINA_CLOUD_REMOTE%/}/$dst" "${RCLONE_FLAGS[@]}" "$@" 2>&1 \
+    | sed 's/^/    /'
+  local rc=${PIPESTATUS[0]}
+  [ "$rc" -eq 0 ] || fail "rclone copy of $label exited $rc" 4
+}
+
+
+log "=== cloud backup -> $CHRISTINA_CLOUD_REMOTE ==="
+
+# --- 1. a CONSISTENT birds.db snapshot ---------------------------------------
+# .backup, not cp: birdnet_analysis writes to this database continuously and a
+# plain copy can capture a torn page. Same reasoning as offbox_backup.py.
+SNAP="$(mktemp -t birds-cloud-XXXXXX.db)"
+trap 'rm -f "$SNAP" "$SNAP-journal" "$SNAP-wal" "$SNAP-shm" 2>/dev/null' EXIT
+sqlite3 "$DB" ".backup '$SNAP'" || fail "sqlite .backup of birds.db" 4
+[ "$(sqlite3 "$SNAP" 'PRAGMA integrity_check;' | head -1)" = "ok" ] \
+  || fail "the birds.db snapshot failed integrity_check -- refusing to publish a corrupt database" 4
+ROWS=$(sqlite3 "$SNAP" 'SELECT COUNT(*) FROM detections;')
+log "birds.db snapshot: integrity ok, $ROWS detections"
+
+# --- 2. THE RECORDINGS FIRST, and unconditionally --------------------------------
+# Deliberately ABOVE the append-only gate. The recordings are independent of the
+# database, and coupling them meant that on the one night birds.db was damaged --
+# exactly the night an off-site copy matters most -- the 4,396 irreplaceable
+# recordings were not uploaded either.
+#
+# And this is a REFUSAL, not a skip. The previous `[ -d "$MEDIA_SRC" ] &&` form
+# meant a renamed or unmounted media directory produced "=== complete ===",
+# exit 0, a green unit and zero recordings uploaded: a backup reporting success
+# while backing up nothing, which is this project's signature failure.
+[ -d "$MEDIA_SRC" ] || fail "media directory $MEDIA_SRC does not exist -- refusing to report success
+     while backing up ZERO recordings. If the path moved, set CHRISTINA_MEDIA_DIR." 2
+copy_one "$MEDIA_SRC" "By_Date" "recordings + spectrograms"
+
+# --- 3. append-only invariant ------------------------------------------------
+# detections is append-only. FEWER rows than last time is evidence of damage
+# upstream, not a fresher backup, and uploading it would overwrite a good copy
+# with a worse one. Same check offbox_backup.py makes for the same reason.
+# Never compare a value you have not validated: a non-integer here would make
+# every `-lt` comparison error out and the guard fail OPEN.
+case "$ROWS" in ''|*[!0-9]*) fail "SELECT COUNT(*) returned a non-integer ('$ROWS') -- refusing to
+     evaluate the damage guard against a value it cannot compare." 4 ;; esac
+
+PREV=0
+[ -f "$STATE" ] && PREV=$(grep -oE '"detections":[0-9]+' "$STATE" 2>/dev/null | grep -oE '[0-9]+' || echo 0)
+case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
+if [ "$ROWS" -lt "$PREV" ]; then
+  fail "birds.db has $ROWS detections but the last upload had $PREV. The table is append-only, so a
+     DROP is damage. NOTHING WAS UPLOADED; the previous cloud copy is untouched and still good." 3
+fi
+# Say so LOUDLY when the guard is inert. Silently skipping it meant a lost state
+# file disabled the one check standing between a damaged database and the cloud,
+# and printed nothing at all.
+if [ "$PREV" -gt 0 ]; then
+  log "append-only invariant holds ($PREV -> $ROWS)"
+else
+  log "NOTE: no previous detection count on record ($STATE absent or unreadable) --"
+  log "      the append-only damage guard is INERT this run. It re-arms next run."
+fi
+
+# --- 3. upload. copy, never sync. --------------------------------------------
+copyto_one "$SNAP" "db/birds.db" "birds.db" --no-traverse
+for f in accessions.json phenology.json species.json derived.json; do
+  [ -f "$REPO/scripts/$f" ] && copyto_one "$REPO/scripts/$f" "ledgers/$f" "ledger $f" --no-traverse
+done
+
+# --- 4. prove it, rather than assume it --------------------------------------
+# An rclone exit of 0 proves bytes moved. It does not prove they are readable,
+# correctly encrypted, or the right bytes. Read the database back THROUGH the
+# crypt layer and open it.
+if [ "$DRY" != "1" ]; then
+  BACK="$(mktemp -t birds-verify-XXXXXX.db)"
+  trap 'rm -f "$SNAP" "$BACK" 2>/dev/null' EXIT
+  if rclone cat "${CHRISTINA_CLOUD_REMOTE%/}/db/birds.db" > "$BACK" 2>/dev/null \
+     && [ -s "$BACK" ]; then
+    BACK_ROWS=$(sqlite3 "$BACK" 'SELECT COUNT(*) FROM detections;' 2>/dev/null || echo -1)
+    if [ "$BACK_ROWS" != "$ROWS" ]; then
+      fail "round-trip check FAILED: uploaded $ROWS detections, read back $BACK_ROWS.
+     The upload reported success but the stored object is not the database we sent." 5
+    fi
+    # BYTE-EXACT, not just "sqlite could open it". SQLite ignores trailing bytes
+    # beyond page_count, so a doubled or padded object passes integrity_check AND
+    # the row count while being the wrong object. That exact failure happened on
+    # 2026-07-30. Compare hashes.
+    if [ "$(sha256sum "$SNAP" | cut -d" " -f1)" != "$(sha256sum "$BACK" | cut -d" " -f1)" ]; then
+      fail "round-trip check FAILED: the object read back is not byte-identical to what was sent
+     (row count matched, so this is a padding/duplication fault, not a data fault).
+     Local $(stat -c %s "$SNAP") bytes vs retrieved $(stat -c %s "$BACK") bytes." 5
+    fi
+    log "round-trip verified: $BACK_ROWS detections, byte-identical (sha256) through the crypt layer"
+  else
+    fail "could not read birds.db back from the remote -- the upload cannot be proven readable" 5
+  fi
+
+  # --- SAMPLED READ-BACK OF THE RECORDINGS ---------------------------------
+  # Until now the only thing ever verified was birds.db: 1.2 MB of a 1.56 GB
+  # archive. The 4,396 recordings -- the part that genuinely cannot be
+  # regenerated, being microphone audio from one specific second of one specific
+  # day -- were uploaded and never once read back. An rclone exit of 0 proves
+  # bytes left the box, not that they can be decrypted and returned intact.
+  # Sample a handful each run: a few MB of egress (free on R2), no writes to the
+  # station, nothing deleted, and over weeks it walks the whole archive.
+  SAMPLE_N="${CLOUD_BACKUP_SAMPLE:-5}"
+  if [ "$SAMPLE_N" -gt 0 ] && [ -d "$MEDIA_SRC" ]; then
+    # Sample from what the REMOTE actually holds, not from what is on disk.
+    # Drawing from local paths conflated two different things: "not uploaded yet"
+    # (expected during an incomplete seed) and "uploaded but wrong" (a real
+    # fault). The first produced a false RED alert at 29% complete on 2026-07-30.
+    # INTEGRITY is what this check is for; COMPLETENESS is the count check below.
+    log "sample-verifying $SAMPLE_N uploaded recordings by sha256 through the crypt layer"
+    bad=0; checked=0; missing_local=0
+    while IFS= read -r rel; do
+      [ -z "$rel" ] && continue
+      local_f="$MEDIA_SRC/$rel"
+      # A file in R2 with no local counterpart is NOT an error: nothing is ever
+      # deleted from the archive, so it legitimately outlives the station copy.
+      [ -f "$local_f" ] || { missing_local=$((missing_local+1)); continue; }
+      tmp="$(mktemp -t cloudverify-XXXXXX)"
+      if rclone cat "${CHRISTINA_CLOUD_REMOTE%/}/By_Date/$rel" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+        checked=$((checked+1))
+        if [ "$(sha256sum "$local_f" | cut -d" " -f1)" != "$(sha256sum "$tmp" | cut -d" " -f1)" ]; then
+          bad=$((bad+1)); log "  MISMATCH: $rel"
+        fi
+      else
+        bad=$((bad+1)); log "  LISTED BUT UNREADABLE: $rel"
+      fi
+      rm -f "$tmp"
+    done <<< "$(rclone lsf "${CHRISTINA_CLOUD_REMOTE%/}/By_Date" --recursive --files-only 2>/dev/null | grep '\.mp3$' | shuf -n "$SAMPLE_N")"
+    [ "$bad" -eq 0 ] || fail "$bad of $((bad+checked)) sampled recordings were not byte-identical.
+     The upload reported success; the stored objects are not what was sent." 5
+    if [ "$checked" -gt 0 ]; then
+      log "  $checked/$checked sampled recordings byte-identical${missing_local:+ ($missing_local archived-only, not an error)}"
+    else
+      log "  no recordings in the remote yet to sample (seed still in progress)"
+    fi
+  fi
+
+  # COMPLETENESS, reported separately from integrity. During the initial seed the
+  # remote is legitimately behind; once seeded, a shortfall is the signal.
+  LOCAL_N=$(find "$MEDIA_SRC" -type f \( -name '*.mp3' -o -name '*.png' \) | wc -l | tr -d ' ')
+  REMOTE_N=$(rclone lsf "${CHRISTINA_CLOUD_REMOTE%/}/By_Date" --recursive --files-only 2>/dev/null | wc -l | tr -d ' ')
+  log "  completeness: $REMOTE_N/$LOCAL_N media objects in the archive"
+  [ "$REMOTE_N" -lt "$LOCAL_N" ] && log "  (seed still catching up -- the next run resumes; nothing is re-uploaded)"
+
+  printf '{"detections":%s,"at":"%s"}\n' "$ROWS" "$(date -Is)" > "$STATE"
+fi
+
+log "=== complete ==="

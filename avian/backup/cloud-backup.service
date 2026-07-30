@@ -1,0 +1,68 @@
+[Unit]
+Description=Christina — encrypted off-site backup to object storage (birds.db + ledgers + every recording and spectrogram)
+After=network-online.target
+Wants=network-online.target
+# The script pushes its own refusals (exit 2/3) and faults (exit 4/5), but only
+# once it runs far enough to push. This catches everything outside that: a bash
+# that will not start, an EnvironmentFile systemd cannot read, a SIGKILL from
+# TimeoutStartSec on a stalled upload. Same handler every other unit here uses;
+# it refuses to alert about itself, so there is no loop.
+OnFailure=christina-alert@%n.service
+
+[Service]
+Type=oneshot
+# install-cloud-backup.sh rewrites User= and the /home/belkins paths at install
+# time, matching deploy-realtime.sh's render_unit().
+User=belkins
+# The detector and the museum always win. Encryption plus upload is CPU and
+# network work on a 1 GB board that is also running BirdNET inference; at idle
+# priority it fills the gaps instead of competing for them.
+Nice=19
+IOSchedulingClass=idle
+
+# MEASURED 2026-07-30, and this is the one that matters most on this board.
+# Under memory pressure the kernel kills by oom_score, and birdnet_analysis --
+# the bird detector, the entire point of the station -- currently scores 796,
+# the HIGHEST of any process on the box (daily_plot 752, caddy 677, ffmpeg 676;
+# every oom_score_adj is 0). So an OOM during a 1.6 GB upload on a 990 MB board
+# with 302 MB available would reap the DETECTOR first.
+#
+# systemd MemoryMax= cannot help: /proc/cmdline carries cgroup_disable=memory, so
+# the kernel memory controller is off and MemoryAccounting=yes is a false green.
+# OOMScoreAdjust is NOT a cgroup feature -- it is a per-process /proc attribute --
+# so it still works here (verified: set to 1000, read back 1000).
+#
+# Pinning the backup to 1000 makes IT the designated victim. That trade is free:
+# rclone copy is resumable and deletes nothing, so a killed backup costs one
+# retry, while a killed detector costs birdsong that no retry can recover.
+OOMScoreAdjust=1000
+
+# NOTIFY_URL (the shared ntfy topic mic-watch and railway-liveness already push
+# to) lives here. Leading '-' so a box without it still runs -- christina-alert
+# goes RED and says so rather than failing silently.
+EnvironmentFile=-/home/belkins/.christina/forwarder.env
+# R2 credentials and the crypt remote name. UNSET IS A HARD REFUSAL (exit 2): a
+# backup unit that reports green while writing nowhere is worse than no unit.
+EnvironmentFile=-/home/belkins/.christina/cloud-backup.env
+Environment=CLOUD_BACKUP_STATE=/home/belkins/.christina/cloud-backup.state
+
+# A oneshot with an unbounded start timeout can hang in `activating` forever and
+# NEVER be reported failed -- the same trap documented in catalog.service and
+# offbox-backup.service. A dead TCP connection to R2 is exactly that case.
+# 4h, not 2h: MEASURED 2026-07-30, a throttled daytime seed of the initial 1.56 GB
+# at 200 KB/s needs ~2.3h, so a 2h bound would SIGTERM a healthy run and fire a
+# false alarm - and a false alarm is worse than a slow backup, because it is how
+# an operator learns to ignore the one that matters. Still BOUNDED: an unbounded
+# oneshot can hang in `activating` forever and never be reported failed, which is
+# the trap catalog.service and offbox-backup.service both document.
+# 6h. MEASURED: the throttled daytime seed runs at ~198 KB/s, so 1.56 GB needs
+# ~138 min -- and a 2h ceiling would have SIGKILLed a healthy run at ~87% and
+# fired a false RED alert. Still bounded, so the 'hangs in activating forever and
+# is never reported failed' trap stays closed.
+TimeoutStartSec=21600
+
+ExecStart=/bin/bash /home/belkins/BirdNET-Pi/avian/backup/cloud-backup.sh
+
+# No [Install] section on purpose: offbox-backup.service, railway-liveness.service
+# and mic-watch.service (all timer-driven oneshots) carry none either, so the only
+# enableable unit is the .timer.

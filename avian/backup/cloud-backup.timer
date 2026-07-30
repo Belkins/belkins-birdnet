@@ -1,0 +1,20 @@
+[Unit]
+Description=Nightly encrypted off-site backup of the whole Christina station
+
+[Timer]
+# 04:45, after catalog.timer's 03:30 rebuild so the ledgers that leave the box
+# are the CURRENT night's. Staggered 15 minutes past offbox-backup.timer's 04:30
+# so the two never contend for the same uplink if both are ever installed.
+OnCalendar=*-*-* 04:45:00
+# Runs a missed backup on the next boot. Without this, a Pi that was off at 04:45
+# simply skips a night and nothing anywhere says so.
+Persistent=true
+
+# NIGHTLY IS ALSO A COST DECISION, not just a convenience. Every run lists the
+# destination to decide what to copy; with ~8,800 objects that is a few hundred
+# Class B operations, and ~264k/month against R2's 10M free allowance. A
+# frequent schedule is what ran another operator to a reported 150M Class B
+# requests in a month. Do not turn this into a short OnUnitActiveSec loop.
+
+[Install]
+WantedBy=timers.target

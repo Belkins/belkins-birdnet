@@ -18,7 +18,7 @@ import { aspect, loadData, loadMask, slugify } from './data';
 import { fetchDaySnapshot, fetchSnapshot } from './snapshot';
 import { ambientRoster } from './ambient';
 import { MockStream, SseStream } from './events';
-import { EVENTS_URL, MOCK } from './config';
+import { EVENTS_URL, MOCK, SNAPSHOT_HOURS } from './config';
 import { PROFILE } from './profile';
 import { birdImageUrl } from './img';
 import { FLIGHT_ASPECT, rollPose } from './flight';
@@ -241,19 +241,34 @@ export class CollageEngine {
     return { dx, dy };
   }
 
-  async start(): Promise<void> {
+  /** Boot the collage at `hours` of history. The caller passes its PERSISTED
+   *  window straight in: seeding 24h here and re-seeding afterwards fired a
+   *  second full loadImage() sweep for every tile, so anyone who had ever
+   *  picked 1H/12H/7d/all silently paid double the image bytes on every load.
+   *  masks and the snapshot are independent (masks are per-slug silhouette
+   *  geometry, the snapshot is which birds are in the window), so both are
+   *  kicked off before either is awaited — one fewer serial network level
+   *  before the first bird request goes out. */
+  async start(hours: number = SNAPSHOT_HOURS): Promise<void> {
     if (this.started) return;
     this.started = true;
     this.cb.onStatus?.('loading masks');
-    await loadData();
+    const masksP = loadData();
+    // seq is claimed with the fetch it guards, exactly as before.
+    const seq = ++this.seedSeq;
+    const snapP = fetchSnapshot(hours);
+    // A masks failure rejects start() at the await below; without this marker
+    // the already-in-flight snapshot would surface as an unhandled rejection.
+    // snapP itself still rejects and is caught by the try/catch further down.
+    void snapP.catch(() => undefined);
+    await masksP;
     if (this.disposed) return;
     this.syncTiles();
     this.renderer.resize(this.W, this.H);
 
     this.cb.onStatus?.('loading snapshot');
     try {
-      const seq = ++this.seedSeq;
-      const snapshot = await fetchSnapshot();
+      const snapshot = await snapP;
       if (this.disposed) return;
       // A setDay/setWindow issued while the boot snapshot was in flight owns
       // the label now — skip the stale boot seed, but still connect live.

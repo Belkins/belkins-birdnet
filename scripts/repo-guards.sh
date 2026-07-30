@@ -566,7 +566,13 @@ fi
 #      off-box backup absent from the box for days.
 for _u in $_units; do
   _base=$(basename "$_u")
-  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh avian/backup/install-backup.sh 2>/dev/null && continue
+  # NOTE 2026-07-30: install-cloud-backup.sh added when the encrypted R2 backup
+  # shipped. This list is the guard's ENTIRE notion of "an installer exists". A
+  # new installer that is not named here makes the guard fire on a unit that IS
+  # installed, which trains people to silence it with a NOT-INSTALLED exemption
+  # (a lie) rather than by writing an installer. Add new installers HERE.
+  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh \
+    avian/backup/install-backup.sh avian/backup/install-cloud-backup.sh 2>/dev/null && continue
   grep -qE "^[[:space:]]*$_base[[:space:]]*$" avian/NOT-INSTALLED 2>/dev/null \
     || fail "$_base declares an alert path but NO installer mentions it, and it is not declared in avian/NOT-INSTALLED — it will never reach the Pi (this is how offbox-backup shipped and was never installed)"
 done

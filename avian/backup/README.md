@@ -91,13 +91,31 @@ No `CHRISTINA_BACKUP_DEST`, no timer on the Pi, none of this directory's units.
   performed once, manually. It means the data is not at single-point risk *today*.
   It is not a backup system; it is one good afternoon.
 
-### Option 4 — Off-site object storage (S3 / B2 / rclone)
+### Option 4 — Off-site object storage (S3 / B2 / rclone) — **CHOSEN, and now implemented**
 * **Survives:** the building. This is the only row that does.
-* **Cost:** a new runtime dependency (`rclone` or an SDK) and a credential on the
-  Pi. `offbox_backup.py` is deliberately stdlib-only and filesystem-only, so
-  **this option needs code that does not exist yet.** Do not pretend otherwise.
-* A workable middle path: pick option 1 or 2 now, and let something else
-  replicate that destination off-site.
+* **Cost:** a new runtime dependency (`rclone`, installed from apt) and a
+  credential on the Pi. `offbox_backup.py` is deliberately stdlib-only and
+  filesystem-only, so this option needed code that did not exist. **It exists
+  now:** `cloud-backup.sh` + `cloud-backup.{service,timer}` +
+  `install-cloud-backup.sh`. `offbox_backup.py` is untouched — the two run
+  side by side, and this one needs no `CHRISTINA_BACKUP_DEST` mount.
+* **Scope is wider than `offbox_backup.py`'s on purpose.** That file backs up
+  birds.db, the two ledgers and the Railway plates, on the reasoning that
+  "everything else regenerates". The ~4,400 mp3 in `BirdSongs/Extracted/By_Date`
+  do **not** regenerate — they are microphone audio from one specific second of
+  one specific day — and the string `By_Date` appears nowhere in it. The cloud
+  job copies them, and the spectrograms, and the database.
+* **Encrypted client-side** through an rclone `crypt` remote: contents *and*
+  filenames. These are 15-second clips from a microphone in a residential garden
+  and can capture human conversation, so plaintext upload is refused, not warned
+  about (`install-cloud-backup.sh` exit 4).
+* **`rclone copy`, never `rclone sync`.** `sync` mirrors, which means it deletes
+  from the destination whatever is missing from the source; one accident on the
+  Pi would be faithfully reproduced in the cloud. `copy` only ever adds.
+* **The passphrase is the real single point of failure.** rclone stores it in
+  `rclone.conf` only lightly obscured, on the same card this backup exists to
+  survive. `install-cloud-backup.sh` refuses to arm the timer (exit 6) until the
+  operator confirms it is saved off-box.
 
 ### Option 5 — Do nothing
 * **Survives:** nothing. One card holds 4,170 detections, 47 species, the
