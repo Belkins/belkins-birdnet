@@ -12,7 +12,7 @@ import { SettingsPanel } from './views/Settings';
 import { FrameOverlay } from './views/FrameOverlay';
 import { useFrameMode } from './frame';
 import { FRAME_AT_BOOT, markFrameReady, PROFILE } from './profile';
-import { IndexView, WINDOW_HEADLINE } from './views/IndexView';
+import { IndexView } from './views/IndexView';
 import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 import { BirdPopup, type BirdRef } from './components/BirdPopup';
@@ -36,22 +36,17 @@ import { Scrubber } from './components/Scrubber';
 import { fetchDayActivity, formatDay, isoDay } from './days';
 import type { DayActivity } from './days';
 import { fetchDaySnapshot } from './snapshot';
+import { PERIODS, windowLabel, windowHeadline } from './window';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall' | 'library';
 
-const PERIODS: { label: string; hours: number }[] = [
-  { label: '1H', hours: 1 },
-  { label: '12H', hours: 12 },
-  { label: '24H', hours: 24 },
-  { label: '7D', hours: 168 },
-  { label: 'ALL', hours: 1_000_000 },
-];
 const TABS: Tab[] = ['collage', 'index', 'stats', 'atlas', 'wall', 'library'];
 
-/** Active-window label for the given hours (falls back to 24H). */
-function windowLabelFor(hours: number): string {
-  return (PERIODS.find((p) => p.hours === hours) ?? PERIODS[2]).label;
-}
+// PERIODS and the label rule moved to ./window.ts. The rule used to end
+// `?? PERIODS[2]` — and PERIODS[2] is 24H — while profile.ts accepts `?win=`
+// with ANY positive number. A wall on `?win=6` counted six hours and said 24H
+// on the chip and again in the headline. A window's name is derived from its
+// own hours there, so it cannot be another window's name.
 
 const TAB_STORAGE_KEY = 'belkins-birdnet-tab';
 
@@ -490,8 +485,8 @@ export default function App() {
   }, [framed, patch, selectDay]);
 
   // Honest counter figures + active-window label, both from the real roster.
-  const windowLabel = windowLabelFor(settings.windowHours);
-  const { species, calls } = counterFrom(rows, windowLabel);
+  const activeWindowLabel = windowLabel(settings.windowHours);
+  const { species, calls } = counterFrom(rows, activeWindowLabel);
 
   // Real-time feed: only in the rolling-1H window. On entering 1H we snapshot the
   // hour's backlog as the baseline (no feed spam); each later roster tick that
@@ -670,12 +665,10 @@ export default function App() {
 
       {shownTab === 'index' && (
         <Overlay>
-          <IndexView
-            rows={rows}
-            archiveDay={viewDay}
-            windowHours={settings.windowHours}
-            windowLabel={windowLabel}
-          />
+          {/* No windowLabel prop: the Index names its own window from the hours
+              it was given. Handing it a separate NAME is how the two came
+              apart — only one of them was ever true. */}
+          <IndexView rows={rows} archiveDay={viewDay} windowHours={settings.windowHours} />
         </Overlay>
       )}
       {shownTab === 'stats' && (
@@ -683,7 +676,7 @@ export default function App() {
           <StatsView
             rows={rows}
             archiveDay={viewDay}
-            windowHeadline={WINDOW_HEADLINE[settings.windowHours] ?? windowLabel}
+            windowHeadline={windowHeadline(settings.windowHours)}
           />
         </Overlay>
       )}
@@ -745,7 +738,7 @@ export default function App() {
           <LiveCounter
             species={species}
             calls={calls}
-            windowLabel={windowLabel}
+            windowLabel={activeWindowLabel}
             live={liveState}
             latest={latest}
             compact={framed}
@@ -790,7 +783,7 @@ export default function App() {
 
       <BirdPopup
         bird={popup}
-        windowLabel={windowLabel}
+        windowLabel={activeWindowLabel}
         archiveDay={viewDay}
         repaintEnabled={settings.repaintPlate}
         onClose={() => setPopup(null)}

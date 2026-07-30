@@ -38,6 +38,7 @@ import { createHash } from 'node:crypto';
 import ts from 'typescript';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
+import { PERIODS, ALL_TIME_HOURS, windowLabel, windowHeadline } from '../src/window.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
 import type { Jardine, JardineErratum, JardinePassage, JardineSpecies } from '../src/jardine.ts';
 
@@ -3362,7 +3363,7 @@ test('U1 no view headlines windowed counts with a fixed period', () => {
     stripComments(readFileSync(new URL(`../src/views/${f}`, import.meta.url), 'utf8'));
 
   const idx = read('IndexView.tsx');
-  assert.match(idx, /WINDOW_HEADLINE/, 'IndexView no longer derives its headline from the window');
+  assert.match(idx, /windowHeadline\(windowHours\)/, 'IndexView no longer names its own window');
   assert.doesNotMatch(
     idx,
     /'most-heard · last 24 hours'/,
@@ -3382,15 +3383,47 @@ test('U1 no view headlines windowed counts with a fixed period', () => {
   );
   assert.match(stats, /windowHeadline/, 'StatsView no longer takes the window it is describing');
 
-  // Every window the UI offers must have a headline, or the fallback silently
-  // reintroduces a wrong one for that window only.
-  const app = read('../App.tsx');
-  const periods = [...app.matchAll(/hours:\s*([\d_]+)/g)].map((m) => Number(m[1].replace(/_/g, '')));
-  assert.ok(periods.length >= 4, 'could not read PERIODS from App.tsx — re-point this guard');
-  const headline = /export const WINDOW_HEADLINE[^{]*\{([^}]*)\}/.exec(idx);
-  assert.ok(headline, 'WINDOW_HEADLINE is gone');
-  const keys = [...headline[1].matchAll(/([\d_]+)\s*:/g)].map((m) => Number(m[1].replace(/_/g, '')));
-  for (const h of periods) {
-    assert.ok(keys.includes(h), `the UI offers a ${h}-hour window with no headline of its own`);
+  // ── AND THE SENTENCES THEMSELVES ───────────────────────────────────────────
+  // This block used to read WINDOW_HEADLINE's KEYS out of the source and check
+  // that every preset had one. Six reviewers found the same hole in one sweep:
+  // a map keyed by preset proves an entry EXISTS, never that the entry is about
+  // that window. `24: 'Heard Today'` — the exact defect the map was added to
+  // remove — satisfied every assertion here.
+  //
+  // Worse, the KEY check could only ever see the five presets, and `?win=`
+  // accepts any positive number (profile.ts). A sixth window fell to the chip
+  // label, and the chip label ended `?? PERIODS[2]`, which is 24H. `?win=6`
+  // counted six hours and said 24H twice.
+  //
+  // Both are one function now, total over every window, and this CALLS it.
+  for (const p of PERIODS) {
+    assert.equal(
+      windowLabel(p.hours),
+      p.label,
+      `the chip for a ${p.hours}-hour window no longer says ${p.label}`,
+    );
   }
+  // A window's name must contain that window. 'Today' names a calendar day and
+  // never a rolling window, so it is banned outright — that is the sentence
+  // this whole guard exists because of.
+  for (const h of [1, 2, 3, 6, 12, 24, 36, 48, 72, 168, 336, ALL_TIME_HOURS]) {
+    const head = windowHeadline(h);
+    const chip = windowLabel(h);
+    assert.doesNotMatch(head, /today/i, `a ${h}-hour rolling window is headlined "${head}"`);
+    assert.ok(head.trim().length > 0, `a ${h}-hour window has no headline`);
+    if (h === ALL_TIME_HOURS) continue;
+    // the number in the name must be this window's own duration, in its own unit
+    const n = h % 24 === 0 && h >= 48 ? h / 24 : h;
+    assert.ok(
+      head.includes(String(n)) || h === 1,
+      `the headline for a ${h}-hour window is "${head}" and does not name ${n}`,
+    );
+    assert.ok(
+      chip.includes(String(n)),
+      `the chip for a ${h}-hour window is "${chip}" and does not name ${n}`,
+    );
+  }
+  // and no window may borrow another's name — the defaulting bug, as a property
+  const names = [1, 2, 6, 12, 24, 36, 48, 168].map((h) => windowLabel(h));
+  assert.equal(new Set(names).size, names.length, `two different windows share a chip label: ${names.join(', ')}`);
 });
