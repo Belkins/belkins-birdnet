@@ -1,40 +1,38 @@
-// STATION PANEL — the microphone, in the museum's own window.
+// STATION PANEL — the live microphone, in the museum's own window.
 //
-// Live Audio and the Live Spectrogram used to be two links out to the old PHP
-// UI, which meant leaving the wall and (before the realm fix) a password prompt
-// per hop. They belong together in one window: the spectrogram is the picture of
-// what the stream is playing.
+// REBUILT 2026-07-30 after a fair complaint: the first version invented a raw
+// <audio controls> and a bordered <img>, when this app already had both a real
+// audio control and a real spectrogram treatment. It now uses them:
 //
-// TWO DIFFERENT AUTH STORIES, deliberately handled differently:
+//   * <Listen> — the museum's own play/pause control (▶ / ❚❚, idle→loading→
+//     playing→error states, "No audio" when the source fails). It already did
+//     everything a live stream needs; it only lacked a way to be pointed at a
+//     url that is not a recording, so it gained an optional `src`.
+//   * .bp-spectro / .bp-spectro-img — the same greyscaled band the bird dossier
+//     draws a clip's spectrogram into. Identical vocabulary, so the live picture
+//     reads as the same instrument as the one on every recording row.
 //
-//  * /spectrogram.png is UNGATED (verified on the live Pi 2026-07-30: 200,
-//    image/png, and it is a webroot symlink to StreamData/spectrogram.png that
-//    spectrogram.sh rewrites on each analysis cycle). So the picture renders
-//    immediately for anyone who can see the wall — no prompt, no friction.
-//  * /stream is GATED, and a 401 on an <audio> element does NOT reliably raise
-//    the browser's Basic dialog — media subresources usually just fail silently.
-//    So we probe first and show an honest locked state rather than a dead play
-//    button. Unlocking is a top-level navigation, which DOES prompt; and since
-//    Caddy, common.php and avian/api/_auth.php now share one realm, that single
-//    sign-in unlocks the whole station for the session.
+// Nothing here is a new visual element. The only bespoke CSS left is layout.
+//
+// AUTH: both halves are open now (STATION_OPEN=1), so there is no lock state to
+// handle — /spectrogram.png and /stream both answer without credentials. If the
+// gates ever come back, <Listen> already degrades to a disabled "No audio" pill
+// on a 401, which is the honest failure, so this needs no lock probe.
 //
 // HONESTY: the spectrogram updates per analysis cycle, not per second. An image
-// that silently stopped refreshing would read as "the garden is quiet" — the
-// exact lie this project exists not to tell — so we poll Last-Modified, only
-// swap the src when it genuinely changes, and print the real timestamp.
-import { useCallback, useEffect, useRef, useState } from 'react';
+// that quietly stopped refreshing would read as "the garden is quiet" — the lie
+// this project exists not to tell. So we poll Last-Modified, swap the src only
+// when it genuinely changes, print the real timestamp, and say so plainly once
+// the frame goes stale.
+import { useEffect, useRef, useState } from 'react';
+import { Listen } from './Listen';
+import './BirdPopup.css'; // the .bp-spectro band — reused, not reimplemented
 import './StationPanel.css';
 
-/** Gated resource used purely as a lock probe. Icecast answers HEAD with 400
- *  rather than 200, so treat "not 401" as unlocked — the only bit we need. */
-const STREAM_URL = '/stream';
 const SPECTROGRAM_URL = '/spectrogram.png';
-/** A top-level navigation is the only reliable way to raise the Basic dialog. */
-const UNLOCK_URL = '/index.php?stream=play';
+const STREAM_URL = '/stream';
 
-type Lock = 'checking' | 'unlocked' | 'locked';
-
-/** Poll cadence for the spectrogram's Last-Modified. Cheap: a HEAD, no body. */
+/** HEAD poll cadence — cheap, no body. */
 const POLL_MS = 5_000;
 /** Past this, say the picture is old rather than letting it imply "now". */
 const STALE_MS = 3 * 60_000;
@@ -44,31 +42,14 @@ function clockOf(d: Date): string {
 }
 
 export function StationPanel({ onClose }: { onClose: () => void }) {
-  const [lock, setLock] = useState<Lock>('checking');
   const [shotAt, setShotAt] = useState<Date | null>(null);
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const closeRef = useRef<HTMLButtonElement | null>(null);
-  // Last-Modified we already rendered, so an unchanged frame never re-downloads.
   const lastMod = useRef<string | null>(null);
 
-  const checkLock = useCallback(async () => {
-    try {
-      const r = await fetch(STREAM_URL, { method: 'HEAD', credentials: 'same-origin', cache: 'no-store' });
-      setLock(r.status === 401 ? 'locked' : 'unlocked');
-    } catch {
-      // Network error tells us nothing about credentials. Assume locked so the
-      // user is offered the action that can fix it, not a silent dead player.
-      setLock('locked');
-    }
-  }, []);
-
-  useEffect(() => {
-    void checkLock();
-  }, [checkLock]);
-
-  // Esc closes, matching BirdPopup / the Settings drawer.
+  // Esc closes, matching BirdPopup and the Settings drawer.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -78,7 +59,7 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Spectrogram poll: HEAD for Last-Modified, swap src only on a real change.
+  // Poll Last-Modified; swap the frame only on a real change.
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -86,14 +67,14 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
         const r = await fetch(SPECTROGRAM_URL, { method: 'HEAD', cache: 'no-store' });
         if (!alive || !r.ok) return;
         const lm = r.headers.get('last-modified');
-        if (lm && lm === lastMod.current) return; // unchanged — leave the frame alone
+        if (lm && lm === lastMod.current) return;
         lastMod.current = lm;
         const when = lm ? new Date(lm) : new Date();
         setShotAt(when);
         setImgFailed(false);
         setImgSrc(`${SPECTROGRAM_URL}?t=${when.getTime()}`);
       } catch {
-        /* leave the last good frame up; the caption's age will tell the truth */
+        /* keep the last good frame; the caption's age tells the truth */
       }
     };
     void tick();
@@ -126,14 +107,24 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
           <h2 className="st-title">Listening now</h2>
         </div>
 
+        {/* The dossier's spectrogram band, pointed at the live frame instead of
+            a clip. Same classes, so it greyscales in night and reads identically
+            to the one under every recording row. */}
         <figure className="st-figure">
-          {imgSrc && !imgFailed ? (
-            <img className="st-spec" src={imgSrc} alt="Live spectrogram of the garden microphone" onError={() => setImgFailed(true)} />
-          ) : (
-            <div className="st-spec st-spec-empty">
-              {imgFailed ? 'the spectrogram is not being written' : 'waiting for the first frame…'}
-            </div>
-          )}
+          <div className="bp-spectro st-spectro">
+            {imgSrc && !imgFailed ? (
+              <img
+                className="bp-spectro-img"
+                src={imgSrc}
+                alt="Live spectrogram of the garden microphone"
+                onError={() => setImgFailed(true)}
+              />
+            ) : (
+              <div className="st-spectro-empty">
+                {imgFailed ? 'the spectrogram is not being written' : 'waiting for the first frame…'}
+              </div>
+            )}
+          </div>
           <figcaption className="st-cap">
             what the microphone is hearing
             {shotAt && (
@@ -147,28 +138,9 @@ export function StationPanel({ onClose }: { onClose: () => void }) {
           </figcaption>
         </figure>
 
+        {/* The museum's own control, pointed at the live mount. */}
         <div className="st-listen">
-          <span className="st-label">LISTEN</span>
-          {lock === 'unlocked' && (
-            <audio className="st-audio" controls preload="none" src={STREAM_URL}>
-              Your browser cannot play the live stream.
-            </audio>
-          )}
-          {lock === 'checking' && <p className="st-note">checking the station…</p>}
-          {lock === 'locked' && (
-            <p className="st-note">
-              The live audio is behind the station password — the wall is open to the house, the
-              microphone is not.{' '}
-              <a className="st-unlock" href={UNLOCK_URL} target="_blank" rel="noopener">
-                Unlock the station ↗
-              </a>{' '}
-              then{' '}
-              <button type="button" className="st-retry" onClick={() => { setLock('checking'); void checkLock(); }}>
-                try again
-              </button>
-              .
-            </p>
-          )}
+          <Listen sci="live" src={STREAM_URL} idleLabel="Listen live" playingLabel="Stop" />
         </div>
 
         <nav className="st-more">
