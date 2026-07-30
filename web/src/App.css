@@ -196,6 +196,34 @@
   color: var(--on-fg);
 }
 
+/* ── CHROME OVER A SCROLLER ───────────────────────────────────
+   .filter, .menu-wrap and .live-counter carry no background at all. On the
+   collage and the wall that is right: the chrome floats over a static canvas,
+   nothing ever slides beneath it, and a pill would be furniture the picture
+   does not need. Over a scrolling view it is a collision — the Library's errata
+   subtitle runs straight through "24H 7D ALL", the Roll's count column
+   disappears behind the theme toggle, and on a phone the live counter, the nav
+   and the desk prose stack three deep in the same corner.
+
+   So the scrim is conditional on there BEING a scroller, and it is the .nav
+   pill's own recipe rather than a new one: the same bg1 at 90%, the same blur,
+   the same radius family. The signature surfaces keep their bare chrome. */
+.stage:has(.overlay) .filter,
+.stage:has(.overlay) .menu-wrap,
+.stage:has(.overlay) .live-counter {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg1) 90%, transparent);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+/* The counter is a column, so a pill would be a lozenge — square its corners
+   and keep it the same material. */
+.stage:has(.overlay) .live-counter:not(.compact) {
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
 /* ── colophon (Belkins credit, bottom-right) ───────────────── */
 .colophon {
   position: absolute;
@@ -881,6 +909,33 @@
   }
   .mast-t {
     font-size: 30px;
+  }
+
+  /* SIX TABS AT 90px EACH IS A 540px PILL, AND IT DID NOT SHRINK — `flex: none`
+     against a 94vw row, with .stage clipping the overflow. On a 390px phone
+     WALL and LIBRARY were entirely off the screen and not hit-testable; at
+     320px ATLAS went too. Two of six views were unreachable on a phone by any
+     means except typing ?tab= into the URL, and nothing showed that they had
+     been cut — the pill simply ended.
+
+     Tighter type and padding fit five, and the row scrolls to the sixth. */
+  .navrow {
+    max-width: 96vw;
+  }
+  .nav {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+  .nav button {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 8px 11px;
+    white-space: nowrap;
   }
 }
 
