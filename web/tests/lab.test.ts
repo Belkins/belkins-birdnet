@@ -160,6 +160,24 @@ test('honesty: restart is a two-step arm, never a single click', () => {
   assert.match(services, /confirm restart\?/);
 });
 
+test('honesty: a caddy/php-fpm restart is never reported as failure on a dead fetch', () => {
+  // Restarting the unit that serves this very page aborts the in-flight
+  // response - the catch path fires on SUCCESS. If the special case goes,
+  // every successful caddy restart reads "restart failed" forever, and no
+  // type-check or render test would notice.
+  interface SelfKilling {
+    SELF_KILLING_UNITS: RegExp;
+  }
+  const { SELF_KILLING_UNITS } = api as unknown as SelfKilling;
+  assert.ok(SELF_KILLING_UNITS.test('caddy'));
+  assert.ok(SELF_KILLING_UNITS.test('php8.4-fpm'));
+  assert.ok(SELF_KILLING_UNITS.test('php8.2-fpm'));
+  assert.ok(!SELF_KILLING_UNITS.test('birdnet_recording'), 'the recorder is not self-killing');
+  assert.ok(!SELF_KILLING_UNITS.test('icecast2'), 'icecast does not carry this page');
+  assert.match(services, /SELF_KILLING_UNITS\.test\(unit\)/);
+  assert.match(services, /the reply died with it/);
+});
+
 test('css: .lab-hide outranks every display-setting rule it must beat (declared last)', () => {
   // Equal specificity means source order decides. If .lab-hide is declared
   // before .lab-tabbody (display: grid), a hidden tab body stays VISIBLE and

@@ -20,6 +20,7 @@ import {
   fmtAgo,
   fmtBytes,
   postRestart,
+  SELF_KILLING_UNITS,
   StationUnavailable,
   type ServicesResponse,
   type SystemResponse,
@@ -81,15 +82,29 @@ export function Services(): JSX.Element {
     setVerdicts((v) => ({ ...v, [unit]: 'restarting…' }));
     postRestart(unit)
       .then((r) => {
-        setVerdicts((v) => ({
-          ...v,
-          [unit]: r.ok ? 'restarted' : `failed (rc ${r.rc}) ${r.out}`.trim(),
-        }));
+        const verdict =
+          r.ok === true
+            ? 'restarted'
+            : r.ok === false && r.rc !== undefined
+              ? `failed (rc ${r.rc}) ${r.out ?? ''}`.trim()
+              : `refused${r.error ? ` - ${r.error}` : ''}`;
+        setVerdicts((v) => ({ ...v, [unit]: verdict }));
         window.setTimeout(load, 1500);
       })
-      .catch((e: unknown) =>
-        setVerdicts((v) => ({ ...v, [unit]: `restart failed (${String(e)})` })),
-      );
+      .catch((e: unknown) => {
+        if (SELF_KILLING_UNITS.test(unit)) {
+          // caddy/php-fpm serve this very page - the restart aborts the
+          // in-flight response, so a dead fetch here is what SUCCESS looks
+          // like. Say that, then go look instead of claiming either way.
+          setVerdicts((v) => ({
+            ...v,
+            [unit]: 'restart sent - it serves this page, so the reply died with it; re-checking…',
+          }));
+          window.setTimeout(load, 4000);
+        } else {
+          setVerdicts((v) => ({ ...v, [unit]: `restart failed (${String(e)})` }));
+        }
+      });
   };
 
   if (gate === 'mock') {
@@ -217,7 +232,11 @@ export function Services(): JSX.Element {
               ])}
             </tbody>
           </table>
-          <p className="lab-caption lab-dim">as of {svc.as_of.slice(11, 19)} station time</p>
+          {/* The whole clock+offset, verbatim: PHP's date('c') follows its own
+              date.timezone (often UTC on this box), so naming a zone here
+              would be a claim the data doesn't guarantee - the offset IS the
+              claim, carried by the value itself. */}
+          <p className="lab-caption lab-dim">as of {svc.as_of.slice(11)}</p>
         </>
       )}
 
