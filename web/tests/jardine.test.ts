@@ -2922,3 +2922,56 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
     'every errata subject now has the same scale — the vitrine has nothing left to compare',
   );
 });
+
+test('U1 no view headlines windowed counts with a fixed period', () => {
+  // A LIVE FABRICATION, FOUND BY A MUTATION SWEEP, OUTSIDE THE LIBRARY.
+  //
+  // IndexView headlined "Heard Today · most-heard · last 24 hours" over `rows` —
+  // which is whatever window the visitor selected. Pick ALL and four weeks of
+  // history were labelled as one morning; at 02:00 a rolling 24-hour window is
+  // mostly yesterday. StatsView's Top Species panel had the same sentence over
+  // the same rows. IndexView's own comment already forbade headlining ARCHIVE
+  // counts as "Heard Today" and the identical mistake sat one line below it for
+  // every live window — the guard existed, scoped to one of the two cases.
+  //
+  // Same family as the Roll's false band headings (T1): a heading is a claim
+  // about the numbers under it, and nothing was checking it.
+  //
+  // The NOW/TODAY/WEEK/ALL block in StatsView is deliberately exempt — it reads
+  // FIXED buckets straight from the API and labels each with its own period.
+  const read = (f: string) =>
+    stripComments(readFileSync(new URL(`../src/views/${f}`, import.meta.url), 'utf8'));
+
+  const idx = read('IndexView.tsx');
+  assert.match(idx, /WINDOW_HEADLINE/, 'IndexView no longer derives its headline from the window');
+  assert.doesNotMatch(
+    idx,
+    /'most-heard · last 24 hours'/,
+    'IndexView headlines the selected window as "last 24 hours" again',
+  );
+  assert.doesNotMatch(
+    idx.replace(/\s+/g, ' '),
+    /archiveDay \? 'That Day' : 'Today'/,
+    'IndexView headlines the selected window as "Today" again',
+  );
+
+  const stats = read('StatsView.tsx');
+  assert.doesNotMatch(
+    stats,
+    /'most-heard, today'/,
+    'StatsView labels the selected window’s top species as "today" again',
+  );
+  assert.match(stats, /windowHeadline/, 'StatsView no longer takes the window it is describing');
+
+  // Every window the UI offers must have a headline, or the fallback silently
+  // reintroduces a wrong one for that window only.
+  const app = read('../App.tsx');
+  const periods = [...app.matchAll(/hours:\s*([\d_]+)/g)].map((m) => Number(m[1].replace(/_/g, '')));
+  assert.ok(periods.length >= 4, 'could not read PERIODS from App.tsx — re-point this guard');
+  const headline = /export const WINDOW_HEADLINE[^{]*\{([^}]*)\}/.exec(idx);
+  assert.ok(headline, 'WINDOW_HEADLINE is gone');
+  const keys = [...headline[1].matchAll(/([\d_]+)\s*:/g)].map((m) => Number(m[1].replace(/_/g, '')));
+  for (const h of periods) {
+    assert.ok(keys.includes(h), `the UI offers a ${h}-hour window with no headline of its own`);
+  }
+});

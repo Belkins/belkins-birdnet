@@ -12,7 +12,7 @@ import { SettingsPanel } from './views/Settings';
 import { FrameOverlay } from './views/FrameOverlay';
 import { useFrameMode } from './frame';
 import { FRAME_AT_BOOT, markFrameReady, PROFILE } from './profile';
-import { IndexView } from './views/IndexView';
+import { IndexView, WINDOW_HEADLINE } from './views/IndexView';
 import { StatsView } from './views/StatsView';
 import { AtlasView } from './views/AtlasView';
 import { BirdPopup, type BirdRef } from './components/BirdPopup';
@@ -670,12 +670,21 @@ export default function App() {
 
       {shownTab === 'index' && (
         <Overlay>
-          <IndexView rows={rows} archiveDay={viewDay} />
+          <IndexView
+            rows={rows}
+            archiveDay={viewDay}
+            windowHours={settings.windowHours}
+            windowLabel={windowLabel}
+          />
         </Overlay>
       )}
       {shownTab === 'stats' && (
         <Overlay>
-          <StatsView rows={rows} archiveDay={viewDay} />
+          <StatsView
+            rows={rows}
+            archiveDay={viewDay}
+            windowHeadline={WINDOW_HEADLINE[settings.windowHours] ?? windowLabel}
+          />
         </Overlay>
       )}
       {shownTab === 'atlas' && (

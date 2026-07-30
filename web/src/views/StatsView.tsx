@@ -14,7 +14,14 @@ import { fetchCatalog, type CatalogSpecies } from '../catalog';
 export function StatsView({
   rows,
   archiveDay = null,
+  windowHeadline = 'These 24 Hours',
 }: {
+  /** How to describe the window `rows` was counted over. The Top Species panel
+   *  is built from `rows`, so labelling it "today" is a claim about numbers that
+   *  may be an hour's worth or four weeks' — see IndexView's WINDOW_HEADLINE.
+   *  (The NOW/TODAY/WEEK/ALL block below is NOT affected: it reads fixed buckets
+   *  straight from the API and labels each with its own period.) */
+  windowHeadline?: string;
   rows: RosterRow[];
   /** Pinned past day the roster reflects, or null = live window. The station
    *  panels below carry their own all-time labels and stay truthful either way. */
@@ -171,7 +178,11 @@ export function StatsView({
             </div>
             <div className="sb">
               <div className="sh">Top Species</div>
-              <div className="ss">{archiveDay ? `most-heard · ${formatDay(archiveDay)}` : 'most-heard, today'}</div>
+              <div className="ss">
+                {archiveDay
+                  ? `most-heard · ${formatDay(archiveDay)}`
+                  : `most-heard · ${windowHeadline.toLowerCase()}`}
+              </div>
               {top.map((r, i) => (
                 <div className="r" key={r.sci}>
                   <span className="k">{String(i + 1).padStart(2, '0')}</span>
