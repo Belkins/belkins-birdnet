@@ -447,14 +447,42 @@ class CatalogTestCase(_CatalogFixture):
             "last_detected": "2024-06-02 05:30:00",
             "detection_count": 3,
             "art_status": "ready",
+            "art_source": "bundled",
             "accession": 1,
             "weeks": [[22, 3]],
         })
         self.assertEqual(set(robin.keys()), {
             "sci_name", "com_name", "slug", "first_confident",
-            "last_detected", "detection_count", "art_status",
+            "last_detected", "detection_count", "art_status", "art_source",
             "accession", "weeks",
         })
+
+    # -- 4c-bis. art_source reaches the frontend, and says WHO MADE IT -----
+    def test_art_source_distinguishes_bundled_from_station_painted(self):
+        """WHY: `_classify_art` has always returned ('ready', 'bundled'|'autogen')
+        and the species table has always stored art_source -- but species.json,
+        the ONLY file the collage reads, emitted art_status alone. So the Library
+        captioned three repo-shipped illustrations "AI visualized by THIS
+        STATION". Verified live by sha256 on 2026-07-30: Apus apus, Passer
+        domesticus and Anas platyrhynchos served bytes identical to the
+        git-tracked avian/assets/illustrations/*.png, which ship with a fresh
+        clone and can never have been painted here.
+
+        cutout.php's tier 1 serves bundled art with X-Av-Real:1, exactly as it
+        serves generated art, so no HTTP header can answer this. This field is
+        the only thing that can, which is why it must survive to the JSON."""
+        self._build()
+        rows = {r["sci_name"]: r for r in self._species_json()}
+        robin = rows["Turdus migratorius"]
+        self.assertEqual(robin["art_status"], "ready")
+        self.assertEqual(
+            robin["art_source"], "bundled",
+            "a bird whose art ships in the repo must not be attributable to this station")
+        # Every row carries the field -- a missing one reads as 'unknown' in the
+        # frontend and silently falls back to the weaker claim, which is safe,
+        # but an ABSENT key across the board would mean this fix never shipped.
+        for sci, r in rows.items():
+            self.assertIn("art_source", r, f"{sci} has no art_source")
 
     # -- 4d. accession pins survive a species deletion (no renumber) -------
     def test_accession_pins_survive_species_deletion(self):

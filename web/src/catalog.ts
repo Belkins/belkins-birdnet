@@ -16,6 +16,10 @@ export interface CatalogSpecies {
   last_detected: string | null;
   detection_count: number;
   art_status: string;
+  /** WHO MADE THE PICTURE: 'bundled' ships with the repo, 'autogen' was painted
+   *  here. cutout.php serves both with X-Av-Real:1, so no header can tell them
+   *  apart and the Library's provenance caption has nothing else to go on. */
+  art_source: string;
   // Pinned permanent accession No. from the nightly build (int), or null when a
   // bird has been heard but never confidently detected. `undefined` = the build
   // predates the pin (old deployment) → the wall falls back to client derivation.
@@ -83,6 +87,9 @@ function normalize(raw: unknown): CatalogSpecies[] {
       detection_count:
         typeof item.detection_count === 'number' ? item.detection_count : Number(item.detection_count) || 0,
       art_status: asString(item.art_status) || 'none',
+      // Unknown degrades to '' so the caption falls back to the WEAKER claim —
+      // never assert 'this station painted it' on a field we could not read.
+      art_source: asString(item.art_source),
       accession,
       weeks: asWeeks(item.weeks),
     });

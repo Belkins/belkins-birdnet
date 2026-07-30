@@ -2808,13 +2808,43 @@ test('E6 the station may only claim a bird it actually painted', () => {
     /if \(!stationClaimAllowed\(/,
     'StationBird no longer gates on stationClaimAllowed — it has its own copy of the condition',
   );
-  const claim = /AI visualized by this station · not an engraving, not a photograph/;
-  assert.match(station[0], claim, 'the station claim left the gated component');
-  assert.equal(
-    (src.match(new RegExp(claim.source, 'g')) || []).length,
-    1,
-    'a second, ungated copy of the caption can fabricate an attribution',
+  // THE AGENCY CLAIM BELONGS TO ONE ART SOURCE ONLY.
+  //
+  // A sweep verified by sha256 against the live station that three of these
+  // birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
+  // IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
+  // with a fresh clone; this station never painted them. cutout.php serves them
+  // with X-Av-Real:1 exactly as it serves generated art, so `phase === 'ready'`
+  // cannot tell the difference and never could. Only art_source can.
+  //
+  // Two of the caption's three clauses were true even for those three — bundled
+  // art IS AI-generated and is neither engraving nor photograph. Only the
+  // agency was false. So only the agency is gated here.
+  const table = /const STATION_CAPTION: Record<string, string> = \{([\s\S]*?)\};/.exec(src);
+  assert.ok(table, 'STATION_CAPTION is gone — the caption no longer varies by who made the picture');
+  const autogen = /autogen:\s*'([^']*)'/.exec(table[1]);
+  const bundled = /bundled:\s*'([^']*)'/.exec(table[1]);
+  assert.ok(autogen && bundled, 'STATION_CAPTION must cover both bundled and autogen art');
+  assert.match(autogen[1], /by this station/, 'station-painted art no longer says the station painted it');
+  assert.doesNotMatch(
+    bundled[1],
+    /by this station/,
+    'BUNDLED art claims the station painted it — it shipped with the repo and never could have',
   );
+  const unknown = /const STATION_CAPTION_UNKNOWN = '([^']*)'/.exec(src);
+  assert.ok(unknown, 'there is no caption for art whose source could not be read');
+  assert.doesNotMatch(
+    unknown[1],
+    /by this station/,
+    'an unreadable art_source falls back to CLAIMING the station painted it — it must fall to the weaker claim',
+  );
+  // And the agency sentence must exist nowhere else, gated or not.
+  assert.equal(
+    (src.match(/by this station · not an engraving/g) || []).length,
+    1,
+    'a second copy of the agency claim exists outside STATION_CAPTION',
+  );
+  assert.match(station[0], /STATION_CAPTION/, 'StationBird no longer selects its caption by art source');
 
   assert.match(
     src.replace(/\s+/g, ' '),

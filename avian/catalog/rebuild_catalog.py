@@ -847,6 +847,18 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
                     "last_detected": sp["last_dt"],
                     "detection_count": sp["count"],
                     "art_status": art_status,
+                    # WHO MADE THE PICTURE. Computed by _classify_art since the
+                    # beginning, stored in the species table since the beginning,
+                    # and withheld from the only file the frontend reads — so the
+                    # Library captioned three repo-shipped illustrations "AI
+                    # visualized by THIS STATION" and nothing on the box could
+                    # tell them apart. Verified live by sha256: Apus apus, Passer
+                    # domesticus and Anas platyrhynchos served bytes identical to
+                    # avian/assets/illustrations/*.png, which are git-tracked and
+                    # ship with a fresh clone. cutout.php's tier 1 serves those
+                    # with X-Av-Real:1, exactly like Railway-generated art, so
+                    # the header can never answer this question. This field can.
+                    "art_source": art_source,
                     # Pinned permanent accession No. (int) once confident, else
                     # null (heard but never confidently detected -> not accessioned).
                     "accession": accession_by_sci.get(sci),
