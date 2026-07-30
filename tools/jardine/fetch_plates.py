@@ -106,6 +106,32 @@ ERRATA_ONLY = {
 }
 
 
+# A THIRD CASE THE CORPUS CANNOT SEE. The claimant check below counts accounts
+# anchored to a plate, which catches every plate two accounts point at. It does
+# NOT catch a plate that ONE account anchors while the engraving figures two
+# species — because nothing in the structured data records the second bird.
+# Volume 40's plate III is that case: a single Common Teal account, and an
+# engraving of the European teal beside the American one. Jardine says so
+# himself, in prose this repo has already transcribed:
+#
+#   "In illustration, we have represented our native teal grouped with that from
+#    America, which was long confounded with it."
+#
+# and then gives the marks to tell them apart — the white breast crescent and
+# the absent white scapular line — which is exactly what the two figures show.
+# There is no general check for this; it is found by reading. Entries here are
+# reviewed findings, each with the evidence that produced it.
+TWO_BIRD_SINGLE_ACCOUNT = {
+    "40-3.jpg": dict(
+        also="Anas carolinensis (American Green-winged Teal), swimming at left",
+        we_caption="Anas crecca",
+        evidence="jardine-accounts.json, volume 40 genus preamble para 7 and the "
+        "Anas crecca account para 3; the two figures show a clean swap of both "
+        "diagnostic marks",
+    ),
+}
+
+
 def wants_a_plate(doc):
     """Every place in the museum that can PRINT a plate.
 
@@ -177,6 +203,33 @@ def manifest():
         # three committed files already use (24-11.jpg, 24-vignette.jpg).
         stem = sp["plate_ref"].removeprefix("plate-")
         name = f"{sp['volume']}-{stem}.jpg"
+        # THE CLAIMANT COUNT MUST COME FROM THE CORPUS, NOT FROM jardine.json.
+        #
+        # My first version counted claimants among OUR 52 species, and that
+        # guard cannot fail on the case it exists for. Volume 34's plate XV
+        # figures a Spotted Sandpiper beside a Common Sandpiper — the plate's
+        # own legend literally reads "Spotted (Left), Common (Right)" — but
+        # Actitis macularius is a Nearctic vagrant this London garden never
+        # records, so it was filtered out BEFORE the manifest was built. One
+        # claimant survived, the guard passed, and the plate was cleared to be
+        # captioned "Common Sandpiper" with a different species filling its
+        # foreground. Volume 40's plate III is the same story: Jardine drew the
+        # European Teal beside the American one deliberately, and says so in
+        # prose this repo has already transcribed.
+        #
+        # The guard was blind to precisely the plates where a co-claimant is a
+        # bird this garden does not hear — which is most of them, because the
+        # garden hears 52 species and the corpus holds 718 accounts. Counting
+        # in the corpus is the only version of this check that can fire.
+        corpus_claimants = [
+            {
+                "account_id": a["account_id"],
+                "title": a["jardine_title"],
+                "binomial": a.get("jardine_binomial"),
+            }
+            for a in corpus
+            if a["volume"] == sp["volume"] and a.get("plate_ref") == sp["plate_ref"]
+        ]
         rec = by_plate.setdefault(
             name,
             {
@@ -187,6 +240,7 @@ def manifest():
                 "title": p.get("title"),
                 "legend": p.get("legend"),
                 "claimants": [],
+                "corpus_claimants": corpus_claimants,
             },
         )
         rec["claimants"].append(
@@ -237,10 +291,28 @@ def main():
     print(f"{len(plates)} plates reachable from jardine.json · {have} present · {len(todo)} to fetch")
     if unmatched:
         print(f"  ! {len(unmatched)} species claim a plate_ref with no corpus plate: {', '.join(unmatched)}")
-    shared = [p for p in plates.values() if len(p["claimants"]) > 1]
-    for p in shared:
-        who = ", ".join(c["jardine_title"] for c in p["claimants"])
-        print(f"  ! {p['file']} is claimed by {len(p['claimants'])} accounts ({who}) — link_plates.py must adjudicate")
+    for p in sorted(plates.values(), key=lambda x: x["file"]):
+        if len(p["corpus_claimants"]) > 1:
+            who = " · ".join(f"{c['title']} ({c['binomial']})" for c in p["corpus_claimants"])
+            mine = ", ".join(c["sci_name"] for c in p["claimants"])
+            print(f"  ! SHARED PLATE {p['file']}: the CORPUS anchors {len(p['corpus_claimants'])} accounts here")
+            print(f"      on the plate: {who}")
+            print(f"      we caption:   {mine}")
+            if p["legend"]:
+                print(f"      plate legend: {p['legend']!r}")
+            print("      -> a single-species caption asserts something false about the other bird")
+        elif p["file"] in TWO_BIRD_SINGLE_ACCOUNT:
+            k = TWO_BIRD_SINGLE_ACCOUNT[p["file"]]
+            print(f"  ! TWO-BIRD PLATE {p['file']}: one account, two species figured")
+            print(f"      also on the plate: {k['also']}")
+            print(f"      we caption:        {k['we_caption']}")
+            print(f"      found by reading:  {k['evidence']}")
+
+    # A reviewed finding that no longer matches a shipped plate is a stale note,
+    # and a stale note about provenance is worse than none.
+    for f in TWO_BIRD_SINGLE_ACCOUNT:
+        if f not in plates:
+            print(f"  ! STALE: TWO_BIRD_SINGLE_ACCOUNT names {f}, which this manifest does not reach")
 
     if dry:
         for p in sorted(todo, key=lambda x: x["file"]):
