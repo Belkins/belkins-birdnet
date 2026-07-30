@@ -23,6 +23,8 @@ import { fetchArtStatus, fetchCatalogOrNull } from '../catalog';
 import { fmtRelative } from '../almanac';
 
 import { BirdThumb } from '../components/BirdThumb';
+import { birdImageUrl } from '../img';
+import { useBirdImage } from '../useBirdImage';
 import { JardineName } from '../components/JardineName';
 import { Listen } from '../components/Listen';
 import type {
@@ -75,6 +77,22 @@ const DRIFT_RANK: Record<string, number> = {
   collision: 4,
 };
 
+/** THE ROLL IS NOT SORTED ALPHABETICALLY AND NEVER WAS. It is ordered by how far
+ *  each bird's name travelled between 1838 and 2026 — the tab's own argument,
+ *  made by the order of a table — and alphabetically only WITHIN each tier.
+ *
+ *  Nothing said so. A reader saw the alphabet restart four times with no visible
+ *  reason, which reads as a broken sort, and a museum arguing for its own rigour
+ *  cannot afford a table that looks miscompiled. One line per boundary, in the
+ *  modern hand, stating what the tier below it has in common. */
+const DRIFT_BAND: Record<string, string> = {
+  unchanged: 'names Linnæus set that have not moved in 188 years',
+  spelling: 'the same name, spelled the way 1838 spelled it',
+  genus: 'still the same bird, moved to another genus since',
+  family: 'moved further than a genus — the family itself was redrawn',
+  collision: 'the 1838 name now belongs to a DIFFERENT bird',
+};
+
 
 /** The catalog's 'YYYY-MM-DD HH:MM:SS' split the way BirdPopup already splits a
  *  stamp for fmtRelative — the one relative-time helper in the tree. */
@@ -117,11 +135,16 @@ function FullAccount({
   species,
   passages,
   com,
+  slug,
+  art,
   onClose,
 }: {
   species: JardineSpecies;
   passages: JardinePassage[];
   com: string;
+  /** For the station's own bird, when Jardine never figured this one. */
+  slug: string;
+  art: Map<string, string> | null;
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -156,6 +179,7 @@ function FullAccount({
           {com} · vol. {volumeRoman(species.volume)} · {passages.length} passages, as printed
         </div>
         <div className="lib-acct-body">
+          <SpeciesPlate sp={species} slug={slug} com={com} art={art} />
           {passages.map((p, i) => (
             <div key={i}>
               <Prose p={p} />
@@ -292,6 +316,156 @@ function Attribution({ p, link = true }: { p: JardinePassage; link?: boolean }) 
   );
 }
 
+/** THE STATION'S OWN BIRD, and ONLY when there is one.
+ *
+ *  It must gate on the art actually being READY, and the first version did not.
+ *  BirdThumb's `none` phase renders BirdSilhouette() — ONE hard-coded generic
+ *  SVG, byte-identical for every species — and the caption underneath said
+ *  "drawn by this station, not by Jardine". Measured: 25 of the 27 plateless
+ *  birds rendered that, so the museum printed a provenance claim twenty-five
+ *  times over a UI fallback glyph that is not a drawing of that bird at all.
+ *
+ *  That is a fabricated attribution. It is the same class of error the two-bird
+ *  caption exists to prevent, committed on the page whose whole argument is
+ *  provenance, and it looked exactly like the 22x92 empty mount this file's own
+ *  CSS calls "the one thing a museum of provenance must never look like" — at
+ *  seven times the area.
+ *
+ *  So the claim is made only when it is true. No painting, no figure, no
+ *  sentence: back to silence, which was always the honest fallback. On the live
+ *  station art coverage is 47/47, so this renders; in a dev tree with no Pi it
+ *  does not, and that difference is exactly what it should be. */
+function StationBird({
+  sci,
+  com,
+  slug,
+  art,
+}: {
+  sci: string;
+  com: string;
+  slug: string;
+  art: Map<string, string> | null;
+}) {
+  const url = birdImageUrl(slug, sci);
+  const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
+  if (phase !== 'ready' || !src) return null;
+  return (
+    <figure className="lib-fig-plate lib-fig-modern">
+      <img className="lib-plate lib-plate-station" src={src} alt={`${com || sci}, AI visualized by this station`} decoding="async" />
+      <figcaption className="lib-plate-cap">
+        <span className="lib-plate-k">no plate — the book never figured this bird</span>
+        <span className="lib-plate-modern">AI visualized by this station · not an engraving, not a photograph</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/** THE ENGRAVING FOR ONE BIRD, captioned to exactly the strength of its claim.
+ *
+ *  In the book the plate faces the first page of the account, so it opens the
+ *  desk rather than trailing it.
+ *
+ *  Three captions, because there are three different truths to tell:
+ *
+ *  · A plate of one bird says which plate, and stops.
+ *  · A plate of TWO birds names both and places them. Jardine drew a Spotted
+ *    Sandpiper beside the Common, a Firecrest above the Goldcrest, the American
+ *    teal beside the European — printing one name would tell a reader the other
+ *    bird in the frame IS that species, which is the failure this whole museum
+ *    exists to refuse.
+ *  · A plate the VOLUME assigns, where the picture does not identify itself,
+ *    says so in as many words and prints why. That is a citation. The other two
+ *    are claims, and the difference is the point.
+ *
+ *  No plate renders nothing at all — 27 of 52 birds here have none, and an empty
+ *  frame is a broken feature where silence is an honest one. The masthead ledger
+ *  carries the count, which is where an absence belongs: stated once, in
+ *  aggregate, from the data. */
+function SpeciesPlate({
+  sp,
+  slug,
+  com,
+  art,
+}: {
+  sp: JardineSpecies;
+  slug: string;
+  com: string;
+  art: Map<string, string> | null;
+}) {
+  const src = jardineImageUrl(sp.image);
+  // NO PLATE IN THE BOOK — so the station's own bird stands in, and says so.
+  //
+  // Twenty-seven of these fifty-two birds were never illustrated by Jardine, and
+  // rendering nothing for them was honest but incomplete: the tab claimed to be
+  // a library of the birds in this garden and showed half of them. The museum
+  // already paints every species it hears, through the same BirdThumb well the
+  // Atlas and the Wall use, with the same four phases and the same silhouette
+  // when a painting has not arrived — so a bird with no plate is not a hole, it
+  // is the OTHER hand.
+  //
+  // That is the two-hand law in pictures rather than in type: an 1838 engraving
+  // is a hard-edged rectangle scanned from the book, and a 2026 bird is the
+  // station's own, painted here. The caption says which, every time, because a
+  // page whose entire argument is provenance cannot show a picture of a bird
+  // and leave a reader to guess where it came from.
+  if (!src) return <StationBird sci={sp.sci_name} com={com} slug={slug} art={art} />;
+  const cited = sp.plate_attribution === 'plate-list';
+  const also = sp.plate_also;
+  const plate = sp.plate_ref ? sp.plate_ref.replace(/-/g, ' ') : 'plate';
+  return (
+    <figure className="lib-fig-plate">
+      <img
+        className="lib-plate"
+        src={src}
+        width={sp.image_w ?? undefined}
+        height={sp.image_h ?? undefined}
+        /* RESERVE THE BOX BEFORE THE JPEG DECODES. The width/height attributes
+           alone do not: the CSS sets width:auto/height:auto, which defeats the
+           browser's aspect-ratio reservation, so the element was 2x2px until
+           decode and then jumped 378px — CLS 0.115 on a phone, over Google's
+           0.1 "poor" line, and the jump pushed the passage down the page as
+           you were starting to read it. An explicit ratio makes the box
+           computable from the markup, before a byte of image arrives. */
+        style={
+          sp.image_w && sp.image_h
+            ? ({ aspectRatio: `${sp.image_w} / ${sp.image_h}` } as CSSProperties)
+            : undefined
+        }
+        alt={
+          also.length > 0
+            ? `Jardine's ${plate}: ${sp.jardine_title} ${sp.plate_where ?? ''}, with ${also
+                .map((a) => `${a.common} ${a.where}`)
+                .join(' and ')}`
+            : `Jardine's ${plate} of the ${sp.jardine_title}`
+        }
+        /* NOT lazy. On the live station these are progressive JPEGs behind
+           HTTP/1.1 with a permanent SSE stream holding one of six connections,
+           and a lazy plate took 10-20 seconds to arrive — an empty frame for
+           long enough to read as broken. One plate is on screen at a time here,
+           so it is fetched with the passage it faces. */
+        decoding="async"
+      />
+      <figcaption className="lib-plate-cap">
+        <span className="lib-plate-k">
+          {plate} · vol. {volumeRoman(sp.volume)}
+        </span>
+        {also.length > 0 && (
+          <span className="lib-plate-two">
+            two birds on this sheet — {sp.jardine_title} {sp.plate_where}
+            {also.map((a) => (
+              <span key={a.sci_name}>
+                , and the {a.common} {a.where}
+              </span>
+            ))}
+          </span>
+        )}
+        {cited && <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>}
+        {cited && sp.plate_note && <span className="lib-plate-why">{sp.plate_note}</span>}
+      </figcaption>
+    </figure>
+  );
+}
+
 /** An 1838 passage: Cormorant, ragged-right, oldstyle figures inside prose. */
 function Prose({ p, tone = 'desk' }: { p: JardinePassage; tone?: 'desk' | 'coda' | 'slip' }) {
   return (
@@ -324,10 +498,17 @@ function ReadingDesk({
   onReadAll,
   onAnother,
   canRotate,
+  slug,
+  com,
+  art,
 }: {
   sp: JardineSpecies;
   lastDetected: string | null;
   live: boolean;
+  /** For the station's own bird, when Jardine never figured this one. */
+  slug: string;
+  com: string;
+  art: Map<string, string> | null;
   /** The reader named this bird (?read=). Tier zero can land on a species with
    *  NO voice, so the desk must be able to answer with the library's silence. */
   aimed?: boolean;
@@ -443,6 +624,8 @@ function ReadingDesk({
           indistinguishable from the daily rotation happening to agree, and the
           reader cannot tell whether the button worked. */}
       {aimed && <span className="lib-desk-aim">you asked for this one</span>}
+      {/* The plate faces the account, as it does in the book. */}
+      <SpeciesPlate sp={sp} slug={slug} com={com} art={art} />
       {sp.voice && <Prose p={sp.voice} />}
       {sp.coda && <Prose p={sp.coda} tone="coda" />}
       {/* An aimed bird can be one of the silent ones. Rendering nothing would
@@ -1092,10 +1275,13 @@ export function LibraryView({
   const volumes = jardine?.volumes ?? [];
   const ornithology = volumes.filter((v) => v.division === 'birds').length;
   const withPage = (jardine?.species ?? []).filter((s) => byCatalog.has(s.sci_name));
-  // BOTH fields, not either: plate_ref !== null counts the two VIGNETTES as
-  // plates, and Erratum III three sections below argues the Robin was denied a
-  // plate — so the ledger was contradicting the erratum on the same screen.
-  const withPlate = withPage.filter((s) => s.plate_ref !== null && !s.plate_is_vignette).length;
+  // BOTH conditions, not either. Excluding vignettes is not tidiness: Erratum
+  // III three sections below argues the Robin was DENIED a plate, and counting
+  // its vignette would have the ledger contradicting the erratum on the same
+  // screen. And the test is now `image`, not `plate_ref` — a reference with no
+  // file behind it is a plate the museum does not have, and this sentence is
+  // the one place the collection states its own size.
+  const withPlate = withPage.filter((s) => s.image !== null && !s.plate_is_vignette).length;
   const heardCount = catalog?.length ?? 0;
 
   // THE ROLL — a left join of the garden onto the library. Sorted by drift class
@@ -1198,7 +1384,16 @@ export function LibraryView({
                 <div className="lib-epi-cite">
                   {jardine.epigraph.speaker} · vol. {volumeRoman(jardine.epigraph.volume)}
                   {jardine.epigraph.volume_title ? ` · ${jardine.epigraph.volume_title}` : ''}
-                  {jardine.epigraph.volume_author ? ` · ${jardine.epigraph.volume_author}` : ''} ·{' '}
+                  {/* The volume's author is worth printing only when he is not
+                      the speaker — otherwise the masthead reads "William
+                      Jardine · ... · William Jardine". <Attribution> has
+                      guarded this since it was written; the epigraph is the one
+                      citation that never got the same line. */}
+                  {jardine.epigraph.volume_author &&
+                  jardine.epigraph.volume_author !== jardine.epigraph.speaker
+                    ? ` · ${jardine.epigraph.volume_author}`
+                    : ''}{' '}
+                  ·{' '}
                   <a
                     className="lib-cite-l"
                     href={jardine.epigraph.source_url || 'https://www.c82.net/naturalists-library/'}
@@ -1227,6 +1422,9 @@ export function LibraryView({
               sp={desk}
               lastDetected={byCatalog.get(desk.sci_name)?.last_detected ?? null}
               live={deskIsLive}
+              slug={slugFor(desk.sci_name)}
+              com={comFor(desk.sci_name)}
+              art={art}
               aimed={deskIsAimed}
               onReadAll={openAccount}
               canRotate={voicePool.length > 1}
@@ -1310,7 +1508,15 @@ export function LibraryView({
                   );
                 })}
               </div>
-              <div className="lib-shelf-cap">{shelfHover ?? ' '}</div>
+              <div className="lib-shelf-cap">
+                {/* The caption height is reserved so the shelf cannot jump when a
+                    spine is hovered — but reserving it with a bare non-breaking
+                    space left an 1180px band of nothing under the shelf at rest,
+                    which reads as a component that failed rather than one that is
+                    waiting. At rest it says what the amber edge means, which is the
+                    one thing the shelf never said out loud. */}
+                {shelfHover ?? 'amber marks a volume this garden has heard from'}
+              </div>
             </section>
           )}
 
@@ -1333,6 +1539,18 @@ export function LibraryView({
                 <tbody>
                   {roll.flatMap(({ c, j }, i) => {
                     const out: ReactNode[] = [];
+                    // Name the tier the moment it starts. Derived from the row
+                    // itself, so a band with no members prints no heading and a
+                    // new drift class cannot appear unannounced.
+                    const band = j?.drift ? DRIFT_BAND[j.drift] : null;
+                    const prev = i > 0 ? roll[i - 1].j?.drift : undefined;
+                    if (band && j?.drift !== prev) {
+                      out.push(
+                        <tr className="lib-roll-band" key={`band-${j?.drift}`}>
+                          <td colSpan={4}>{band}</td>
+                        </tr>,
+                      );
+                    }
                     // The one dry line the ledger is allowed, and only when it
                     // is literally true of the silent rows below it.
                     if (i === firstSilent && silentCorvids > 0) {
@@ -1421,6 +1639,8 @@ export function LibraryView({
                   species={sp}
                   passages={ps}
                   com={comFor(openSci)}
+                  slug={slugFor(openSci)}
+                  art={art}
                   onClose={() => setOpenSci(null)}
                 />
               );
@@ -1436,6 +1656,19 @@ export function LibraryView({
                 paraphrased or generated by a model
               </div>
             )}
+            {/* AND NOW THE PICTURES, BECAUSE THE SENTENCE ABOVE ONLY COVERS
+                SENTENCES. It says nothing here is generated by a model, which
+                was true of a page that carried three scanned engravings. This
+                page now also carries the station's own birds for the 27 species
+                Jardine never figured, and those ARE painted by a model. A
+                reader would reasonably read the line above as covering
+                everything on the page; leaving it to do so would be the exact
+                failure this tab exists to correct, on the tab's own colophon. */}
+            <div className="lib-col-l">
+              the engravings are Jardine's, scanned from the 1833–1843 volumes · the birds in
+              colour are AI visualized by this station from the species name — not engraved, not
+              photographed · which is which is printed under every image
+            </div>
             <div className="lib-col-l">
               Sir William Jardine, The Naturalist's Library, Edinburgh 1833–1843.{' '}
               {colophon?.credit || 'Restored and transcribed by Nicholas Rougeux, c82.net.'}{' '}

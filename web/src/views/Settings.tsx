@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import type { Settings } from '../settings';
 import { PROFILE } from '../profile';
-import { BASE } from '../config';
+import { BASE, MOCK } from '../config';
 import './Settings.css';
 
 // Companion surfaces — the off-frame pages that live beside the museum. Linked
@@ -21,6 +21,39 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
   { href: 'wrapped.html', name: 'Year in Review', desc: 'the yard’s year as a poster' },
   { href: 'recap.html', name: 'Weekly Recap', desc: 'this week’s visitors, one illustrated sheet' },
   { href: 'lab.html', name: 'The Lab', desc: 'the live feed + honest data, for the curious' },
+];
+
+// THE STATION — the BirdNET-Pi operator surfaces. ROOT-relative on purpose, not
+// BASE-relative like the companions above: the wall is served under /collage/,
+// but the station has always answered at /index.php beside it.
+//
+// Why this section exists at all: the Caddyfile's `redir / /collage/ 302` made
+// the museum the front door, and the museum linked nothing back. That silently
+// stranded the ENTIRE station — its 10-button nav, its 23 views, and the "Live
+// Audio" button that lives only in its banner. Nothing broke; the door just
+// stopped being on any path a visitor walks. The four below are the ones you
+// cannot reach any other way; everything else (Overview, Today's Detections,
+// Best Recordings, Daily Charts, Weekly Report, Recordings, Log, Tools →
+// Settings) hangs off the Station Console's own nav once you are inside it.
+//
+// Every entry was probed on the live Pi (2026-07-30) and answered. Deliberately
+// ABSENT: /terminal — the web terminal unit is installed but dead, so linking it
+// would ship a broken door; and Adminer, removed in the 2026-07-27 security pass.
+const STATION: { href: string; name: string; desc: string }[] = [
+  { href: '/index.php?stream=play', name: 'Live Audio', desc: 'listen to the garden microphone, right now' },
+  { href: '/views.php?view=Spectrogram', name: 'Live Spectrogram', desc: 'see what the microphone is hearing' },
+  // views.php dispatches these to two DIFFERENT files and the names invite the
+  // wrong one: view=System Controls is system_controls.php (reboot, shutdown,
+  // update), while the per-service Enable/Disable switches — including the Live
+  // Audio Stream one that turns the microphone feed on — are view=Services →
+  // service_controls.php:36. Verified by fetching both authenticated: only the
+  // Services page contains the "Live Audio Stream" heading.
+  {
+    href: '/views.php?view=Services',
+    name: 'Service Controls',
+    desc: 'start or stop the recorder, the analyser, the audio stream',
+  },
+  { href: '/index.php', name: 'Station Console', desc: 'the BirdNET-Pi UI — detections, recordings, charts, logs' },
 ];
 
 // Segmented option tables — typed via indexed access so each picker stays in
@@ -244,6 +277,26 @@ export function SettingsPanel(props: {
               ))}
             </nav>
           </Section>
+
+          {/* Hidden in a MOCK build: that is the self-contained demo with no
+              backend behind it, so every station link would be a dead end. */}
+          {!MOCK && (
+            <Section title="STATION">
+              <nav className="set-links">
+                {STATION.map((s) => (
+                  <a key={s.href} className="set-link" href={s.href} target="_blank" rel="noopener">
+                    <span className="set-link-n">
+                      {s.name} <i aria-hidden="true">↗</i>
+                    </span>
+                    <span className="set-link-d">{s.desc}</span>
+                  </a>
+                ))}
+              </nav>
+              <p className="set-note">
+                These ask for the station password. The wall is open to the house; the controls are not.
+              </p>
+            </Section>
+          )}
 
           <Section title="ABOUT">
             <p className="set-colophon">

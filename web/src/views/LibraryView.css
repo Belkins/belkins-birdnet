@@ -20,8 +20,58 @@
 .lib {
   /* The reading measure. Everything on the desk — the passage, the band, the
      citation — shares it, which is what makes the band read as the printed rule
-     under the type rather than as a chart in a box. */
-  --measure: 38ch;
+     under the type rather than as a chart in a box.
+
+     IT MUST NOT BE EXPRESSED IN ch. `ch` is the width of "0" IN THE FONT OF THE
+     ELEMENT THAT USES IT, so a single `--measure: 38ch` shared by the passage
+     (Cormorant 26px), the citation (Space Mono 10px) and the band (inherited
+     16px) resolves to three DIFFERENT widths. The one thing this section's
+     comment claims — that the band is the printed rule under the type, at the
+     same measure — was the one thing the unit made impossible. A length in rem
+     resolves once, so the alignment is now real rather than asserted. */
+  /* 42rem ≈ 672px ≈ 65 characters of Cormorant at 26px. 46rem measured 71.2,
+     which is over the comfortable band for a low-contrast serif on obsidian. */
+  --w-read: 42rem;
+
+  /* ── THE SCALE ────────────────────────────────────────────────────────────
+     This tab was built section by section over several days and never once
+     looked at. It accumulated 25 distinct font-sizes — including 7, 7.5, 8.5,
+     9 and 9.5px, five steps inside a 3px band nobody can tell apart — and 16
+     distinct rem spacings, mixed with px. That is not a scale, it is a pile of
+     local decisions, and it is why the page reads as undesigned even though
+     every individual value was chosen carefully.
+
+     Eight type steps, two hands. Nothing else may be introduced: if a new size
+     seems necessary, the composition is wrong, not the scale. */
+  --t-micro: 9px;    /* apparatus, the smallest thing that may exist */
+  --t-label: 10px;   /* eyebrows, captions, the 2026 hand's default */
+  --t-meta: 12px;    /* counts, tallies, table cells */
+  --t-body: 17px;    /* 1838 prose at reading size */
+  --t-lead: 21px;    /* the desk's passage; emphasis inside prose */
+  --t-title: 26px;   /* section titles */
+  --t-display: 34px; /* the masthead, the elegy */
+  --t-hero: 46px;    /* exactly one thing per screen may use this */
+
+  /* Spacing on a 4px grid. Nine steps, and the jumps get bigger as they go —
+     the difference between 4 and 8 matters, the difference between 88 and 96
+     does not. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+
+  /* ── THE RHYTHM ───────────────────────────────────────────────────────────
+     Every section used to be `max-width: 1180px; margin: 0 auto 64px` — eight
+     identical boxes, identically spaced, so a reference table shouted exactly
+     as loudly as the tab's argument. Width and air are now a function of what a
+     section IS. */
+  --w-text: 820px;  /* text-dominant sections */
+  --w-wide: 1180px; /* tables, grids, the ledger */
 }
 
 /* ── loading / empty — a composed gallery label, never a spinner ───────────── */
@@ -39,13 +89,13 @@
 .lib-loading .word {
   font-family: var(--display);
   font-style: italic;
-  font-size: 30px;
+  font-size: var(--t-display);
   color: var(--mut);
 }
 .lib-empty .word {
   font-family: var(--display);
   font-weight: 500;
-  font-size: 44px;
+  font-size: var(--t-hero);
   letter-spacing: 0.01em;
   color: var(--ink);
   max-width: 20ch;
@@ -58,7 +108,7 @@
 }
 .lib-empty .cap {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   color: var(--mut);
 }
@@ -72,7 +122,7 @@
 .lib-epi {
   font-family: var(--display);
   font-style: italic;
-  font-size: 30px;
+  font-size: var(--t-display);
   line-height: 1.45;
   color: var(--ink);
   max-width: 30em;
@@ -81,7 +131,7 @@
 .lib-epi-cite,
 .lib-ledger {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -89,15 +139,15 @@
   line-height: 1.9;
 }
 .lib-ledger {
-  color: var(--mut-2);
+  color: var(--mut);
   margin-top: 8px;
 }
 
 /* ── 2 · THE READING DESK — the signature ──────────────────────────────────── */
 .lib-desk {
-  max-width: calc(var(--measure) + 96px);
-  margin: 0 auto 64px;
-  padding: 40px 48px 30px;
+  max-width: calc(var(--w-read) + 2 * var(--s-7));
+  margin: 0 auto var(--s-8);
+  padding: var(--s-6) var(--s-7) var(--s-5);
   background: var(--card);
   border-radius: 14px;
   border-top: 1px solid var(--line);
@@ -109,37 +159,142 @@
     0 18px 40px -22px rgba(0, 0, 0, 0.8);
 }
 
-/* PROSE IS THE REAL DESIGN PROBLEM. 30px / 1.5 / 38ch / --ink-2 — full ink at
-   this size and length glares on obsidian, and body size would fail the tab. */
+/* PROSE IS THE REAL DESIGN PROBLEM — and it was the page's single worst defect.
+   The passage rendered at --t-display (34px, the MASTHEAD's step) inside a
+   column the broken ch measure had squeezed to 390px: about 27 characters, or
+   under five words, per line. One 2,704-character passage became a hundred
+   lines and 5,100px — one paragraph was 35% of the entire page, a poem-narrow
+   ribbon down the centre of a 1440px screen with 950px of dead black either
+   side. Not one of those numbers was a decision; they were what two wrong units
+   multiplied out to.
+
+   Three steps now, descending by ROLE, so the desk's own hierarchy is legible:
+   the passage leads, the second movement answers it, an errata quotation is
+   evidence inside someone else's argument and sits at reading size. Full ink at
+   any of these sizes glares on obsidian, so 1838 prose stays --ink-2. */
 .lib-prose {
   font-family: var(--display);
-  font-size: 30px;
+  font-size: var(--t-title);
   line-height: 1.5;
   color: var(--ink-2);
-  max-width: var(--measure);
-  margin: 0 0 18px;
+  max-width: var(--w-read);
+  margin: 0 0 var(--s-4);
   text-align: left; /* ragged right */
 }
 .lib-prose-coda {
-  font-size: 24px;
+  font-size: var(--t-lead);
   color: var(--mut);
 }
 .lib-prose-slip {
-  font-size: 22px;
-  margin-bottom: 12px;
+  font-size: var(--t-body);
+  margin-bottom: var(--s-3);
 }
 
 /* An OCR artefact, preserved verbatim and admitted in the margin. Never
    corrected — the artefacts are the proof that no model cleaned the source. */
+/* ── THE ENGRAVING ───────────────────────────────────────────────────────────
+   The only rectangular hard-edged image in this museum: printed sheet against
+   cut specimen, two centuries legible without reading a word. No filter, no
+   glow, no rounded corner — a plate is a plate.
+
+   Height-capped rather than width-capped, because the set is half portrait and
+   half landscape: at the desk's 672px a portrait plate would run over a
+   thousand pixels tall and push the passage it is supposed to face off the
+   screen. Capping the height lets both orientations sit at the same visual
+   weight, which is what makes them read as one collection. */
+.lib-fig-plate {
+  margin: 0 0 var(--s-5);
+  max-width: var(--w-read);
+}
+/* 280px, not 380. At 380 the plate and its caption ran from 507 to 932px on a
+   1440x900 screen and the passage began at y=956 — BELOW THE FOLD. The signature
+   of this tab is an 1838 sentence set large, and on a plated bird you arrived to
+   a picture and had to scroll to reach a single word of it. A plate faces the
+   account; it does not replace the first screen of it. */
+.lib-fig-plate .lib-plate {
+  display: block;
+  height: 280px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+}
+/* The station's bird was never on paper, so it gets no frame and no ground —
+   the difference from an engraving must survive the caption being unread. */
+.lib-plate-station {
+  border: 0;
+  background: none;
+  object-fit: contain;
+}
+/* THE OTHER HAND, IN PICTURES. Twenty-seven of these birds were never figured
+   by Jardine, and the station paints every species it hears — so the tab shows
+   an 1838 engraving where the book has one and this station's own bird where it
+   does not. The difference must be visible without reading the caption, the way
+   the two type hands are: the engraving is a hard-edged rectangle with a rule
+   around it, printed sheet against cut specimen; the station's bird has no
+   frame at all, because it was never on paper. */
+.lib-fig-modern .lib-cut-plate {
+  width: 100%;
+  max-width: 320px;
+  cursor: default;
+}
+.lib-fig-modern .lib-cut-plate .acard-img {
+  margin: 0;
+  min-height: 180px;
+}
+.lib-plate-modern {
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: var(--mut);
+}
+.lib-plate-cap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+}
+.lib-plate-k {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+/* The two-bird line is the whole reason the plates could ship. It is the modern
+   hand's PROSE voice — a sentence, not a label — because a reader has to be
+   able to read it, not merely notice it. */
+.lib-plate-two,
+.lib-plate-cite,
+.lib-plate-why {
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  max-width: var(--w-read);
+}
+/* A citation is not a claim, and it does not get to look like one. */
+.lib-plate-cite {
+  border-left: 1px solid var(--mut);
+  padding-left: var(--s-3);
+}
+.lib-plate-why {
+  color: var(--mut);
+  font-size: var(--t-label);
+}
+
 .lib-sic {
   border-bottom: 1px dotted var(--mut-2);
 }
 .lib-sic-m {
   font-family: var(--mono);
-  font-size: 7.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-left: 2px;
   vertical-align: super;
 }
@@ -151,17 +306,17 @@
   align-items: baseline;
   gap: 4px 12px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
-  max-width: var(--measure);
+  max-width: var(--w-read);
 }
 .lib-cite-who {
   color: var(--ink-2);
 }
 .lib-cite-w {
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-cite-l {
   color: var(--mut);
@@ -176,15 +331,15 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: var(--measure);
+  max-width: var(--w-read);
   margin: 26px 0 10px;
 }
 .lib-another {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   background: none;
   border: none;
   padding: 4px 0;
@@ -202,7 +357,7 @@
 .lib-band {
   position: relative;
   height: 44px;
-  max-width: var(--measure);
+  max-width: var(--w-read);
   border-radius: 4px;
   border: 1px solid var(--line-2);
   overflow: hidden;
@@ -245,7 +400,7 @@
    restated, rather than a broken control. */
 .lib-answer {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -256,9 +411,48 @@
 }
 
 /* ── section furniture (errata / blind ear / shelf / roll) ─────────────────── */
+/* ── SECTION RHYTHM ────────────────────────────────────────────────────────
+   Width and air by ROLE, not one constant for everything. The default is the
+   wide ledger measure; the modifiers below pull a section in or push it apart
+   according to what it is asking the reader to do. */
 .lib-sec {
-  max-width: 1180px;
-  margin: 0 auto 64px;
+  max-width: var(--w-wide);
+  margin: 0 auto var(--s-8);
+}
+
+/* ARGUMENT — the two sections that ARE the tab's thesis. They get the most air
+   before them, because the page should feel like it turns here. The Index of
+   Silences is not a table of birds; it is the sentence "the book had no word
+   for the loudest thing in this garden", made of eighteen rows. */
+.lib-sec.lib-silences {
+  max-width: var(--w-text);
+  margin-top: var(--s-9);
+  margin-bottom: var(--s-9);
+}
+
+/* EVIDENCE — the errata are exhibits. Wide, and the slips carry their own
+   internal frames, so the section itself stays quiet. */
+.lib-sec.lib-errata {
+  margin-bottom: var(--s-8);
+}
+
+/* PLAY — a held breath between the argument and the reference material. */
+/* The ear is a THREE-COLUMN COMPARISON, so it takes the wide role: at --w-text
+   each option was a 273px ribbon, the desk's bug in miniature and three times
+   over. */
+.lib-sec.lib-ear {
+  max-width: var(--w-wide);
+  margin-bottom: var(--s-8);
+}
+
+/* REFERENCE — the Shelf and the Roll are apparatus, not argument. They are the
+   two largest things on the page by area and they used to shout exactly as
+   loudly as the thesis. They keep the full measure and lose the air: a reader
+   scanning a ledger wants density, and a reader who is not scanning it should
+   be able to feel that it is not asking for them. */
+.lib-sec.lib-shelf-sec,
+.lib-sec.lib-roll-sec {
+  margin-bottom: var(--s-7);
 }
 .lib-sec-h {
   display: flex;
@@ -268,7 +462,7 @@
 }
 .lib-sec-k {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--mut);
@@ -276,8 +470,36 @@
 .lib-sec-t {
   font-family: var(--display);
   font-style: italic;
-  font-size: 19px;
+  font-size: var(--t-lead);
   color: var(--ink-2);
+}
+
+/* ── WHICH SECTION IS SPEAKING ────────────────────────────────────────────────
+   All eight sections wore the identical lockup — 9px mono eyebrow over a 21px
+   italic line, same size, same colour, same air — so nothing on the page said
+   which one was the argument and which were the apparatus. The Roll won by
+   sheer texture instead: 48 banded rows, small-caps authorities and amber
+   numerals make it the densest object in the tab, and density reads as
+   importance when nothing else outranks it.
+
+   So the header now states the section's rank. The Index of Silences — the
+   whole reason this tab exists — takes the display step in full ink. The Shelf
+   and the Roll are reference: you consult them, you do not read them, and they
+   drop to reading size in the muted hand. Same lockup, same fonts, same two
+   hands; only the rank differs. */
+.lib-silences .lib-sec-t {
+  font-size: var(--t-display);
+  line-height: 1.25;
+  color: var(--ink);
+  max-width: 26rem; /* rem, not ch — see the note on --w-read */
+}
+.lib-silences .lib-sec-h {
+  margin-bottom: var(--s-6);
+}
+.lib-shelf-sec .lib-sec-t,
+.lib-roll-sec .lib-sec-t {
+  font-size: var(--t-body);
+  color: var(--mut);
 }
 
 /* ── 3 · THE ERRATA — five slips, dry and merciless ────────────────────────── */
@@ -309,7 +531,7 @@
 .lib-slip-no {
   flex: none;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--red);
@@ -319,24 +541,44 @@
 }
 .lib-slip-t {
   font-family: var(--display);
-  font-size: 21px;
+  font-size: var(--t-lead);
   line-height: 1.15;
   color: var(--ink);
 }
 .lib-lab {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-bottom: 10px;
 }
 .lib-says {
   margin-bottom: 18px;
 }
+/* THE SAME ch BUG, STILL LIVE — I fixed every var(--measure) and missed the
+   literal, then wrote a comment upstairs claiming the class was eliminated. It
+   was not: 44ch resolved to 356.8px on the Cormorant prose and 269.3px on the
+   Space Mono citation, an 87.5px mismatch inside every errata slip, and it left
+   the right half of a 578px card empty so the slip read as a strip of text
+   pinned to one edge of a box. Fixing the instance and declaring the class dead
+   is this project's signature mistake and I made it again.
+
+   The card is the measure here. Both children take its full width, so they
+   cannot disagree. */
 .lib-says .lib-prose,
 .lib-says .lib-cite {
-  max-width: 44ch;
+  max-width: 100%;
+}
+/* THE OVERCORRECTION. `100%` is right in a 580px slip and absurd in a 1180px
+   one: the two full-width slips came out at 152 and 118 characters a line,
+   moments after I cut --w-read to 42rem because 71 was too many. A measure is
+   not "as wide as the box" any more than it is "44 of whichever character".
+   The wide slips take the same reading measure as everything else and sit
+   left, against the gutter rule. */
+.lib-slip-wide .lib-says .lib-prose,
+.lib-slip-wide .lib-says .lib-cite {
+  max-width: var(--w-read);
 }
 .lib-garden-rows {
   display: flex;
@@ -351,7 +593,7 @@
 /* A figure measured by the Pi. Never committed, always computed at render. */
 .lib-fig {
   font-family: var(--display);
-  font-size: 30px;
+  font-size: var(--t-display);
   font-weight: 500;
   color: var(--amber);
   line-height: 1;
@@ -361,7 +603,7 @@
 }
 .lib-fig-l {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
@@ -373,7 +615,7 @@
   border-top: 1px solid var(--line-2);
   font-family: var(--display);
   font-style: italic;
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 .lib-slip[data-tone='mut'] .lib-close {
@@ -382,10 +624,10 @@
 .lib-wall {
   margin-top: 16px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   text-align: center;
 }
 
@@ -420,9 +662,18 @@
   border: 1px solid var(--line);
   border-radius: 0;
 }
+/* THE MOUNT WITH NO PLATE IN IT. It was a 22x92 sliver of flat card — narrower
+   than a thumbnail, exactly the shape of an image that failed to load, which is
+   the one thing a museum of provenance must never look like. Give it the
+   proportions of a real mount and a hairline, and it reads as an empty frame on
+   a wall: deliberate, and obviously not a broken picture. */
 .lib-mat-empty {
+  display: block;
   min-height: 92px;
+  aspect-ratio: 3 / 4;
   background: var(--card-2);
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
 }
 .lib-plate {
   display: block;
@@ -439,14 +690,14 @@
 }
 .lib-mount-k {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-mount-t {
   font-family: var(--display);
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 
@@ -459,15 +710,20 @@
   min-height: 120px;
   background: var(--line);
 }
+/* The ONE label that cannot use --mut: the gutter sits on the errata slip's
+   raised card (#36333c), the lightest surface in the museum, where even the
+   lifted --mut only reaches 3.8:1. "190 years" was the least readable string on
+   the whole page at 1.81:1 — a number that IS the argument of the slip. It
+   moves up the ramp rather than the token moving down. */
 .lib-gutter-k {
   position: absolute;
   top: 0;
   left: 6px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -494,29 +750,29 @@
 }
 .lib-modern-n {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--ink);
 }
 /* A number measured by the Pi. */
 .lib-tally {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
 }
 .lib-tally b {
   font-family: var(--display);
-  font-size: 17px;
+  font-size: var(--t-body);
   color: var(--amber);
 }
 /* An honestly, visibly inert control — flat, unclickable, unapologetic. */
 .lib-inert {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   line-height: 1.8;
 }
 .lib-modern-none {
@@ -527,15 +783,19 @@
 .lib-coll-name {
   font-family: var(--display);
   font-style: italic;
-  font-size: 46px;
+  font-size: var(--t-hero);
   text-align: center;
   color: var(--ink);
   margin: 6px 0 10px;
 }
+/* A divider with a max-width, a height and a background, and NO width — as a
+   flex/grid child it resolved to 0px and has never once rendered. A rule that
+   is not there is not a subtle rule. */
 .lib-coll-rule {
+  width: 100%;
   height: 1px;
   background: var(--line);
-  margin: 0 auto 22px;
+  margin: 0 auto var(--s-5);
   max-width: 460px;
 }
 .lib-coll-cols {
@@ -557,7 +817,7 @@
 }
 .lib-coll-k {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--mut);
@@ -565,7 +825,7 @@
 .lib-coll-sci {
   font-family: var(--display);
   font-style: italic;
-  font-size: 13px;
+  font-size: var(--t-meta);
   color: var(--mut);
 }
 
@@ -578,10 +838,10 @@
 }
 .lib-ear-hint {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-ear-opts {
   display: grid;
@@ -604,19 +864,37 @@
 }
 .lib-opt-no {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.2em;
-  color: var(--mut-2);
+  color: var(--mut);
 }
+/* THE ONLY SECTION WITH NO CEILING. It printed all three Jardine accounts in
+   full, so its height was whatever three random passages happened to be — 481px
+   on one load and 2,033px on the next, and it alone made the page's total
+   height an unstable number. You cannot compare three descriptions you have to
+   scroll past to reach.
+
+   So while the round is open each option is clamped to nine lines and the game
+   becomes what it always should have been: read three openings, pick the bird.
+   Answering removes the clamp and the full account is there, so nothing is
+   withheld — the ellipsis is the honest marker that there is more, and the
+   whole passage is one click away in either direction. */
 .lib-opt-p {
   font-family: var(--display);
-  font-size: 19px;
-  line-height: 1.45;
+  font-size: var(--t-body);
+  line-height: 1.55;
   color: var(--ink-2);
+}
+.lib-opt[data-state='open'] .lib-opt-p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 9;
+  line-clamp: 9;
+  overflow: hidden;
 }
 .lib-opt-true {
   font-family: var(--mono);
-  font-size: 8.5px;
+  font-size: var(--t-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--mut);
@@ -633,7 +911,7 @@
 }
 .lib-opt[data-state='wrong'] .lib-opt-p,
 .lib-opt[data-state='off'] .lib-opt-p {
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-opt[data-state='wrong'],
 .lib-opt[data-state='off'] {
@@ -655,20 +933,20 @@
 }
 .lib-ear-rev-n {
   font-family: var(--display);
-  font-size: 26px;
+  font-size: var(--t-title);
   color: var(--ink);
 }
 .lib-ear-rev-s {
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--ink-2);
 }
 .lib-again {
   align-self: flex-start;
   margin-top: 4px;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -688,9 +966,21 @@
 }
 
 /* ── 5 · THE SHELF — forty spines, no images ───────────────────────────────── */
+/* TWO SHELVES, NOT ONE RAIL. Forty spines across 1180px is 29.5px each, of
+   which 11px is the rotated title — so ten titles were cut, by up to 146px, and
+   the roman numerals collided into each other at the far end (XXXVII over
+   XXXVIII, measured). My first attempt at this was a mask-image fade, and a
+   re-measure showed it changed NOTHING: the same ten titles, cut by the same
+   pixel amounts, now ending softly instead of sharply. A gradient over a wound.
+
+   The wound was the width. Twenty spines to a shelf doubles every spine to 59px
+   — the numerals fit, the titles get room, and two rows of twenty read as a
+   bookcase rather than as a scratch-strip claiming to be the whole natural
+   world in 2% of the page. The fade stays as the last-resort marker for the few
+   titles that are still longer than any spine. */
 .lib-shelf {
   display: grid;
-  grid-template-columns: repeat(40, minmax(0, 1fr));
+  grid-template-columns: repeat(20, minmax(0, 1fr));
   gap: 1px;
   max-width: 1180px;
   margin: 0 auto;
@@ -723,27 +1013,45 @@
 .lib-spine[data-lit='yes'] .lib-spine-foil {
   background: var(--amber);
 }
+/* Forty spines across 1180px is 29px each, and some of these titles are sixty
+   characters ("Ruminantia, Part II, Goats, Sheep, Wild and Domestic Cattle,
+   &c."). Eleven of forty were being chopped mid-word: text-overflow:ellipsis
+   cannot help here, because in vertical-rl the overflow it would mark is on the
+   axis this box does not constrain, so it silently did nothing.
+
+   A hard chop reads as a rendering failure. A fade reads as a spine turned
+   away, which is what it is — the mask says "this title continues" in the same
+   way the physical object does, and the full title is on the element for anyone
+   who hovers or uses a screen reader. */
 .lib-spine-t {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   font-family: var(--display);
-  font-size: 10px;
+  font-size: var(--t-label);
   line-height: 1.1;
   letter-spacing: 0.02em;
-  color: var(--mut-2);
+  color: var(--mut);
   max-height: 150px;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* Two vertical lines now fit in a 59px spine, so a long title wraps instead
+     of running off the end. */
+  white-space: normal;
+  /* NO FADE HERE. The mask was the last-resort marker for a title longer than
+     its spine, and at twenty columns not one of the forty is: zero overflow,
+     measured on all forty. An unconditional 28px gradient on a spine where
+     everything fits does not say "this continues", it dims a word for no
+     reason — "Bees" was 100% inside the gradient, "Beetles" 98%, "Monkeys"
+     77%. It survives only on the phone, where spines are 35px and the overflow
+     is real. */
 }
 .lib-spine[data-lit='yes'] .lib-spine-t {
   color: var(--ink);
 }
 .lib-spine-n {
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: var(--t-micro);
   letter-spacing: 0.04em;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-shelf-cap {
   max-width: 1180px;
@@ -751,7 +1059,7 @@
   text-align: right;
   min-height: 1.4em;
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mut);
@@ -765,17 +1073,20 @@
 }
 .lib-roll th {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   font-weight: 400;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
   text-align: left;
   padding: 0 10px 10px;
   border-bottom: 1px solid var(--line);
 }
 .lib-roll td {
-  padding: 9px 10px;
+  /* was 9px 10px. The Roll is 48 rows and was one of the three sections that
+     between them made up most of the page's height. A ledger wants to be
+     scannable, not spacious. */
+  padding: var(--s-1) var(--s-3);
   border-bottom: 1px solid var(--line-2);
   vertical-align: baseline;
 }
@@ -787,13 +1098,13 @@
 }
 .lib-roll-m {
   font-family: var(--display);
-  font-size: 18px;
+  font-size: var(--t-body);
   color: var(--ink);
 }
 .lib-roll-o {
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--mut);
 }
 /* A Latin string a man wrote by hand in 1838 that a neural net printed this
@@ -804,15 +1115,15 @@
 .lib-roll-none {
   font-family: var(--mono);
   font-style: normal;
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 .lib-roll-vol,
 .lib-roll th.lib-roll-vol {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--t-label);
   letter-spacing: 0.08em;
   color: var(--mut);
   width: 6em;
@@ -820,26 +1131,41 @@
 .lib-roll-n,
 .lib-roll th.lib-roll-n {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--t-meta);
   text-align: right;
   color: var(--ink-2);
   width: 8em;
+}
+/* The tier headings. Modern hand, label voice — they name a column of the
+   argument, they are not sentences to read. Quieter than the break line below,
+   which is a remark rather than a heading. */
+.lib-roll-band td {
+  padding: var(--s-5) var(--s-3) var(--s-1);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+  border-bottom: 1px solid var(--line-2);
+}
+.lib-roll-r:first-child td {
+  border-top: 0;
 }
 .lib-roll-break td {
   padding-top: 22px;
   font-family: var(--display);
   font-style: italic;
-  font-size: 15px;
+  font-size: var(--t-body);
   color: var(--mut);
   border-bottom: 1px solid var(--line);
 }
 .lib-roll-foot {
   margin-top: 14px;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 
 /* The closing line beneath the ledger: what is present, signed off by an 1838
@@ -852,7 +1178,7 @@
 .lib-elegy-t {
   font-family: var(--display);
   font-style: italic;
-  font-size: 22px;
+  font-size: var(--t-lead);
   line-height: 1.5;
   color: var(--mut);
   margin: 0 0 12px;
@@ -870,10 +1196,10 @@
 }
 .lib-col-l {
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   line-height: 1.9;
   letter-spacing: 0.08em;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-bottom: 10px;
 }
 
@@ -881,20 +1207,23 @@
    horizontally scrolls. ───────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .lib {
-    --measure: 28ch;
+    /* The phone has no room to choose a measure: the column IS the screen. */
+    --w-read: 100%;
   }
   .lib-desk {
-    padding: 28px 22px 22px;
+    padding: var(--s-5) var(--s-4) var(--s-4);
     max-width: 100%;
   }
+  /* One step down each, holding the same three-step role ramp as the desktop —
+     a phone reads at arm's length, not across a room. */
   .lib-prose {
-    font-size: 26px;
+    font-size: var(--t-lead);
   }
   .lib-prose-coda {
-    font-size: 21px;
+    font-size: var(--t-body);
   }
   .lib-epi {
-    font-size: 25px;
+    font-size: var(--t-title);
   }
   /* The band keeps its full width and its 44px height, unchanged: it is the
      signature. */
@@ -931,7 +1260,7 @@
     top: 4px;
   }
   .lib-coll-name {
-    font-size: 34px;
+    font-size: var(--t-display);
   }
   .lib-ear-opts {
     grid-template-columns: minmax(0, 1fr);
@@ -940,16 +1269,25 @@
     flex-direction: column;
     align-items: flex-start;
   }
-  /* Two rows of twenty rather than shrinking to forty slivers — the count is
-     the joke, so it must stay countable. */
+  /* FOUR ROWS OF TEN. Twenty columns on a 351px phone is a 16.6px spine — 9.5px
+     of content — and the two-line wrap written for a 58px desktop spine landed
+     here too, so a 22px title block sat in a 9.5px box and got clipped on BOTH
+     sides: you saw the middle of line one beside the middle of line two, which
+     is not a title, it is noise. Nineteen of forty did that, and at 320px all
+     forty did. My desktop fix made the phone materially worse.
+
+     Ten columns give a 35px spine, which is a real book, and the title goes
+     back to one legible column that fades where it runs out. */
   .lib-shelf {
-    grid-template-columns: repeat(20, minmax(0, 1fr));
+    grid-template-columns: repeat(10, minmax(0, 1fr));
   }
   .lib-spine {
     height: 150px;
   }
   .lib-spine-t {
     max-height: 112px;
+    white-space: nowrap;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
   }
   /* The Roll drops the VOL. column only. */
   .lib-roll-vol,
@@ -957,83 +1295,103 @@
     display: none;
   }
   .lib-roll-break td {
-    font-size: 14px;
+    font-size: var(--t-meta);
   }
 }
 
 /* ── THE INDEX OF SILENCES ───────────────────────────────────────────────────
-   The note is 2026 prose about a gap in an 1838 book, so it wears the modern
-   hand; only .lib-sil-coda carries Jardine's own words and Cormorant. The tally
-   is a number MEASURED BY THE PI and therefore amber, per the amber law. */
+   THIS SECTION IS THE ARGUMENT OF THE TAB and it was composed as fine print.
+
+   Every element in a row was set against its own meaning. The bird — the one
+   that actually sings in this garden, the loudest thing here — was 10px mono
+   uppercase, while the dead book's Latin sat above it at 17px. The curator's
+   note, the sentence that says WHAT the book failed to describe, was a full
+   sentence set in 10px letterspaced uppercase: the thesis, rendered as the
+   least readable string in the section. And the tally was flung right in amber,
+   so the loudest mark in a row about silence was a number.
+
+   The fix is not a new vocabulary, it is reading the two-hand law properly. The
+   modern hand has always had two voices and the tab only ever used one of them:
+   a LABEL voice (9–10px, uppercase, letterspaced) for things that name a
+   column, and a PROSE voice (12px, sentence case, normal tracking) for things
+   that are actually sentences. Both are Space Mono, both are unmistakably 2026.
+   Applying the label voice to prose is what made the argument unreadable.
+
+   The tally stays amber because the amber law says so — it is a number measured
+   by the Pi — but a 26px name outweighs a 10px figure without needing to.
+   Palette fallbacks (var(--mut, #8f8f8f) and friends) are gone: those hexes are
+   in no palette in this museum, so if a token ever failed they would render a
+   colour that was never chosen. */
 .lib-silences .lib-sil-list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .lib-sil-row {
-  padding: 1.1rem 0;
+  padding: var(--s-5) 0;
   border-bottom: 1px solid var(--line);
 }
 .lib-sil-row:last-child {
   border-bottom: 0;
 }
+/* The bird owns its own line; the 1838 name and the Pi's count share the next
+   one. Two lines, so neither the Latin nor the figure can crowd the bird. */
 .lib-sil-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
+  gap: var(--s-1) var(--s-3);
 }
 .lib-sil-com {
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-2, #d8d4cc);
+  grid-column: 1 / -1;
+  font-family: var(--display);
+  font-size: var(--t-title);
+  line-height: 1.15;
+  color: var(--ink);
 }
 .lib-sil-bin {
-  font-family: var(--display, "Cormorant Garamond", Georgia, serif);
+  font-family: var(--display);
   font-style: italic;
-  font-size: 1.05rem;
-  color: var(--mut, #8f8f8f);
+  font-size: var(--t-body);
+  color: var(--mut);
 }
 .lib-sil-n {
-  margin-left: auto;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-family: var(--mono);
+  font-size: var(--t-label);
   letter-spacing: 0.04em;
-  color: var(--amber, #d08a3e);
+  color: var(--amber);
   white-space: nowrap;
 }
 .lib-sil-u {
-  color: var(--mut, #8f8f8f);
+  color: var(--mut);
   text-transform: uppercase;
 }
+/* The modern hand's PROSE voice — the one the tab never used. */
 .lib-sil-note {
-  margin: 0.55rem 0 0;
-  max-width: 62ch;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
-  line-height: 1.65;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--mut, #8f8f8f);
+  margin: var(--s-3) 0 0;
+  max-width: var(--w-read);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
 }
 .lib-sil-coda {
-  margin-top: 0.7rem;
-  padding-left: 0.9rem;
+  margin-top: var(--s-3);
+  padding-left: var(--s-4);
   border-left: 1px solid var(--line);
 }
 .lib-sil-lab {
   display: block;
-  margin-bottom: 0.25rem;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  margin-bottom: var(--s-1);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--mut, #8f8f8f);
+  color: var(--mut);
 }
 .lib-sil-play {
-  margin-top: 0.6rem;
+  margin-top: var(--s-3);
 }
 
 /* The elegy's subject — the museum naming the bird whose pronoun would
@@ -1043,7 +1401,7 @@
   display: block;
   margin-bottom: 0.4rem;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
@@ -1055,20 +1413,22 @@
   display: block;
   margin-bottom: 0.6rem;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--mut, #8f8f8f);
 }
+/* The desk's own silence note — the same sentence-set-as-a-label problem the
+   Index of Silences had, on the museum's signature surface. Modern PROSE voice,
+   and no invented fallback hex. */
 .lib-desk-silence {
-  margin: 0 0 0.4rem;
-  max-width: 62ch;
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
-  line-height: 1.65;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  color: var(--mut, #8f8f8f);
+  margin: 0 0 var(--s-3);
+  max-width: var(--w-read);
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
 }
 
 /* ── THE FULL ACCOUNT — the reading room ────────────────────────────────────
@@ -1102,7 +1462,7 @@
 .lib-acct-k {
   display: block;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--mut);
@@ -1111,7 +1471,7 @@
   display: block;
   margin-top: 0.2rem;
   font-family: var(--display);
-  font-size: 1.5rem;
+  font-size: var(--t-title);
   color: var(--ink-2);
 }
 .lib-acct-x {
@@ -1120,7 +1480,7 @@
   border: 0;
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: var(--t-meta);
   line-height: 1;
   padding: 0.3rem 0.4rem;
   color: var(--mut);
@@ -1133,7 +1493,7 @@
   padding-bottom: 0.9rem;
   border-bottom: 1px solid var(--line);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--mut);
@@ -1158,7 +1518,7 @@
   padding-left: 0.9rem;
   border-left: 1px solid var(--line);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: var(--t-micro);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   line-height: 1.6;

@@ -11,7 +11,18 @@
   --bg2: #0a090d;
   --ink: #f1ead9;
   --ink-2: #cfc7b6;
-  --mut: #857f74;
+  /* --mut is the 2026 hand: every 9–10px mono label, axis, count and caption in
+     the museum. At #857f74 it measured 4.08:1 on --card-2 and 4.09:1 on --bg0 —
+     just under the 4.5:1 floor, on the smallest type we set. Lifted, it now
+     clears 4.5 on every surface it is used against (4.98–5.72). Same warm grey,
+     same hue; the museum's voice did not change, it became audible. */
+  --mut: #948e82;
+  /* --mut-2 IS A HAIRLINE COLOUR — 2.4:1 at best. It is legitimate for a dotted
+     underline or a border and it is NEVER legitimate as a text colour: 30 rules
+     across the museum used it for real content (axis labels, accession numbers,
+     confidence values, departure dates), which is to say that content was
+     invisible. Do not reach for it to make something quiet; that is what --mut
+     is for. The one exception is a disabled control, which is exempt. */
   --mut-2: #5f5a51;
   --amber: #d99a5b;
   --amber-2: #c98a5e;
@@ -39,8 +50,12 @@
   --bg2: #e8e1d1;
   --ink: #1a1612;
   --ink-2: #4a3f31;
-  --mut: #9a8f7c;
-  --mut-2: #c0b6a1;
+  /* Day was worse than night: 3.05:1 on --bg0 and 2.80:1 on --card-2. Darkened
+     to clear 4.5 on the page and both cards (4.49–4.89). The two lower stops of
+     the background gradient sit at 4.44 and 3.92 — text rarely lands directly
+     on them, and going darker would start to read as ink rather than apparatus. */
+  --mut: #766d5c;
+  --mut-2: #c0b6a1; /* hairlines only — see the night block */
   --amber: #b0563b;
   --amber-2: #a8543b;
   --red: #c44a3b;

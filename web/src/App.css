@@ -196,6 +196,60 @@
   color: var(--on-fg);
 }
 
+/* ── CHROME OVER A SCROLLER ───────────────────────────────────
+   .filter, .menu-wrap and .live-counter carry no background at all. On the
+   collage and the wall that is right: the chrome floats over a static canvas,
+   nothing ever slides beneath it, and a pill would be furniture the picture
+   does not need. Over a scrolling view it is a collision — the Library's errata
+   subtitle runs straight through "24H 7D ALL", the Roll's count column
+   disappears behind the theme toggle, and on a phone the live counter, the nav
+   and the desk prose stack three deep in the same corner.
+
+   So the scrim is conditional on there BEING a scroller, and it is the .nav
+   pill's own recipe rather than a new one: the same bg1 at 90%, the same blur,
+   the same radius family. The signature surfaces keep their bare chrome.
+
+   THE PADDING MUST NOT CHANGE THE LAYOUT BOX. My first version added
+   `padding: 6px 12px` and nothing else, which grew .filter from 186 to 212px
+   and .menu-wrap from 139 to 165px. At 390 that turned 12.8px of clearance into
+   a 39.2px overlap and the theme toggle landed on top of the ALL button —
+   a scrim intended to make text readable made a control unclickable. Negative
+   margins of the same size cancel it: the pill grows, the box does not, and the
+   geometry is byte-for-byte what it was before the scrim existed.
+
+   The counter is not in this list. It used to be, and scrimming it was the
+   wrong answer to the wrong question — it is hidden on these surfaces now, so
+   a background for it would be dead rules pretending to be a decision. */
+.stage:has(.overlay) .filter,
+.stage:has(.overlay) .menu-wrap {
+  padding: 6px 12px;
+  margin: -6px -12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg1) 90%, transparent);
+  border: 1px solid var(--line);
+  backdrop-filter: blur(16px) saturate(1.15);
+}
+
+/* AND THE COUNTER COMES OFF THE READING PAGES ENTIRELY. Opaque, it covers
+   184.5px of a 351px column on a phone — 52.6% of the text. The overlap
+   predates the scrim; what the scrim changed is that the prose used to be
+   muddled and is now hidden.
+
+   I first scoped this to phones, wrote "a page of Victorian prose is for
+   reading" in the reason, and then applied it to one breakpoint. A sweep of
+   every scroll position found the same defect wide open above it: at 1024 the
+   counter sits on content at 27 of 29 positions and eats "William Swainson",
+   "c82.net ↗" and the figure in the errata slip whole; at 1440 it covers 12 of
+   29, including every slip number and the first spine's title and numeral.
+
+   It is pointer-events:none decoration whose home is the collage and the wall,
+   where nothing scrolls underneath it and it is the signature. On a view that
+   scrolls it is a pill parked on the text. So the rule is the surface, not the
+   width. */
+.stage:has(.overlay) .live-counter {
+  display: none;
+}
+
 /* ── colophon (Belkins credit, bottom-right) ───────────────── */
 .colophon {
   position: absolute;
@@ -478,7 +532,7 @@
   justify-content: space-between;
   font-family: var(--mono);
   font-size: 9px;
-  color: var(--mut-2);
+  color: var(--mut);
   margin-top: 6px;
 }
 .stats-panels {
@@ -814,7 +868,7 @@
   font-size: 8.5px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--mut-2);
+  color: var(--mut);
 }
 /* Knockout ink-ghost silhouette — the tier between the illustration and the
    letter plate (spec §10.4). Higher specificity than the glow rules above so it
@@ -881,6 +935,74 @@
   }
   .mast-t {
     font-size: 30px;
+  }
+
+  /* SIX TABS AT 90px EACH IS A 540px PILL, AND IT DID NOT SHRINK — `flex: none`
+     against a 94vw row, with .stage clipping the overflow. On a 390px phone
+     WALL and LIBRARY were entirely off the screen and not hit-testable; at
+     320px ATLAS went too. Two of six views were unreachable on a phone by any
+     means except typing ?tab= into the URL, and nothing showed that they had
+     been cut — the pill simply ended.
+
+     Tighter type and padding fit five, and the row scrolls to the sixth. */
+  .navrow {
+    max-width: 96vw;
+  }
+  .nav {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
+  .nav button {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    padding: 8px 11px;
+    white-space: nowrap;
+  }
+}
+
+/* THE TOP ROW RUNS OUT OF PHONE BEFORE THE NAV DOES. The five time filters and
+   the menu cluster are pinned to opposite corners with fixed 26px insets, and
+   neither shrinks: at 320 the filter's right edge lands at 222 while the menu
+   starts at 155, so 7D and ALL sit UNDER the theme toggle and the menu pill and
+   cannot be clicked at all. Two of the five windows are unreachable on a small
+   phone, and nothing shows they are there.
+
+   This is not the scrim — that was A/B tested by ablating the whole block at
+   runtime, and the hit-test outcome was identical with and without it. It is
+   older than the scrim and it is a real defect: a control you cannot press.
+
+   Both sides give up room rather than one side taking it all. Tighter insets,
+   a tighter filter gap, one step down in type, and less air around the menu —
+   about 80px reclaimed against a 67px overlap, which clears at 320 and leaves
+   the layout untouched above 420 where there was never a problem. */
+@media (max-width: 420px) {
+  .filter,
+  .archive-cap,
+  .live-counter {
+    left: 14px;
+  }
+  .menu-wrap,
+  .colophon {
+    right: 14px;
+  }
+  .filter {
+    gap: 8px;
+  }
+  .filter button {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+  }
+  .menu-wrap {
+    gap: 8px;
+  }
+  .theme-quick {
+    width: 30px;
+    height: 30px;
   }
 }
 

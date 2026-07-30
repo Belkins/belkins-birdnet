@@ -117,12 +117,40 @@ export interface JardineSpecies {
   source_url: string;
   plate_ref: string | null;
   plate_is_vignette: boolean;
+  /** The engraving itself, once tools/jardine/link_plates.py has adjudicated it.
+   *  Path RELATIVE to BASE — resolve with jardineImageUrl(). */
+  image: string | null;
+  image_w: number | null;
+  image_h: number | null;
+  /** OTHER birds figured on the same sheet. Jardine drew two species on one
+   *  plate more than once — a Spotted Sandpiper beside the Common, a Firecrest
+   *  above the Goldcrest, the American teal beside the European — and a caption
+   *  naming one of them tells a visitor the other bird IS that species. Never
+   *  print a shared plate without printing this. */
+  plate_also: JardinePlateFigure[];
+  /** Where on the sheet this bird is, so a dual caption can point. */
+  plate_where: string | null;
+  /** 'depicted' — the picture shows this bird. 'plate-list' — the VOLUME assigns
+   *  the plate to this bird and the picture does not identify itself, which is
+   *  the difference between a citation and a claim. */
+  plate_attribution: JardinePlateAttribution;
+  /** Why the attribution is only as strong as it is. Printed, not hidden. */
+  plate_note: string | null;
   drift: JardineDrift | null;
   /** null IS content — the Blue Tit ships voice:null and the Roll says so. */
   voice: JardinePassage | null;
   /** The second movement: the Song Thrush climate line, the Blue Tit door-capital line. */
   coda: JardinePassage | null;
   note: string | null;
+}
+
+export type JardinePlateAttribution = 'depicted' | 'plate-list';
+
+/** One bird on a shared plate, and where it stands. */
+export interface JardinePlateFigure {
+  sci_name: string;
+  common: string;
+  where: string;
 }
 
 export interface JardineErratumSubject {
@@ -306,11 +334,37 @@ function asSpecies(v: unknown): JardineSpecies[] {
       source_url: asString(item.source_url),
       plate_ref: asNullableString(item.plate_ref),
       plate_is_vignette: item.plate_is_vignette === true,
+      image: asNullableString(item.image),
+      image_w: asNullableNumber(item.image_w),
+      image_h: asNullableNumber(item.image_h),
+      plate_also: asFigures(item.plate_also),
+      plate_where: asNullableString(item.plate_where),
+      // Anything unrecognised degrades to the WEAKER claim. A corrupt or
+      // future value must not silently promote a citation into an assertion.
+      plate_attribution: item.plate_attribution === 'depicted' ? 'depicted' : 'plate-list',
+      plate_note: asNullableString(item.plate_note),
       drift: asEnum(item.drift, DRIFTS),
       voice: asPassage(item.voice),
       coda: asPassage(item.coda),
       note: asNullableString(item.note),
     });
+  }
+  return out;
+}
+
+/** A co-occupant is only useful if it can be NAMED and POINTED AT, so a figure
+ *  missing either is dropped rather than half-printed. Dropping is safe here
+ *  only because test E4 fails when a shared plate loses its co-occupant. */
+function asFigures(v: unknown): JardinePlateFigure[] {
+  if (!Array.isArray(v)) return [];
+  const out: JardinePlateFigure[] = [];
+  for (const item of v) {
+    if (!isRecord(item)) continue;
+    const sci_name = asString(item.sci_name).trim();
+    const common = asString(item.common).trim();
+    const where = asString(item.where).trim();
+    if (!sci_name || !where) continue;
+    out.push({ sci_name, common: common || sci_name, where });
   }
   return out;
 }

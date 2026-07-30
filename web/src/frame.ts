@@ -158,12 +158,24 @@ export function useFrameMode(opts: FrameModeOptions): FrameModeApi {
     };
 
     arm();
-    window.addEventListener('pointermove', onActivity);
-    window.addEventListener('keydown', onActivity);
+    // SCROLLING IS ACTIVITY, AND IT WAS NOT LISTED. The detector watched
+    // pointermove and keydown only — which misses the wheel, the trackpad, and
+    // every touch on a phone. On the collage that was harmless: nothing scrolls,
+    // so pointermove is the whole interaction. The Library is a page you sit and
+    // READ, and one of its passages runs 2,700 characters; a reader who scrolled
+    // and then read for sixty seconds was thrown into frame mode mid-sentence,
+    // by an idle detector blind to the one thing they were doing.
+    //
+    // `scroll` is capture-phase because the app does not scroll the document —
+    // an inner .overlay does, and a non-capturing window listener never sees it.
+    // All passive: none of these handlers do anything but re-arm a timer.
+    const ACTIVITY = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'] as const;
+    for (const ev of ACTIVITY) window.addEventListener(ev, onActivity, { passive: true });
+    window.addEventListener('scroll', onActivity, { capture: true, passive: true });
     return () => {
       if (timer) window.clearTimeout(timer);
-      window.removeEventListener('pointermove', onActivity);
-      window.removeEventListener('keydown', onActivity);
+      for (const ev of ACTIVITY) window.removeEventListener(ev, onActivity);
+      window.removeEventListener('scroll', onActivity, { capture: true });
     };
   }, [idleSec, enter]);
 

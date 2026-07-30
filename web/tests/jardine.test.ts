@@ -210,7 +210,12 @@ const CORPUS_PATH = new URL('../public/jardine.json', import.meta.url);
 /** The three committed CC0 engravings. A fourth path in the errata means a
  *  broken mount in the vitrine, which is the one object where the images ARE
  *  the argument. */
-const IMAGE_MANIFEST = ['jardine/19-vignette.jpg', 'jardine/24-vignette.jpg', 'jardine/24-11.jpg'];
+/** Engravings that existed before the plate set was fetched. Kept as a floor —
+ *  these three must never disappear — NOT as a whitelist. A whitelist of three
+ *  is what E3 used to assert, and it went stale the moment 23 more plates
+ *  landed: it failed on a CORRECT change while remaining unable to catch the
+ *  thing that actually matters, which is a path with no file behind it. */
+const IMAGE_FLOOR = ['jardine/19-vignette.jpg', 'jardine/24-vignette.jpg', 'jardine/24-11.jpg'];
 
 const london = JSON.parse(readFileSync(LONDON_PATH, 'utf8')) as CatalogSpecies[];
 
@@ -920,12 +925,13 @@ test('E2 the corpus loses NOTHING to normalize — a dropped row means the extra
   }
 });
 
-test('E3 every errata engraving is one of the three committed files, and it is on disk', () => {
-  // WHY: the Precedence vitrine hangs three plates at Jardine's own relative
-  // sizes; the SMALLNESS of the two vignettes beside the Waxwing's full plate is
-  // the entire argument. A fourth path, or a path whose file was never
-  // committed, renders as a broken mount that reads as a broken feature — and
-  // an <img> 404 is invisible to every other check in this repo.
+test('E3 every engraving path anywhere in the museum has a file behind it', () => {
+  // WHY: an <img> 404 renders as a broken mount, reads as a broken feature, and
+  // is invisible to every other check in this repo. The old version of this
+  // test asserted membership of a three-item whitelist, which caught nothing an
+  // existence check does not and broke the moment the plate set was fetched.
+  // Assert the property that matters — a path implies a file — over every
+  // surface that can print one, not over a list someone has to remember to edit.
   const raw = corpusRaw();
   if (raw === null) {
     assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
@@ -933,25 +939,99 @@ test('E3 every errata engraving is one of the three committed files, and it is o
   }
   const j = normalize(raw);
   let hung = 0;
+  const check = (where: string, image: string | null, w: number | null, h: number | null) => {
+    if (image === null) return;
+    hung++;
+    assert.ok(
+      existsSync(new URL(`../public/${image}`, import.meta.url)),
+      `${where}: ${image} is referenced but not in the tree`,
+    );
+    assert.ok(w !== null && h !== null, `${where}: ${image} has no intrinsic size — the mount will jump`);
+  };
   for (const e of j.errata) {
     for (const s of e.subjects) {
-      if (s.image === null) continue;
-      hung++;
-      assert.ok(
-        IMAGE_MANIFEST.includes(s.image),
-        `errata ${e.no}/${s.sci_name}: ${s.image} is not one of the three committed engravings`,
-      );
-      assert.ok(
-        existsSync(new URL(`../public/${s.image}`, import.meta.url)),
-        `errata ${e.no}/${s.sci_name}: ${s.image} is not in the tree`,
-      );
-      assert.ok(s.image_w !== null && s.image_h !== null, `${s.image}: no intrinsic size — the vitrine will jump`);
-      assert.ok(s.scale > 0, `${s.image}: a non-positive scale erases Jardine's own proportion`);
+      check(`errata ${e.no}/${s.sci_name}`, s.image, s.image_w, s.image_h);
+      if (s.image !== null) {
+        assert.ok(s.scale > 0, `${s.image}: a non-positive scale erases Jardine's own proportion`);
+      }
     }
   }
-  assert.ok(hung > 0, 'the vitrine hangs nothing — the errata carry no images at all');
-  for (const f of IMAGE_MANIFEST) {
+  for (const s of j.species) check(`species ${s.sci_name}`, s.image, s.image_w, s.image_h);
+  assert.ok(hung > 0, 'the museum hangs nothing — no record carries an image at all');
+  for (const f of IMAGE_FLOOR) {
     assert.ok(existsSync(new URL(`../public/${f}`, import.meta.url)), `${f} was committed and is now gone`);
+  }
+});
+
+test('E4 a plate two birds share names them both, in both directions', () => {
+  // WHY: this is the defect the plate work exists to prevent, and it is not
+  // hypothetical — volume 34's plate XV figures a Spotted Sandpiper beside the
+  // Common Sandpiper we caption, and its own engraved legend says so. A shared
+  // plate that names one bird tells a visitor the OTHER bird in the picture is
+  // that species. The failure is silent, and it would hang in the same room as
+  // this museum's corrections of Jardine.
+  //
+  // NEGATIVE-TESTED: deleting a plate_also entry, or pointing one at a bird
+  // that is not in the crosswalk, fails this test.
+  const raw = corpusRaw();
+  if (raw === null) {
+    assert.deepEqual(normalize(raw), EMPTY, 'no corpus in the tree — the tab must degrade to silence');
+    return;
+  }
+  const j = normalize(raw);
+
+  // THE SHARING FACT COMES FROM THE CORPUS, NOT FROM OUR OWN SPECIES LIST.
+  // The first version of this test grouped species by image and checked any
+  // file two of them hung. It could not fail on the case it was written for:
+  // volume 34's plate XV is shared with Actitis macularius, a Nearctic vagrant
+  // London never records, so exactly ONE of our species hangs that file and the
+  // group of "sharers" had size 1. Deleting the Sandpiper's co-occupant left
+  // the suite green — proven, not assumed. link_plates.py now writes the
+  // corpus-derived truth into `plates_shared` and this reads it.
+  const shared = (JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as {
+    plates_shared?: Record<string, { sci_name: string; common: string; where: string }[]>;
+  }).plates_shared;
+  assert.ok(
+    shared && Object.keys(shared).length > 0,
+    'jardine.json records no shared plates — run tools/jardine/link_plates.py; a museum that has ' +
+      'forgotten which plates carry two birds will caption one of them wrongly',
+  );
+  const byImage = new Map<string, typeof j.species>();
+  for (const s of j.species) {
+    if (s.image === null) continue;
+    const list = byImage.get(s.image) ?? [];
+    list.push(s);
+    byImage.set(s.image, list);
+  }
+  for (const [image, figures] of Object.entries(shared)) {
+    for (const s of byImage.get(image) ?? []) {
+      const also = s.plate_also ?? [];
+      for (const fig of figures) {
+        if (fig.sci_name === s.sci_name) continue;
+        assert.ok(
+          also.some((a) => a.sci_name === fig.sci_name),
+          `${s.sci_name} shares ${image} with ${fig.sci_name} and does not name it`,
+        );
+      }
+      assert.ok(
+        figures.some((f) => f.sci_name === s.sci_name),
+        `${s.sci_name} hangs ${image}, which is a shared plate that does not list it`,
+      );
+      assert.ok(s.plate_where !== null, `${s.sci_name}: shares a plate but is not placed on it`);
+    }
+  }
+  // Any bird that declares a co-occupant must place itself too, whether or not
+  // the co-occupant is a species this garden hears — Actitis macularius is a
+  // vagrant London never records, and it is exactly that asymmetry which let
+  // the first version of the fetcher's guard pass a two-bird plate.
+  for (const s of j.species) {
+    if ((s.plate_also ?? []).length === 0) continue;
+    assert.ok(s.image !== null, `${s.sci_name} declares a shared plate but hangs no image`);
+    assert.ok(s.plate_where !== null, `${s.sci_name} names a co-occupant but does not place itself`);
+    for (const a of s.plate_also ?? []) {
+      assert.ok(a.sci_name.trim().length > 0, `${s.sci_name}: a co-occupant with no name`);
+      assert.ok(a.where.trim().length > 0, `${s.sci_name}/${a.sci_name}: a co-occupant with no position`);
+    }
   }
 });
 
@@ -2207,10 +2287,23 @@ test('O3 the ledger does not count vignettes as plates', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(
-    src,
-    /plate_ref !== null && !s\.plate_is_vignette/,
-    'the ledger counts vignettes as plates again — it now contradicts Erratum III',
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This used to match the exact string
+  // `plate_ref !== null && !s.plate_is_vignette`, so it went red when the
+  // predicate correctly changed to test `image` instead — while still being
+  // unable to catch the same bug written any other way. What Erratum III needs
+  // is one thing: whatever the ledger counts, it excludes vignettes.
+  const withPlate = /const withPlate = withPage\.filter\(\((\w+)\) => ([^;]*?)\)\.length;/.exec(src);
+  assert.ok(withPlate, 'the ledger no longer computes withPlate — find it and re-point this guard');
+  const [, param, predicate] = withPlate;
+  assert.ok(
+    predicate.includes(`!${param}.plate_is_vignette`),
+    `the ledger counts vignettes as plates again — it now contradicts Erratum III (predicate: ${predicate})`,
+  );
+  // And it must count something the museum actually hangs, not merely a
+  // reference: a plate_ref with no file behind it is a plate we do not have.
+  assert.ok(
+    predicate.includes(`${param}.image`),
+    `the ledger counts plate REFERENCES, not hung plates (predicate: ${predicate})`,
   );
 });
 
@@ -2544,4 +2637,172 @@ test('S2 a tie means nobody is "the most-recorded bird"', () => {
     'the same tie gave the OPPOSITE answer when the rows were reordered');
   // an all-zero catalog has no top bird at all
   assert.equal(closingHolds(e, map([row(subj, 0), row('Zzz zzz', 0)])), false);
+});
+
+test('T1 every drift class the Roll can print has a band heading', () => {
+  // WHY: the Roll is ordered by how far a name travelled between 1838 and 2026,
+  // not alphabetically, and until now nothing said so — the alphabet appeared to
+  // restart four times, which reads as a broken sort. Each tier now prints a
+  // heading, and the heading comes from a lookup keyed on the drift value.
+  //
+  // A lookup with a missing key does not throw here, it renders NOTHING: the
+  // band would silently vanish and the sort would look broken again, for exactly
+  // the birds whose names moved in a way nobody had catalogued yet. That is this
+  // project's fail-open signature, so the coverage is asserted rather than
+  // assumed — over the enum AND over the data, because either can grow first.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+  const bandBlock = /const DRIFT_BAND: Record<string, string> = \{([^}]*)\}/.exec(src);
+  assert.ok(bandBlock, 'DRIFT_BAND is gone — the Roll prints an unexplained sort again');
+  const banded = new Set([...bandBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
+
+  const rankBlock = /const DRIFT_RANK: Record<string, number> = \{([^}]*)\}/.exec(src);
+  assert.ok(rankBlock, 'DRIFT_RANK is gone — find the Roll sort and re-point this guard');
+  const ranked = [...rankBlock[1].matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
+  assert.ok(ranked.length > 0, 'no drift classes in DRIFT_RANK — this guard would be vacuous');
+  for (const d of ranked) {
+    assert.ok(banded.has(d), `drift '${d}' is sorted into its own tier and prints no heading`);
+  }
+
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const inData = new Set(j.species.map((s) => s.drift).filter((d): d is string => d !== null));
+  assert.ok(inData.size > 1, 'fewer than two drift classes in the corpus — the banding is vacuous');
+  for (const d of inData) {
+    assert.ok(banded.has(d), `the corpus contains drift '${d}' and the Roll has no heading for it`);
+  }
+});
+
+test('E5 a declared plate size is the size of the file, and the file has a picture in it', () => {
+  // TWO FAILURES THIS GUARD IS BUILT FROM, both of which shipped.
+  //
+  // The three plates committed before the drop declared their SOURCE dimensions
+  // (3330x1936) for files that ship at 1200x698. The aspect ratio happened to
+  // match, so nothing jumped and nothing looked wrong — the numbers were simply
+  // false, in a museum whose entire argument is that it states only what it can
+  // source. A wrong ratio would reserve the wrong box and shift the page as
+  // every plate lands.
+  //
+  // And a JPEG that decodes to flat colour reports complete=true with a real
+  // naturalWidth. A capture agent in this project was fooled by exactly that and
+  // reported empty frames as loaded images, twice. Existence is not content, so
+  // the header is read and the file is required to be a real, non-trivial JPEG.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+
+  /** Width and height from the JPEG SOFn marker — no decoder, no dependency. */
+  const jpegSize = (buf: Buffer): { w: number; h: number } | null => {
+    if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+    let i = 2;
+    while (i + 9 < buf.length) {
+      if (buf[i] !== 0xff) {
+        i++;
+        continue;
+      }
+      const m = buf[i + 1];
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+      }
+      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) {
+        i += 2;
+        continue;
+      }
+      i += 2 + buf.readUInt16BE(i + 2);
+    }
+    return null;
+  };
+
+  let checked = 0;
+  const check = (where: string, image: string | null, w: number | null, h: number | null) => {
+    if (image === null) return;
+    const buf = readFileSync(new URL(`../public/${image}`, import.meta.url));
+    // 8KB is far below any real plate here (the smallest ships at 57KB) and far
+    // above an error page saved under a .jpg name.
+    assert.ok(buf.length > 8192, `${where}: ${image} is ${buf.length} bytes — that is not an engraving`);
+    const size = jpegSize(buf);
+    assert.ok(size, `${where}: ${image} has no JPEG frame header — it is not a JPEG`);
+    assert.equal(
+      `${w}x${h}`,
+      `${size.w}x${size.h}`,
+      `${where}: ${image} is declared ${w}x${h} and the file is ${size.w}x${size.h}`,
+    );
+    checked++;
+  };
+  for (const s of j.species) check(`species ${s.sci_name}`, s.image, s.image_w, s.image_h);
+  for (const e of j.errata) {
+    for (const s of e.subjects) check(`errata ${e.no}`, s.image, s.image_w, s.image_h);
+  }
+  assert.ok(checked > 0, 'no image references checked — this guard is vacuous');
+});
+
+test('E6 the station may only claim a bird it actually painted', () => {
+  // THE REQUIREMENT, AND THE FAILURE IT IS BUILT FROM.
+  //
+  // Jardine figured 25 of these 52 birds. The other 27 render the station's own
+  // painting instead — but the first version of that rendered BirdThumb
+  // unconditionally, and BirdThumb's `none` phase is BirdSilhouette(): ONE
+  // hard-coded generic SVG, byte-identical for every species. Measured on a
+  // real page: 25 of the 27 plateless birds showed that glyph, under a caption
+  // reading "drawn by this station, not by Jardine".
+  //
+  // Twenty-five fabricated attributions, on the page whose entire argument is
+  // provenance, in the same room as its corrections of Jardine. Nothing threw,
+  // nothing logged, every test was green, and it LOOKED like a broken image —
+  // which is what this file's own CSS calls the one thing a museum of
+  // provenance must never look like.
+  //
+  // So the claim must be gated on the art being READY. No painting, no figure,
+  // no sentence — silence, which was always the honest fallback.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+
+  const plate = /function SpeciesPlate\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(plate, 'SpeciesPlate is gone — find what renders a bird and re-point this guard');
+  assert.match(plate[0], /jardineImageUrl/, 'SpeciesPlate no longer renders the 1838 engraving');
+  assert.match(plate[0], /StationBird/, "SpeciesPlate no longer reaches the station's own bird");
+
+  const station = /function StationBird\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(station, 'StationBird is gone — the station-bird path has no guard');
+  // THE LOAD-BEARING LINE. Without it the caption prints over a generic glyph.
+  assert.match(
+    station[0],
+    /phase !== 'ready'[\s\S]{0,40}return null/,
+    'StationBird no longer requires READY art before claiming the station painted the bird',
+  );
+  // And the claim itself must live inside the gated component, so it cannot be
+  // rendered from anywhere that skips the gate.
+  // The claim must say the word AI. A reader looking at a picture of a bird on a
+  // page of scanned engravings owes nobody an inference about where it came from.
+  //
+  // Pin the FULL caption, not the phrase: the phrase also appears in the image's
+  // alt text (same claim, same gated component, correct) and in the colophon
+  // (a separate and equally correct statement). Counting the phrase would fail
+  // on two things that ought to exist — a guard that goes red on correct code
+  // gets weakened or deleted, which is how a real one dies.
+  const claim = /AI visualized by this station · not an engraving, not a photograph/;
+  assert.match(station[0], claim, 'the station claim left StationBird');
+  assert.equal(
+    (src.match(new RegExp(claim.source, 'g')) || []).length,
+    1,
+    'the station claim appears more than once — a second, ungated copy can fabricate an attribution',
+  );
+
+  // The colophon must keep saying which pictures are scanned and which painted.
+  assert.match(
+    src.replace(/\s+/g, ' '),
+    /the engravings are Jardine's, scanned[^<]*the birds in colour are AI visualized by this station/,
+    'the colophon no longer distinguishes the scanned engravings from the painted birds',
+  );
+
+  // The split must be real in the data, or the whole feature is moot.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const withPlate = j.species.filter((s) => s.image !== null).length;
+  assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
+  assert.ok(j.species.length - withPlate > 0, 'every species has an engraving — the station path is untested');
 });
