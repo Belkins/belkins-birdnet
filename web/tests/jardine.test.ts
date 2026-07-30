@@ -2282,9 +2282,54 @@ test('M2 an unreachable catalog is never reported as an absence', () => {
     'gardenFact() no longer distinguishes an empty catalog from a real absence',
   );
   assert.match(src, /unknown/, 'the unknown state was removed from the slip');
+
+  // EVERY CONSUMER, NOT THE ONE. gardenFact() distinguished the two cases and
+  // only one of its readers looked. The collision slip printed "not in this
+  // garden's catalogue." unconditionally, so an unreachable species.json made
+  // the museum state in print that two birds had never been recorded here —
+  // one of them among the garden's loudest. The guard was one branch away from
+  // the bug it was written for.
+  //
+  // The sentence pair lives in <AbsentNote> now. Nowhere that renders an
+  // absence may write its own.
+  const absent = src.split('<AbsentNote').length - 1;
+  assert.ok(
+    absent >= 2,
+    `only ${absent} place renders an absence through <AbsentNote> — a second, ` +
+      `hand-written absence sentence is how a missing catalog became a claim about birds`,
+  );
+  for (const branch of [/not in this garden's catalogue/, /never heard in this garden\.<\/div>/]) {
+    const n = (src.match(new RegExp(branch.source, 'g')) || []).length;
+    assert.ok(
+      n <= 1,
+      `an absence sentence is written ${n} times — the copy outside <AbsentNote> cannot ` +
+        `see the unknown state`,
+    );
+  }
+  // the component itself must branch on it
+  const note = /function AbsentNote\(([\s\S]*?)\n\}/.exec(
+    stripComments(readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')),
+  );
+  assert.ok(note, 'AbsentNote is gone — re-point this guard');
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This was `/unknown\s*\?/` and it
+  // passed a mutation that deleted the branch outright — because the component's
+  // own type annotation reads `unknown?: boolean`, and the regex matched THAT.
+  // A guard that its own signature satisfies is not a guard. What matters is
+  // that both sentences are reachable: one measurement, one admission.
+  for (const [sentence, what] of [
+    ['ledger is not to hand', 'the admission that the catalog is unreachable'],
+    ['never heard in this garden', 'the measured absence'],
+  ]) {
+    assert.ok(
+      note[1].includes(sentence),
+      `AbsentNote can no longer say ${what} — with only one sentence left it states the ` +
+        `same thing whether the garden was silent or merely unreachable`,
+    );
+  }
+
   // silences() must agree: no catalog, no rows — never a wall of amber zeroes
   const raw = corpusRaw();
-  if (raw !== null) assert.deepEqual(silences(normalize(raw), []), []);
+  assert.deepEqual(silences(normalize(raw), []), []);
 });
 
 test('M3 the Blind Ear claims its own number keys', () => {

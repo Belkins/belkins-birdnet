@@ -400,6 +400,31 @@ function PlateViewer({ plate, onClose }: { plate: PlateView; onClose: () => void
   );
 }
 
+/** THE ONLY SENTENCE THIS TAB MAY PRINT WHERE A BIRD IS NOT.
+ *
+ *  "Never heard in this garden" is a measurement. "Not to hand" is the absence
+ *  of one. gardenFact() has told them apart since M2 was written — an empty
+ *  catalog returns `unknown: true`, because fetchCatalog collapses 404, offline
+ *  and malformed alike to `[]`, so an empty map is not evidence of an empty
+ *  garden.
+ *
+ *  Only ONE of its consumers read that flag. The collision slip printed "not in
+ *  this garden's catalogue." unconditionally, so a station that could not reach
+ *  its own species.json told visitors, in print, that two birds had never been
+ *  recorded here — one of which is among the garden's loudest. A fabricated
+ *  absence, in the branch next door to the guard against fabricated absences.
+ *
+ *  One component, so there is no second copy to forget. */
+function AbsentNote({ unknown }: { unknown?: boolean }) {
+  return (
+    <div className="lib-inert">
+      {unknown
+        ? 'the garden’s ledger is not to hand.'
+        : 'no recording — never heard in this garden.'}
+    </div>
+  );
+}
+
 /** EVERYTHING A PLATE OBLIGES ITS CAPTION TO SAY, IN ONE PLACE.
  *
  *  Both sentences existed twice — once in the printed figcaption, once in the
@@ -951,11 +976,7 @@ function ModernHalf({
   if (!fact.present) {
     return (
       <div className="lib-modern lib-modern-none">
-        <div className="lib-inert">
-          {fact.unknown
-            ? 'the garden’s ledger is not to hand.'
-            : 'no recording — never heard in this garden.'}
-        </div>
+        <AbsentNote unknown={fact.unknown} />
       </div>
     );
   }
@@ -1154,7 +1175,7 @@ function ErratumSlip({
                 ) : (
                   <div className="lib-modern lib-modern-none">
                     <span className="lib-mat lib-mat-empty" aria-hidden="true" />
-                    <div className="lib-inert">not in this garden's catalogue.</div>
+                    <AbsentNote unknown={fact.unknown} />
                   </div>
                 )}
                 <div className="lib-coll-sci">{sub.sci_name}</div>
