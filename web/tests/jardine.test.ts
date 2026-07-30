@@ -2737,3 +2737,48 @@ test('E5 a declared plate size is the size of the file, and the file has a pictu
   }
   assert.ok(checked > 0, 'no image references checked — this guard is vacuous');
 });
+
+test('E6 every bird renders something — no species falls through to nothing', () => {
+  // THE REQUIREMENT, MADE CHECKABLE. Jardine figured 25 of these 52 birds and
+  // never figured the other 27, and for a while the tab rendered an engraving
+  // for the first group and literally nothing for the second — a library of the
+  // birds in this garden, showing half of them.
+  //
+  // The station paints every species it hears, so a bird with no plate is not a
+  // hole, it is the other hand: an 1838 engraving where the book has one, this
+  // station's own bird where it does not, and a caption saying which. The one
+  // way to reintroduce the hole is an early `return null` in SpeciesPlate, which
+  // no type-check, lint or test would otherwise notice — the tab would simply go
+  // quiet again for half its subjects.
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+  const fn = /function SpeciesPlate\([\s\S]*?\n\}\n/.exec(src);
+  assert.ok(fn, 'SpeciesPlate is gone — find what renders a bird and re-point this guard');
+  assert.doesNotMatch(
+    fn[0],
+    /return null/,
+    'SpeciesPlate can return null again — a bird Jardine never figured would render nothing',
+  );
+  // It must reach BOTH wells: the 1838 engraving and the station's own bird.
+  assert.match(fn[0], /jardineImageUrl/, 'SpeciesPlate no longer renders the 1838 engraving');
+  assert.match(fn[0], /BirdThumb/, "SpeciesPlate no longer renders the station's own bird");
+
+  // And the colophon must still say which is which. The page disclaims model
+  // generation for its sentences; the coloured birds ARE model-painted, and a
+  // reader will read one line as covering the whole page.
+  assert.match(
+    src.replace(/\s+/g, ' '),
+    /the engravings are Jardine's, scanned[^<]*the birds in colour are this station's own/,
+    'the colophon no longer distinguishes the scanned engravings from the painted birds',
+  );
+
+  // The split itself must be real in the data, or this whole feature is moot.
+  const raw = corpusRaw();
+  if (raw === null) return;
+  const j = normalize(raw);
+  const withPlate = j.species.filter((s) => s.image !== null).length;
+  const without = j.species.length - withPlate;
+  assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
+  assert.ok(without > 0, 'every species has an engraving — the station-bird path is now untested');
+});

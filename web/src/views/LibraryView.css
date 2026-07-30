@@ -215,6 +215,29 @@
   border: 1px solid var(--line);
   background: var(--card-2);
 }
+/* THE OTHER HAND, IN PICTURES. Twenty-seven of these birds were never figured
+   by Jardine, and the station paints every species it hears — so the tab shows
+   an 1838 engraving where the book has one and this station's own bird where it
+   does not. The difference must be visible without reading the caption, the way
+   the two type hands are: the engraving is a hard-edged rectangle with a rule
+   around it, printed sheet against cut specimen; the station's bird has no
+   frame at all, because it was never on paper. */
+.lib-fig-modern .lib-cut-plate {
+  width: 100%;
+  max-width: 320px;
+  cursor: default;
+}
+.lib-fig-modern .lib-cut-plate .acard-img {
+  margin: 0;
+  min-height: 180px;
+}
+.lib-plate-modern {
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: var(--mut);
+}
 .lib-plate-cap {
   display: flex;
   flex-direction: column;
