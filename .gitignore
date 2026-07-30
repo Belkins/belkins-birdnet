@@ -94,3 +94,15 @@ scripts/christina.db
 .env.local
 .env.*.local
 secrets/
+
+# Raw plate originals from c82.net — 25MB of source JPEGs the fetcher caches so a
+# re-run costs no requests. Regenerable by tools/jardine/fetch_plates.py; only the
+# resized plates under web/public/jardine/ ship.
+tools/jardine/cache/
+
+# Generated WebP variants of the plates (avian/catalog/webp_variants.py). These are
+# derived from the committed PNGs and rebuilt by nightly.sh, so they must never be
+# committed: a plain `git add -A` would otherwise drag ~500 files / ~18 MB of
+# regenerable output into the repo. The .png plates themselves stay tracked.
+avian/assets/illustrations/*.webp
+avian/assets/cutouts/*.webp
