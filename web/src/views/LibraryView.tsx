@@ -1213,6 +1213,18 @@ function ErratumSlip({
                       has ever heard
                     </span>
                   </>
+                ) : f.unknown ? (
+                  /* A ZERO IS A MEASUREMENT. This branch printed one — in the
+                     slip's largest figure — whenever the catalog was merely
+                     unreachable, which is the strongest form of the fabricated
+                     absence this file guards against everywhere else. An em
+                     dash is the honest figure for a number we do not have. */
+                  <>
+                    <b className="lib-fig lib-fig-zero">—</b>
+                    <span className="lib-fig-l">
+                      {sub.sci_name} · the garden&rsquo;s ledger is not to hand
+                    </span>
+                  </>
                 ) : (
                   <>
                     <b className="lib-fig lib-fig-zero">0</b>

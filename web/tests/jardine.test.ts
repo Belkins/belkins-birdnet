@@ -2300,6 +2300,51 @@ test('M2 an unreachable catalog is never reported as an absence', () => {
     `only ${absent} place renders an absence through <AbsentNote> — a second, ` +
       `hand-written absence sentence is how a missing catalog became a claim about birds`,
   );
+
+  // EVERY BRANCH, FOUND BY THE PARSER RATHER THAN BY MY GREP.
+  //
+  // The first version of this guard counted <AbsentNote> call sites, and it
+  // passed while a THIRD consumer was still fabricating — the plain errata
+  // slip, which printed a literal `0` in its largest figure with "never heard
+  // here" beside it. It used different words, so searching for the sentence I
+  // had already fixed could never have found it. A zero is a measurement, and
+  // that one was published whenever the catalog was simply unreachable.
+  //
+  // So: parse, find every `…present ? … : …`, and require the ELSE branch to
+  // consult `unknown`. This finds branches nobody remembered to look for.
+  const sf = ts.createSourceFile(
+    'lib.tsx',
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const mentionsUnknown = (n: ts.Node): boolean => {
+    let hit = false;
+    const walk = (x: ts.Node): void => {
+      if (hit) return;
+      if (ts.isIdentifier(x) && x.text === 'unknown') hit = true;
+      else ts.forEachChild(x, walk);
+    };
+    walk(n);
+    return hit;
+  };
+  let branches = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isConditionalExpression(n) && /\bpresent\b/.test(n.condition.getText(sf))) {
+      branches++;
+      const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
+      assert.ok(
+        mentionsUnknown(n.whenFalse),
+        `LibraryView.tsx:${line + 1} branches on \`${n.condition.getText(sf)}\` and its ` +
+          `absent case never asks whether the ledger was READABLE. An empty catalog is ` +
+          `not an empty garden — this prints a fact about birds when a fetch failed`,
+      );
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  assert.ok(branches >= 2, `only ${branches} present/absent branch found — re-point this guard`);
   for (const branch of [/not in this garden's catalogue/, /never heard in this garden\.<\/div>/]) {
     const n = (src.match(new RegExp(branch.source, 'g')) || []).length;
     assert.ok(
