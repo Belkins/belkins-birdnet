@@ -16,6 +16,27 @@ import { SseStream, MockStream } from '../events';
 import { BASE, DERIVED_URL, EVENTS_URL, MOCK } from '../config';
 import type { BirdEvent, EventStream, LiveState } from '../types';
 import { fetchJardine, sealLine, type Jardine } from '../jardine';
+import { Archive } from './Archive';
+import { Rhythms } from './Rhythms';
+import { Services } from './Services';
+
+// ── tabs. The Lab grew from one page of panels into the station's native
+// console (2026-07-30): OPS keeps the original derived-intelligence grid;
+// ARCHIVE / RHYTHMS / SERVICES absorb what the old PHP console was still
+// being opened for. Hash-routed so a tab is linkable (#archive); a visited
+// tab stays mounted (hidden, not unmounted) so switching back doesn't
+// refetch or lose scroll/filter state. ─────────────────────────────────────
+type LabTab = 'ops' | 'archive' | 'rhythms' | 'services';
+const TABS: { id: LabTab; label: string }[] = [
+  { id: 'ops', label: 'OPS' },
+  { id: 'archive', label: 'ARCHIVE' },
+  { id: 'rhythms', label: 'RHYTHMS' },
+  { id: 'services', label: 'SERVICES' },
+];
+function tabFromHash(hash: string): LabTab {
+  const t = hash.replace(/^#/, '');
+  return t === 'archive' || t === 'rhythms' || t === 'services' ? t : 'ops';
+}
 
 // ── derived.json shape (the derive.py single-writer output). Read defensively:
 // the file is absent until derive.py runs, and field access is tolerant so a
@@ -79,6 +100,8 @@ function pct(x: number): string {
 }
 
 export function Lab(): JSX.Element {
+  const [tab, setTab] = useState<LabTab>(() => tabFromHash(window.location.hash));
+  const [seen, setSeen] = useState<Set<LabTab>>(() => new Set([tabFromHash(window.location.hash)]));
   const [cat, setCat] = useState<CatalogSpecies[]>([]);
   const [derived, setDerived] = useState<Derived | null>(null);
   const [derivedMissing, setDerivedMissing] = useState(false);
@@ -104,6 +127,26 @@ export function Lab(): JSX.Element {
       alive = false;
     };
   }, []);
+
+  // Tab switch: back/forward and hand-typed hashes both land here.
+  useEffect(() => {
+    const onHash = (): void => {
+      const t = tabFromHash(window.location.hash);
+      setTab(t);
+      setSeen((s) => (s.has(t) ? s : new Set(s).add(t)));
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const go = (t: LabTab): void => {
+    setTab(t);
+    setSeen((s) => (s.has(t) ? s : new Set(s).add(t)));
+    history.replaceState(
+      null,
+      '',
+      window.location.pathname + window.location.search + (t === 'ops' ? '' : `#${t}`),
+    );
+  };
 
   // Raw live SSE feed — the unfiltered detection stream (mock in dev). Capped so
   // the console never grows unbounded. Same client the wall uses.
@@ -220,7 +263,19 @@ export function Lab(): JSX.Element {
         <a className="lab-nav" href={BASE}>museum →</a>
       </div>
 
-      <div className="lab-grid">
+      <nav className="lab-tabs" aria-label="lab sections">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            className={tab === t.id ? 'lab-tab lab-tab--on' : 'lab-tab'}
+            onClick={() => go(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className={tab === 'ops' ? 'lab-grid' : 'lab-grid lab-hide'}>
         {/* Live raw feed */}
         <section className="lab-panel lab-feed">
           <h2>LIVE FEED</h2>
@@ -383,6 +438,22 @@ export function Lab(): JSX.Element {
           </table>
         </section>
       </div>
+
+      {seen.has('archive') && (
+        <div className={tab === 'archive' ? 'lab-tabbody' : 'lab-tabbody lab-hide'}>
+          <Archive cat={cat} />
+        </div>
+      )}
+      {seen.has('rhythms') && (
+        <div className={tab === 'rhythms' ? 'lab-tabbody' : 'lab-tabbody lab-hide'}>
+          <Rhythms />
+        </div>
+      )}
+      {seen.has('services') && (
+        <div className={tab === 'services' ? 'lab-tabbody' : 'lab-tabbody lab-hide'}>
+          <Services />
+        </div>
+      )}
     </div>
   );
 }

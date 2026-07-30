@@ -20,7 +20,7 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
   { href: 'play.html', name: 'Name That Visitor', desc: 'a guessing game from your collection' },
   { href: 'wrapped.html', name: 'Year in Review', desc: 'the yard’s year as a poster' },
   { href: 'recap.html', name: 'Weekly Recap', desc: 'this week’s visitors, one illustrated sheet' },
-  { href: 'lab.html', name: 'The Lab', desc: 'the live feed + honest data, for the curious' },
+  { href: 'lab.html', name: 'The Lab', desc: 'live feed, archive, rhythms, services — the honest console' },
 ];
 
 // THE STATION — the BirdNET-Pi operator surfaces. ROOT-relative on purpose, not
@@ -52,13 +52,16 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // Audio Stream one that turns the microphone feed on — are view=Services →
 // service_controls.php:36. Verified by fetching both authenticated: only the
 // Services page contains the "Live Audio Stream" heading.
+//
+// 2026-07-30: the Lab's SERVICES tab absorbed the daily uses of that page
+// (unit status, journal tails, restart) and carries the view=Services
+// deep-link itself — labelled with the mic-row trap above — so the direct
+// menu entry came out. The console door below stays: stop/enable/disable,
+// settings, system controls and the other 20 views live only there, and a
+// door that is on no walkable path is how this station got stranded once
+// already.
 const STATION: { href: string; name: string; desc: string }[] = [
-  {
-    href: '/views.php?view=Services',
-    name: 'Service Controls',
-    desc: 'start or stop the recorder, the analyser, the audio stream',
-  },
-  { href: '/index.php', name: 'Station Console', desc: 'the BirdNET-Pi UI — detections, recordings, charts, logs' },
+  { href: '/index.php', name: 'Station Console', desc: 'the old BirdNET-Pi UI — service switches, settings, system controls' },
 ];
 
 // Segmented option tables — typed via indexed access so each picker stays in
