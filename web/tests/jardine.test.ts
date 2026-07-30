@@ -3430,6 +3430,69 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   );
 });
 
+test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
+  // THE LAW THE WHOLE TAB RESTS ON, GUARDED IN ONE RULE UNTIL NOW.
+  //
+  // Two hands, and a reader can tell them apart at a glance without being
+  // told: 1838 is Cormorant (var(--display)), set ragged-right in --ink-2;
+  // 2026 is Space Mono (var(--mono)), small, uppercase, --mut. That is not
+  // decoration — it is how this page distinguishes what Jardine wrote from
+  // what this station says ABOUT what Jardine wrote.
+  //
+  // A reviewer pointed out the obvious hole: the attribution line is 2026
+  // apparatus, and moving it to var(--display) makes a modern annotation look
+  // like 1838 text. Nothing checked. Same for every other apparatus class, and
+  // for the prose in the other direction.
+  const css = readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8');
+  const ruleFor = (cls: string): string | null => {
+    const m = new RegExp(`(?:^|\\})\\s*\\.${cls}\\s*\\{([^}]*)\\}`, 'm').exec(css);
+    return m ? m[1] : null;
+  };
+
+  // The 2026 hand. Every one of these annotates; none of them is Jardine.
+  for (const cls of ['lib-cite', 'lib-lab', 'lib-plate-k', 'lib-mount-k']) {
+    const body = ruleFor(cls);
+    assert.ok(body, `.${cls} is gone — re-point this guard`);
+    assert.match(
+      body,
+      /font-family:\s*var\(--mono\)/,
+      `.${cls} is 2026 apparatus and no longer set in the modern hand — in Cormorant it ` +
+        `reads as something Jardine wrote, which is the one confusion this tab exists to prevent`,
+    );
+    assert.doesNotMatch(
+      body,
+      /font-family:\s*var\(--display\)/,
+      `.${cls} takes Jardine's hand`,
+    );
+  }
+
+  // The 1838 hand. Prose is his, and it must not be dressed as apparatus.
+  for (const cls of ['lib-prose']) {
+    const body = ruleFor(cls);
+    assert.ok(body, `.${cls} is gone — re-point this guard`);
+    assert.match(
+      body,
+      /font-family:\s*var\(--display\)/,
+      `.${cls} carries 1838 prose and is no longer in Jardine's hand`,
+    );
+    assert.doesNotMatch(
+      body,
+      /text-transform:\s*uppercase/,
+      `.${cls} sets 1838 prose in uppercase — that is the 2026 register`,
+    );
+  }
+
+  // And amber stays out of both. It means a measured number or an unmoved
+  // binomial; a hand is neither.
+  for (const cls of ['lib-cite', 'lib-lab', 'lib-prose', 'lib-plate-k']) {
+    assert.doesNotMatch(
+      ruleFor(cls) ?? '',
+      /var\(--amber\)/,
+      `.${cls} uses amber — reserved for a Pi measurement and an unmoved 1838 name`,
+    );
+  }
+});
+
 test('T3 the crow line counts the birds its own sentence describes', () => {
   // A SENTENCE POINTED AT THE WRONG SET, AND THEREFORE NEVER PRINTED.
   //
