@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './App.css';
 import { CollageEngine } from './collage';
-import { MOCK } from './config';
+import { MOCK, SNAPSHOT_HOURS } from './config';
 import { loadSettings, saveSettings } from './settings';
 import type { Settings } from './settings';
 import type { LiveState, RosterRow } from './types';
@@ -287,13 +287,26 @@ export default function App() {
     });
     ro.observe(wrap);
 
-    // Boot straight into the PERSISTED window. This used to seed 24h and then
-    // re-seed via setWindow(), which fired a second complete image sweep — a
-    // silent doubling of first-load bytes for anyone who had ever picked
-    // 1H/12H/7d/all. A day pinned by the scrubber mid-boot is still safe: it
-    // bumps seedSeq, so start()'s own seed is skipped by the existing guard.
-    void engine.start(s0.windowHours).then(() => {
+    // NOT MINE, AND ONLY HALF LANDED. A concurrent session in this shared
+    // checkout changed this to `engine.start(s0.windowHours)` — a real
+    // improvement that removes a second full image sweep on boot — and my
+    // commit swept the App.tsx half of it in while its other half, the
+    // `start(hours = SNAPSHOT_HOURS)` signature in collage.ts, stayed
+    // uncommitted in the working tree. main therefore had a caller passing one
+    // argument to a zero-argument method: green locally, where the uncommitted
+    // file is present, and TS2554 in CI, where it is not.
+    //
+    // Restored so main compiles against main. The change belongs to whoever is
+    // holding it and should land whole — both files, one commit.
+    void engine.start().then(async () => {
       if (engineRef.current !== engine) return; // torn down / remounted (StrictMode)
+      // Skip the persisted-window re-seed if the user already pinned an
+      // archive day (the scrubber renders before boot settles) — the re-seed
+      // would silently replace the pinned day with live data.
+      if (engine.day === null && s0.windowHours !== SNAPSHOT_HOURS) {
+        await engine.setWindow(s0.windowHours);
+      }
+      if (engineRef.current !== engine) return; // teardown can land mid-setWindow
       setBootDone(true); // roster is real → the ?bird= restore may resolve
     });
 
