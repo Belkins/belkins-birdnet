@@ -23,12 +23,28 @@ fi
 # 2.11 rejects outright, and it knows nothing about the hand-added /events SSE
 # route or the extra Host pins. Teaching it a third branch would make it look
 # safe to run while it still is not. Edit the live file surgically instead.
+#
+# ADDED 2026-07-30, and this is now the bigger loss: the live file also carries
+# the SERVING WORK that made the museum 11.5x lighter, none of which this script
+# knows how to emit --
+#   @nostream / encode @nostream zstd gzip   first-load text 690,437 -> 182,160 B.
+#     The exclusion is load-bearing: SSE is text/event-stream, which matches
+#     encode's default text/* list, so a bare `encode` BUFFERS the realtime
+#     spine dead while every asset check still passes.
+#   @immutable path /collage/assets/*        immutable caching on content-hashed
+#     assets, scoped so species.json and derived.json (nightly-rebuilt symlinks)
+#     never get it.
+# Regenerating silently reverts both. Nothing would look broken: the wall would
+# just quietly serve 3.8x more bytes again, and the only symptom is slowness
+# nobody attributes to a config rewrite weeks earlier.
 if [ "${STATION_OPEN}" = "1" ];then
   echo "update_caddyfile: REFUSING to run — STATION_OPEN=1 in birdnet.conf." >&2
   echo "  This script re-emits basic_auth on 11 paths and would restore every" >&2
   echo "  password gate the owner deliberately removed on 2026-07-30." >&2
   echo "  It also cannot reproduce the live file (old 'basicauth' spelling," >&2
-  echo "  no /events route, no extra Host pins), so it must not be used to" >&2
+  echo "  no /events route, no extra Host pins, and NO encode/@immutable --" >&2
+  echo "  regenerating would silently undo the 11.5x serving win), so it must" >&2
+  echo "  not be used to" >&2
   echo "  re-gate either. To restore the gates: edit /etc/caddy/Caddyfile by" >&2
   echo "  hand, or unset STATION_OPEN first and diff before applying." >&2
   exit 2
