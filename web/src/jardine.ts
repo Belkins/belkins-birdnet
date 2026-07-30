@@ -171,6 +171,18 @@ export interface JardineErratum {
   headline: string;
   quote: JardinePassage | null;
   closing: string | null;
+  /** THE NAME THAT COLLIDED — set only on kind 'collision', and the whole
+   *  subject of that slip.
+   *
+   *  It has to be recorded because it is NOT derivable from the subjects. The
+   *  collision slip used to take `subjects[].jardine_binomial` and print the
+   *  first one it found, which gave `Merula musica` — a name Jardine set over
+   *  the Song Thrush alone, that belongs to no bird today, under a rule reading
+   *  "one binomial, two entirely different birds". The name that actually
+   *  equivocates is `Turdus musicus`: Jardine cites it as the Song Thrush's
+   *  synonym and it is the Redwing's now. It lives in the quote's prose, not in
+   *  any field, so nothing could have computed it. */
+  collision_name: string | null;
   /** What the closing SENTENCE depends on to stay true, or null when it is a
    *  timeless remark about the book. Two of the five make live claims about the
    *  garden — "Agreed." concedes that a bird is absent, and one asserts which
@@ -406,6 +418,7 @@ function asErrata(v: unknown): JardineErratum[] {
       headline,
       quote: asPassage(item.quote),
       closing: asNullableString(item.closing),
+      collision_name: asNullableString(item.collision_name),
       closing_requires: asEnum(item.closing_requires, REQUIRES),
       subjects: asSubjects(item.subjects),
     });

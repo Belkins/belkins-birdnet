@@ -1086,16 +1086,21 @@ function ErratumSlip({
   // No. IV — THE COLLISION. One binomial, two entirely different birds, both in
   // this garden, both in the same 1838 volume two headings apart.
   if (e.kind === 'collision') {
-    // the shared 1838 name both birds were filed under. A plain string, not a
-    // rendered species: the slip is ABOUT the collision of the name itself, and
-    // there is no single species whose provenance marker would be correct here.
-    const sharedName = e.subjects
-      .map((s) => bySci.get(s.sci_name)?.jardine_binomial)
-      .find(Boolean);
+    // The name that collided — READ, never derived. This line used to take the
+    // first subject's `jardine_binomial`, which printed `Merula musica`: the
+    // name Jardine set over the Song Thrush and nobody else, that belongs to no
+    // living bird, beneath a rule announcing "one binomial, two entirely
+    // different birds". The name that equivocates is the one he CITES,
+    // `Turdus musicus` — it is in the quoted prose and in no field, so no
+    // amount of mapping over subjects could ever have found it.
+    //
+    // Still a plain string, not a rendered species: the slip is ABOUT the name,
+    // and neither bird's provenance marker would be the right one to hang on it.
+    // E9 holds it verbatim to the quote.
     return (
       <article className="acard lib-slip lib-slip-wide" data-tone="red">
         {heading}
-        <div className="lib-coll-name">{sharedName || e.headline}</div>
+        <div className="lib-coll-name">{e.collision_name}</div>
         <div className="lib-coll-rule" aria-hidden="true" />
         <div className="lib-coll-cols">
           {e.subjects.map((sub, i) => {

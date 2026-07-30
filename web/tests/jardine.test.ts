@@ -32,6 +32,10 @@ import { gunzipSync } from 'node:zlib';
 import { registerHooks } from 'node:module';
 
 import { createHash } from 'node:crypto';
+// The real parser, for the one guard that cannot be written as a regex — see
+// rawNameRenders(). typescript is already a hard dependency of the build and CI
+// runs `npm ci` before `npm test`, so this adds no install surface.
+import ts from 'typescript';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
@@ -319,6 +323,150 @@ const CONSUMERS = [
   '../src/views/LibraryFrameView.tsx',
   '../src/components/BirdPopup.tsx',
 ];
+
+/** The two raw 1838 strings. Both carry OCR artefacts and both belong to a
+ *  provenance chain, so neither may reach the DOM except through
+ *  <JardineName>. */
+const RAW_1838 = ['jardine_binomial', 'jardine_authority'];
+
+/** Every place a file lets one of those strings become rendered TEXT.
+ *
+ *  WHY A PARSER. G4 used to be a regex — `\{\s*\w+\.jardine_binomial\s*(\||\})`
+ *  — which is a guard that knows two spellings of the bug. It sees
+ *  `{x.jardine_binomial}` and `{x.jardine_binomial || '—'}` and is blind to
+ *  `?? '—'`, to `x?.jardine_binomial`, to a destructured `{jardine_binomial}`,
+ *  to `String(x.jardine_binomial)`, and to a template literal. That is the
+ *  scope-blindness class this project keeps re-shipping: assert the PROPERTY,
+ *  not the spelling.
+ *
+ *  The property is "this expression's VALUE is rendered", which is why testing
+ *  a field is fine and printing it is not. So the walk computes each JSX
+ *  expression's RESULT positions — the right of `&&`, both arms of `?:` and
+ *  `||`/`??`, the returns of an inlined IIFE — and only those are inspected. A
+ *  guard like `{j.jardine_authority && <JardineName …/>}` reads the field and
+ *  renders a component; it passes, correctly.
+ *
+ *  One level of local indirection is followed, because that is how the real bug
+ *  hid: the collision slip rendered `{sharedName || e.headline}`, and
+ *  `sharedName` was a const three lines up mapping subjects to their binomials.
+ *  No regex over the JSX could have seen it. Deeper chains and cross-file
+ *  helpers are NOT followed — the limit is stated here rather than implied. */
+function rawNameRenders(fileUrl: URL): string[] {
+  const sf = ts.createSourceFile(
+    'consumer.tsx',
+    readFileSync(fileUrl, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+
+  const locals = new Map<string, ts.Node>();
+  const collect = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      locals.set(n.name.text, n.initializer);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(sf);
+
+  /** the watched field this subtree reaches, or null. `depth` caps indirection. */
+  const mentions = (root: ts.Node, depth: number): string | null => {
+    let hit: string | null = null;
+    const walk = (x: ts.Node): void => {
+      if (hit) return;
+      if (ts.isIdentifier(x)) {
+        if (RAW_1838.includes(x.text)) {
+          hit = x.text;
+          return;
+        }
+        const init = depth > 0 ? locals.get(x.text) : undefined;
+        if (init) {
+          const via = mentions(init, depth - 1);
+          if (via) hit = `${via} (via ${x.text})`;
+          if (hit) return;
+        }
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(root);
+    return hit;
+  };
+
+  const results = (e: ts.Expression): ts.Expression[] => {
+    if (ts.isParenthesizedExpression(e)) return results(e.expression);
+    if (ts.isBinaryExpression(e)) {
+      const k = e.operatorToken.kind;
+      if (k === ts.SyntaxKind.AmpersandAmpersandToken) return results(e.right);
+      if (k === ts.SyntaxKind.BarBarToken || k === ts.SyntaxKind.QuestionQuestionToken) {
+        return [...results(e.left), ...results(e.right)];
+      }
+      return [e];
+    }
+    if (ts.isConditionalExpression(e)) {
+      return [...results(e.whenTrue), ...results(e.whenFalse)];
+    }
+    // A call that renders through a CALLBACK — an inlined IIFE (AtlasView has
+    // one) or the `rows.map(r => …)` every list in this app is built from. What
+    // reaches the DOM is what the callback RETURNS; the guard clauses above the
+    // return read the field legitimately and must not be flagged.
+    if (ts.isCallExpression(e)) {
+      const bare = ts.isParenthesizedExpression(e.expression) ? e.expression.expression : e.expression;
+      const last = e.arguments[e.arguments.length - 1];
+      const fn =
+        e.arguments.length === 0 && (ts.isArrowFunction(bare) || ts.isFunctionExpression(bare))
+          ? bare
+          : last && (ts.isArrowFunction(last) || ts.isFunctionExpression(last))
+            ? last
+            : null;
+      if (fn) {
+        if (!ts.isBlock(fn.body)) return results(fn.body);
+        const out: ts.Expression[] = [];
+        const rets = (n: ts.Node): void => {
+          if (ts.isReturnStatement(n) && n.expression) out.push(...results(n.expression));
+          // don't descend into a NESTED function — its returns are not this
+          // call's result. The callback's own body is reached via forEachChild
+          // on fn.body below, so the guard here only stops one level down.
+          if (!ts.isFunctionLike(n)) ts.forEachChild(n, rets);
+        };
+        ts.forEachChild(fn.body, rets);
+        return out;
+      }
+    }
+    return [e];
+  };
+
+  const isJsx = (n: ts.Node): boolean =>
+    ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
+
+  /** the tag an attribute belongs to, e.g. 'JardineName' */
+  const ownerTag = (attr: ts.JsxAttribute): string => {
+    const opening = attr.parent.parent;
+    return opening.tagName.getText(sf);
+  };
+
+  const bad: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isJsxExpression(n) && n.expression) {
+      // a prop handed to <JardineName> is the whole point — it is the component
+      // that owns the marker. Any OTHER attribute (title=, aria-label=, alt=)
+      // renders text and is inspected like a child.
+      const exempt = ts.isJsxAttribute(n.parent) && ownerTag(n.parent) === 'JardineName';
+      if (!exempt) {
+        for (const r of results(n.expression)) {
+          if (isJsx(r)) continue;
+          const via = mentions(r, 1);
+          if (via) {
+            const { line } = sf.getLineAndCharacterOfPosition(r.getStart(sf));
+            bad.push(`line ${line + 1}: ${via} — ${r.getText(sf).replace(/\s+/g, ' ').slice(0, 90)}`);
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return bad;
+}
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -1400,19 +1548,19 @@ test('G4 no surface prints an 1838 name except through <JardineName>', () => {
   // strings are not rendered at all, which is what actually makes the bug
   // unrepresentable. A new section printing a bare binomial fails on the day it
   // is written.
+  // UPDATE — this was a regex that knew two spellings of the bug, and a THIRD
+  // spelling shipped past it: the collision slip rendered a local const built by
+  // mapping subjects to their binomials. It is a parse now; see rawNameRenders()
+  // for what it follows and what it deliberately does not.
   for (const file of CONSUMERS) {
-    const body = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'))
-      .replace(/\s+/g, ' ');
-    for (const field of ['jardine_binomial', 'jardine_authority']) {
-      // a JSX interpolation of the raw string — `{x.jardine_binomial}` or
-      // `{x.jardine_binomial || '—'}` — is the regression this catches.
-      const raw = new RegExp(`\\{\\s*[A-Za-z_$][\\w$]*\\.${field}\\s*(\\||\\})`);
-      assert.ok(
-        !raw.test(body),
-        `${file} renders a raw ${field} instead of <JardineName> — that copy would ` +
-          `silently lose its [sic] and its provenance marker`,
-      );
-    }
+    const found = rawNameRenders(new URL(file, import.meta.url));
+    assert.deepEqual(
+      found,
+      [],
+      `${file} renders a raw 1838 name instead of <JardineName> — that copy loses ` +
+        `its [sic] and its provenance marker, and drifts from every other surface ` +
+        `printing the same string:\n  ${found.join('\n  ')}`,
+    );
   }
   // and the component itself must still do both jobs
   const jn = stripComments(readFileSync(new URL('../src/components/JardineName.tsx', import.meta.url), 'utf8'));
@@ -2980,6 +3128,101 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   assert.ok(
     scales.size > 1,
     'every errata subject now has the same scale — the vitrine has nothing left to compare',
+  );
+});
+
+test('E9 the collision slip prints the name that actually collided', () => {
+  // A LIVE FALSE CLAIM, and the third of its family this session.
+  //
+  // Slip No. IV sets one name in display type under a rule, over two columns
+  // headed 1838 · Song Thrush and 2026 · Redwing, and its whole argument is
+  // "one binomial, two entirely different birds". The name it printed was
+  // computed:
+  //
+  //     e.subjects.map((s) => bySci.get(s.sci_name)?.jardine_binomial).find(Boolean)
+  //
+  // — the FIRST subject's own 1838 binomial, `Merula musica`. That name was
+  // Jardine's for the Song Thrush and for nothing else; the Redwing stands two
+  // headings away under `Merula Iliaca`. So the slip's centrepiece was a name
+  // that never collided with anything, and belongs to no living bird.
+  //
+  // The name that equivocates is the one Jardine CITES: `Turdus musicus, Linn.`
+  // — the Song Thrush's synonym in 1838, the Redwing's name now. add_seven.py
+  // says so in its own comment ("where the name Turdus musicus actually
+  // equivocates"). It exists only inside the quoted prose, in no field at all,
+  // so no expression over `subjects` could ever have produced it. That is why
+  // it is now RECORDED and not derived.
+  //
+  // The name must be on the page, and it must not be a heading.
+  //
+  // VERBATIM IN THE QUOTE is necessary and — measured — not sufficient: the
+  // wrong name `Merula musica` is on that page too, in the same sentence. So
+  // the second assertion carries the weight. Both subjects' 1838 HEADING
+  // binomials are recorded (`Merula musica`, `Merula Iliaca`), and the slip's
+  // own claim is that Jardine filed these birds two headings apart — under
+  // different headings. A name that is itself one of those headings is that
+  // bird's own name, not the one that equivocates between them.
+  //
+  // If a future collision genuinely has the other shape — Jardine's HEADING for
+  // one bird being another bird's name today — this line is the one to revisit,
+  // and the slip's headline would have to change with it. Relax it in a commit
+  // that argues the case; never by deleting the assertion to get to green.
+  //
+  // What no check here can reach: whether `Turdus musicus` is the Redwing's
+  // name TODAY. That is external taxonomy. The corpus was searched — the
+  // Redwing's own 1838 account never names it — so this half of the claim rests
+  // on the curator, and the closing sentence states it in the open rather than
+  // implying it.
+  const raw = corpusRaw();
+  const j = normalize(raw);
+  const bySci = speciesBySci(j);
+
+  let checked = 0;
+  for (const e of j.errata) {
+    if (e.kind !== 'collision') continue;
+    checked++;
+    const name = (e.collision_name ?? '').trim();
+    assert.ok(
+      name.length > 0,
+      `slip ${e.no} is a collision and names nothing — the rule has a blank line over it`,
+    );
+    const quote = e.quote?.text ?? '';
+    assert.ok(
+      quote.includes(name),
+      `slip ${e.no} prints "${name}" as the name that collided, and its own 1838 ` +
+        `quotation does not contain those words. Either the page says otherwise or ` +
+        `someone typed it: ${JSON.stringify(quote.slice(0, 120))}`,
+    );
+    for (const s of e.subjects) {
+      const heading = (bySci.get(s.sci_name)?.jardine_binomial ?? '').trim();
+      if (!heading) continue;
+      assert.notEqual(
+        name,
+        heading,
+        `slip ${e.no} names "${name}" as the binomial two birds share, and that is ` +
+          `${s.sci_name}'s own 1838 heading. A heading belongs to one bird — this ` +
+          `slip would be printing a name that never collided with anything`,
+      );
+    }
+  }
+  assert.ok(checked > 0, 'no collision slip in the corpus — E9 would be vacuous');
+
+  // And the view must READ it. The defect was not a wrong string in a file; it
+  // was a string DERIVED from the wrong place, which no data check can see.
+  const view = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    view,
+    /lib-coll-name["'][^>]*>\{\s*e\.collision_name\s*\}/,
+    'the collision slip no longer prints e.collision_name',
+  );
+  // the exact shape of the bug, pinned: no path from subjects to that line.
+  assert.doesNotMatch(
+    view,
+    /subjects[\s\S]{0,120}?jardine_binomial/,
+    'the collision name is being derived from a subject binomial again — that is ' +
+      'the bug: it prints a name only one of the two birds ever wore',
   );
 });
 
