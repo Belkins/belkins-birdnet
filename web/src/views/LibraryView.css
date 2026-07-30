@@ -476,6 +476,16 @@
 .lib-says .lib-cite {
   max-width: 100%;
 }
+/* THE OVERCORRECTION. `100%` is right in a 580px slip and absurd in a 1180px
+   one: the two full-width slips came out at 152 and 118 characters a line,
+   moments after I cut --w-read to 42rem because 71 was too many. A measure is
+   not "as wide as the box" any more than it is "44 of whichever character".
+   The wide slips take the same reading measure as everything else and sit
+   left, against the gutter rule. */
+.lib-slip-wide .lib-says .lib-prose,
+.lib-slip-wide .lib-says .lib-cite {
+  max-width: var(--w-read);
+}
 .lib-garden-rows {
   display: flex;
   flex-direction: column;
@@ -919,7 +929,13 @@
   /* Two vertical lines now fit in a 59px spine, so a long title wraps instead
      of running off the end. */
   white-space: normal;
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent 100%);
+  /* NO FADE HERE. The mask was the last-resort marker for a title longer than
+     its spine, and at twenty columns not one of the forty is: zero overflow,
+     measured on all forty. An unconditional 28px gradient on a spine where
+     everything fits does not say "this continues", it dims a word for no
+     reason — "Bees" was 100% inside the gradient, "Beetles" 98%, "Monkeys"
+     77%. It survives only on the phone, where spines are 35px and the overflow
+     is real. */
 }
 .lib-spine[data-lit='yes'] .lib-spine-t {
   color: var(--ink);
@@ -1131,16 +1147,25 @@
     flex-direction: column;
     align-items: flex-start;
   }
-  /* Two rows of twenty rather than shrinking to forty slivers — the count is
-     the joke, so it must stay countable. */
+  /* FOUR ROWS OF TEN. Twenty columns on a 351px phone is a 16.6px spine — 9.5px
+     of content — and the two-line wrap written for a 58px desktop spine landed
+     here too, so a 22px title block sat in a 9.5px box and got clipped on BOTH
+     sides: you saw the middle of line one beside the middle of line two, which
+     is not a title, it is noise. Nineteen of forty did that, and at 320px all
+     forty did. My desktop fix made the phone materially worse.
+
+     Ten columns give a 35px spine, which is a real book, and the title goes
+     back to one legible column that fades where it runs out. */
   .lib-shelf {
-    grid-template-columns: repeat(20, minmax(0, 1fr));
+    grid-template-columns: repeat(10, minmax(0, 1fr));
   }
   .lib-spine {
     height: 150px;
   }
   .lib-spine-t {
     max-height: 112px;
+    white-space: nowrap;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
   }
   /* The Roll drops the VOL. column only. */
   .lib-roll-vol,
