@@ -25,12 +25,20 @@ while read; do
 
     if [ -n "${analyzing_now}" ] && [ -f "${analyzing_now}" ]; then
       spectrogram_png=${EXTRACTED}/spectrogram.png
-        # Check if RAW_SPECTROGRAM is 1
+        # `-t "" -c ""` matches how THIS fork renders every other spectrogram —
+        # scripts/utils/reporting.py:52 passes empty title and comment to sox and
+        # then draws the species name on with PIL. Upstream instead passed the
+        # wav's PATH as the comment, so the live spectrogram carried a strip of
+        # "BirdSongs/StreamData/2026-07-30-birdnet-16:46:27.wav" baked into the
+        # image plus sox's default title — which is why it read as a debug plot
+        # next to the clean ones under every recording. There is no species to
+        # title here (nothing has been identified yet), so the live frame stays
+        # untitled rather than gaining a caption it cannot honestly fill.
         if [ "$RAW_SPECTROGRAM" == "1" ]; then
           # If it is, add "-r" as an argument to the SOX command
-          sox -V1 "${analyzing_now}" -n remix 1 rate 24k spectrogram -c "${analyzing_now//$HOME\//}" -o "${spectrogram_png}" -r
+          sox -V1 "${analyzing_now}" -n remix 1 rate 24k spectrogram -t "" -c "" -o "${spectrogram_png}" -r
         else
-          sox -V1 "${analyzing_now}" -n remix 1 rate 24k spectrogram -c "${analyzing_now//$HOME\//}" -o "${spectrogram_png}"
+          sox -V1 "${analyzing_now}" -n remix 1 rate 24k spectrogram -t "" -c "" -o "${spectrogram_png}"
         fi
     fi
     next=$(( now + looptime ))
