@@ -62,12 +62,26 @@ say "2. Compile the Python (catch syntax issues before installing)"
 "$PY" -m py_compile "$HERE/scripts/utils/realtime.py" "$HERE/avian/realtime/birdcast.py"
 ok "python compiles"
 
+say "2b. Install the OnFailure alert handler (every unit here points at it)"
+render_unit "$HERE/avian/realtime/christina-alert@.service" /etc/systemd/system/christina-alert@.service
+sudo systemctl daemon-reload
+ok "christina-alert@ installed"
+
 say "3. Install + start the birdcast systemd service (port $PORT, reads birds.db read-only)"
 UNIT=/etc/systemd/system/birdcast.service
 sudo tee "$UNIT" >/dev/null <<UNITEOF
 [Unit]
 Description=Belkins BirdNET birdcast (realtime SSE spine)
 After=network.target
+OnFailure=christina-alert@%n.service
+# Restart=on-failure against systemd's DEFAULT start limit (5 starts / 10s) means
+# a hard crash loop can never reach 'failed': one restart per RestartSec never
+# fills the window, so birdcast could die and be resurrected forever, silently,
+# and the OnFailure= above would never fire once. Widened so 20 crashes inside
+# 10 minutes ends in 'failed' and shouts. birdcast.py serves forever, so exiting
+# at all is a real fault. A frame that is visibly dead beats one invisibly dying.
+StartLimitIntervalSec=600
+StartLimitBurst=20
 
 [Service]
 Type=simple

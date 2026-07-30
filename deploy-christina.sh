@@ -53,11 +53,29 @@ grep -q emit_detected "$HERE/scripts/birdnet_analysis.py" || warn "emit hook mis
 [ -f "$DB" ] || warn "birds.db not at $DB (set CHRISTINA_BIRDS_DB)"
 ok "repo=$HERE  db=$DB  extracted=$EXTRACTED"
 
+say "0b. the OnFailure alert handler"
+# EVERY OnFailure=christina-alert@%n.service in this repo points here. Without
+# this file installed, systemd logs that it could not enqueue the handler and
+# says nothing else — a silent alerting path, which is the exact disease the
+# alerting was added to cure.
+render_unit "$HERE/avian/realtime/christina-alert@.service" /etc/systemd/system/christina-alert@.service
+sudo systemctl daemon-reload
+ok "christina-alert@ handler installed"
+
 say "1. birdcast realtime SSE service (127.0.0.1:8090)"
 sudo tee /etc/systemd/system/birdcast.service >/dev/null <<UNIT
 [Unit]
 Description=Christina birdcast (realtime SSE spine)
 After=network.target
+OnFailure=christina-alert@%n.service
+# Restart=on-failure against systemd's DEFAULT start limit (5 starts / 10s) means
+# a hard crash loop can never reach 'failed': one restart per RestartSec never
+# fills the window, so birdcast could die and be resurrected forever, silently,
+# and the OnFailure= above would never fire once. Widened so 20 crashes inside
+# 10 minutes ends in 'failed' and shouts. birdcast.py serves forever, so exiting
+# at all is a real fault. A frame that is visibly dead beats one invisibly dying.
+StartLimitIntervalSec=600
+StartLimitBurst=20
 [Service]
 Type=simple
 User=$USER_NAME
@@ -90,7 +108,25 @@ sudo systemctl reload caddy
 
 say "4. serve the React collage at /collage"
 if [ -d "$HERE/web/dist" ]; then
-  rm -rf "$EXTRACTED/collage"; cp -r "$HERE/web/dist" "$EXTRACTED/collage"; ok "served prebuilt web/dist"
+  # This branch PREFERS whatever is on disk over rebuilding, so the worktree copy
+  # is what reaches the wall. repo-guards 4/4b only ever inspect the git INDEX,
+  # which means a local `npm run build` with no --base, a partial checkout or a
+  # half-written dist deploys completely unchecked: every asset 404s, and caddy's
+  # php try_files answers each 404 with 200 text/html (measured on this box), so
+  # nothing downstream can tell. Validate the DIRECTORY before it is copied.
+  # ASSERT THE GUARD CAN DO THE JOB BEFORE TRUSTING ITS EXIT CODE. A repo-guards.sh
+  # from before these subcommands existed IGNORES the extra arguments, runs its
+  # ordinary list and exits 0 — so this step would print "validated" having
+  # validated nothing. Measured, not assumed: the pre-change script does exactly
+  # that. git moves both files together so the window is narrow, but a fail-open
+  # step wearing a green label is the one thing this deploy must not have.
+  for _mode in dist-fresh dist-static dist-served; do
+    grep -qE "^${_mode}\)" "$HERE/scripts/repo-guards.sh" \
+      || die "scripts/repo-guards.sh has no '${_mode}' mode — it is older than this deploy script and would silently pass. Update the checkout before deploying."
+  done
+  bash "$HERE/scripts/repo-guards.sh" dist-static "$HERE/web/dist" \
+    || { echo "REFUSING TO DEPLOY: $HERE/web/dist is not a serveable /collage/ bundle (see above). Rebuild with: (cd $HERE/web && npm run build -- --base=/collage/)" >&2; exit 1; }
+  rm -rf "$EXTRACTED/collage"; cp -r "$HERE/web/dist" "$EXTRACTED/collage"; ok "served prebuilt web/dist (validated)"
 elif command -v npm >/dev/null; then
   ( cd "$HERE/web" && npm ci && npm run build -- --base=/collage/ )
   rm -rf "$EXTRACTED/collage"; cp -r "$HERE/web/dist" "$EXTRACTED/collage"; ok "built + served (npm)"
@@ -197,10 +233,23 @@ UNIT
 else warn "avian/catalog not present — species catalog skipped (git pull?)"; fi
 
 say "8. self-check"
-echo "   collage:   $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/collage/)"
+# NOTE the %{http_code} below is INFORMATIONAL ONLY and must never be trusted as
+# a collage health signal: caddy's php try_files fallback answers 200 text/html
+# for EVERY missing path under /collage/ (measured 2026-07-30 — a nonexistent
+# .js returns `200 text/html`). The real check is the dist-served one after it,
+# which asserts content-type and the served asset set instead of the status.
+echo "   collage:   $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/collage/) (status only — 200 here proves nothing)"
 echo "   /events:   $(curl -s -N --max-time 3 http://127.0.0.1/events | head -1)"
 echo "   catalog:   $(sqlite3 "$HERE/scripts/christina.db" 'SELECT COUNT(*) FROM species' 2>/dev/null || echo 0) species in christina.db"
 [ -n "$RAILWAY_BASE" ] && echo "   forwarder: $(systemctl is-active forwarder)"
+# Did the bundle we just copied actually reach the wall? Content-type + served
+# asset set, never status. Hard-fails: a blank wall is the one outcome this
+# whole script exists to avoid, and it is invisible to every other probe here.
+if [ -d "$EXTRACTED/collage" ]; then
+  echo "   bundle:"
+  bash "$HERE/scripts/repo-guards.sh" dist-served "http://127.0.0.1/collage" "$EXTRACTED/collage" 2>&1 | sed 's/^/     /' \
+    || { echo "DEPLOY FAILED VERIFICATION: the wall is not serving the bundle just copied (see above)." >&2; exit 1; }
+fi
 # Serving-chain smoke (pipeline-hardening P0): prove headers + cache contract
 # on one plate through the REAL cutout path. Warn-only — a transient probe
 # flake must not fail an otherwise-good deploy (open question in the plan).

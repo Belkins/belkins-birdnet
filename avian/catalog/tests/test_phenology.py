@@ -388,6 +388,228 @@ class PhenologyLedgerTestCase(unittest.TestCase):
         self.assertEqual(self._run(extra=["--dry-run"]), 0)
         self.assertFalse(os.path.exists(self.out))
 
+    # -- 19 (THE CURVE) -----------------------------------------------------
+    def test_weekly_curve_is_frozen_not_just_the_peak(self):
+        """The deliverable. _note_year has always accumulated a full histogram
+        and _compute_entries used to keep only peak_week -- and since a closed
+        year is NEVER recomputed, that discard becomes permanent the day the year
+        closes. Asserting the specific cells (not merely 'a list of 52') is what
+        stops a stub implementation from passing."""
+        _make_birds_db(self.birds, [
+            _row("2025-01-06", "05:00:00"),   # ISO week 2
+            _row("2025-01-13", "05:00:00"),   # ISO week 3
+            _row("2025-01-14", "06:00:00"),   # ISO week 3
+            _row("2025-06-02", "06:00:00"),   # ISO week 23
+        ])
+        self.assertEqual(self._run(), 0)
+        e = self._entries()[("Erithacus rubecula", 2025)]
+        cells = e["weekly_detections"]
+        self.assertEqual(len(cells), 52)
+        self.assertEqual(cells[1], 1)    # week 2
+        self.assertEqual(cells[2], 2)    # week 3
+        self.assertEqual(cells[22], 1)   # week 23
+        self.assertEqual(sum(cells), e["detections"])
+        # peak_week is nothing more than this list's highest cell.
+        self.assertEqual(cells[e["peak_week"] - 1], e["peak_week_n"])
+        self.assertEqual(max(cells), e["peak_week_n"])
+
+    def test_curve_index_matches_the_renderer_that_already_shipped(self):
+        """CONSTRAINT 1: the frozen curve uses year_week()'s clamps verbatim, so
+        cell i is ISO week i+1 -- the same `min(52, max(1, w)) - 1` arithmetic
+        web/src/almanac.ts:113 ships. If the frozen curve disagreed with the
+        renderer, the disagreement would become permanent the day the year
+        closed. Uses the two dates the clamps exist for."""
+        _make_birds_db(self.birds, [
+            _row("2024-12-30", "07:00:00"),   # ISO 2025-W01, calendar 2024 -> 52
+            _row("2025-01-02", "09:00:00"),   # ISO 2025-W01, calendar 2025 -> 1
+        ])
+        self.assertEqual(self._run(), 0)
+        ent = self._entries()
+        c24 = ent[("Erithacus rubecula", 2024)]["weekly_detections"]
+        self.assertEqual(c24[51], 1, "30 Dec must land in 2024's LAST cell")
+        self.assertEqual(c24[0], 0, "...and must not leak into cell 0 (week 1)")
+        c25 = ent[("Erithacus rubecula", 2025)]["weekly_detections"]
+        self.assertEqual(c25[0], 1)
+        self.assertEqual(sum(c25), 1)
+        # And the index the module uses is exactly week-1 across the whole range.
+        for wk in (1, 2, 22, 52):
+            self.assertEqual(phenology._curve_index(wk), wk - 1)
+
+    def test_iso_week_53_lands_in_cell_52_and_is_never_dropped(self):
+        """2026 genuinely has an ISO week 53 (2026-12-28 -> 2026-W53). A 53-cell
+        year must fold into cell 52, not fall off the end of a 52-cell list."""
+        _make_birds_db(self.birds, [
+            _row("2026-12-28", "07:00:00"),
+            _row("2026-12-31", "08:00:00"),
+            _row("2027-01-05", "08:00:00"),   # keeps 2026 CLOSED
+        ])
+        self.assertEqual(self._run(), 0)
+        e = self._entries()[("Erithacus rubecula", 2026)]
+        self.assertEqual(e["weekly_detections"][51], 2)
+        self.assertEqual(sum(e["weekly_detections"]), 2,
+                         "week 53 must FOLD, never vanish")
+
+    # -- 20 (NEGATIVE TEST of the drop guard) -------------------------------
+    def test_a_week_outside_the_fold_fails_loud_in_the_builder(self):
+        """The guard, called directly. This project has five recorded incidents
+        of guards that could not fire, so _curve_index is asserted to actually
+        RAISE rather than clamp, skip or wrap."""
+        with self.assertRaises(ValueError):
+            phenology._weekly_curve({53: 1})
+        with self.assertRaises(ValueError):
+            phenology._weekly_curve({0: 1})
+        with self.assertRaises(ValueError):
+            phenology._weekly_curve({-1: 1})
+
+    def test_a_week_outside_the_fold_fails_loud_in_a_real_run(self):
+        """The same guard, wired. Mutation: year_week's fold is reverted to a raw
+        isocalendar()[1] -- the exact regression the two-clamp note warns about.
+        The run must exit 5 having written NOTHING, rather than freezing curves
+        with late December silently missing. Without _curve_index this run exits
+        0 and the 53rd week is dropped forever."""
+        naive = lambda s: (2026, 53) if s else (None, None)   # noqa: E731
+        _make_birds_db(self.birds, [_row("2026-12-28", "07:00:00")])
+        real = phenology.year_week
+        phenology.year_week = naive
+        try:
+            self.assertEqual(self._run(), 5)
+        finally:
+            phenology.year_week = real
+        self.assertFalse(os.path.exists(self.out), "a failed run must write NOTHING")
+        # ...and with the real fold restored, the very same row succeeds.
+        self.assertEqual(self._run(), 0)
+        self.assertEqual(
+            self._entries()[("Erithacus rubecula", 2026)]["weekly_detections"][51], 1)
+
+    # -- 21 (THE EFFORT FIELD) ----------------------------------------------
+    def test_effort_field_counts_distinct_dates_with_any_detection(self):
+        """CONSTRAINT 2. birds.db records DETECTIONS, not uptime, so the field is
+        named for exactly what it counts: distinct dates that produced at least
+        one detection of ANY class. Non-bird rows COUNT -- a Dog row still proves
+        the recorder wrote something that day -- while two rows on one date count
+        once. Asserting both halves is what keeps this from silently degrading
+        into a per-species row count (which days_heard/detections already are)."""
+        _make_birds_db(self.birds, [
+            _row("2025-06-02", "05:00:00"),                       # wk 23, robin
+            _row("2025-06-02", "05:10:00"),                       # same DATE
+            _row("2025-06-03", "06:00:00", sci="Dog", com="Dog"),  # wk 23, NOT a bird
+            _row("2025-06-10", "06:00:00"),                       # wk 24
+        ])
+        self.assertEqual(self._run(), 0)
+        e = self._entries()[("Erithacus rubecula", 2025)]
+        eff = e["station_weekly_dates_with_detections"]
+        self.assertEqual(len(eff), 52)
+        self.assertEqual(eff[22], 2, "2 distinct dates in week 23, one of them "
+                                     "evidenced only by a non-bird row")
+        self.assertEqual(eff[23], 1)
+        self.assertEqual(sum(eff), 3, "3 distinct dates produced detections")
+        # It is STATION-wide, so the robin's own week-23 curve is smaller.
+        self.assertEqual(e["weekly_detections"][22], 2)
+        self.assertEqual(e["days_heard"], 2, "the robin was heard on 2 of the "
+                                             "station's 3 detection-dates")
+
+    def test_effort_field_is_station_wide_and_identical_across_species(self):
+        """The field answers 'did the recorder produce rows that week', not
+        'was this bird about'. If it were computed per species it would be
+        useless as the curve's denominator -- a zero cell could never be told
+        apart from a dead station."""
+        _make_birds_db(self.birds, [
+            _row("2025-06-02", "05:00:00"),
+            _row("2025-06-09", "05:00:00", sci="Turdus merula", com="Eurasian Blackbird"),
+        ])
+        self.assertEqual(self._run(), 0)
+        ent = self._entries()
+        robin = ent[("Erithacus rubecula", 2025)]
+        blackbird = ent[("Turdus merula", 2025)]
+        self.assertEqual(robin["station_weekly_dates_with_detections"],
+                         blackbird["station_weekly_dates_with_detections"])
+        self.assertEqual(robin["station_weekly_dates_with_detections"][22], 1)
+        self.assertEqual(robin["station_weekly_dates_with_detections"][23], 1)
+        # The robin was NOT heard in week 24 even though the station had a date
+        # that week: absence of the bird, not absence of the station.
+        self.assertEqual(robin["weekly_detections"][23], 0)
+
+    def test_effort_field_does_not_leak_across_years(self):
+        """A per-year field built from a (year, week) key: 2024's December dates
+        must not appear in 2025's denominator."""
+        _make_birds_db(self.birds, [
+            _row("2024-12-30", "07:00:00"),
+            _row("2025-01-02", "09:00:00"),
+            _row("2025-01-03", "09:00:00"),
+        ])
+        self.assertEqual(self._run(), 0)
+        ent = self._entries()
+        eff24 = ent[("Erithacus rubecula", 2024)]["station_weekly_dates_with_detections"]
+        eff25 = ent[("Erithacus rubecula", 2025)]["station_weekly_dates_with_detections"]
+        self.assertEqual(sum(eff24), 1)
+        self.assertEqual(eff24[51], 1)
+        self.assertEqual(sum(eff25), 2)
+        self.assertEqual(eff25[0], 2)
+
+    def test_effort_field_is_named_for_what_it_counts(self):
+        """CONSTRAINT 2, as a contract test. 'Coverage'/'uptime'/'listening'
+        names would license the fabricated-absence sentence this project has
+        already shipped three times: a March with the microphone unplugged and a
+        genuinely silent March are IDENTICAL in birds.db. This test exists to go
+        red if a future rename makes the field sound like uptime."""
+        _make_birds_db(self.birds, [_row("2025-06-02", "05:00:00")])
+        self.assertEqual(self._run(), 0)
+        keys = set(self._entries()[("Erithacus rubecula", 2025)])
+        self.assertIn("station_weekly_dates_with_detections", keys)
+        for k in keys:
+            low = k.lower()
+            self.assertNotIn("coverage", low)
+            self.assertNotIn("uptime", low)
+            self.assertNotIn("listening", low)
+        notes = self._ledger()["notes"]["effort"]
+        self.assertIn("distinct dates", notes.lower())
+        self.assertIn("NOT listening coverage", notes)
+
+    # -- 22 (CONSTRAINT 3: strictly additive) -------------------------------
+    def test_ledger_written_before_the_curve_existed_still_round_trips(self):
+        """CONSTRAINT 3. _load_ledger validates only sci_name+year, so an entry
+        frozen before weekly_detections existed must load, merge and survive
+        BYTE-FOR-BYTE -- not be dropped, not be crashed on, and above all not be
+        'upgraded' from rows that no longer exist. The 13 fields below are the
+        exact shape measured on the live Pi's phenology.json (built 2026-07-29).
+        """
+        old_entry = {
+            "sci_name": "Turdus merula",
+            "com_name": "Eurasian Blackbird",
+            "slug": "turdus-merula",
+            "year": 2025,
+            "first_heard": "2025-06-01 06:00:00",
+            "last_heard": "2025-06-30 07:00:00",
+            "days_heard": 12,
+            "detections": 44,
+            "peak_week": 24,
+            "peak_week_n": 9,
+            "source_rows_at_freeze": 3803,
+            "min_date_seen": "2025-06-01",
+            "frozen_at": "2025-12-31T02:30:00+00:00",
+        }
+        with open(self.out, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "built_at": "2025-12-31T02:30:00+00:00",
+                       "current_year": 2025, "entries": [old_entry]}, fh)
+        _make_birds_db(self.birds, [
+            _row("2025-06-01", "06:00:00", sci="Turdus merula", com="Eurasian Blackbird"),
+            _row("2026-06-01", "06:00:00"),
+        ])
+        self.assertEqual(self._run(), 0, "an old-shaped ledger must not crash")
+        ent = self._entries()
+        self.assertEqual(ent[("Turdus merula", 2025)], old_entry,
+                         "a closed entry frozen before the curve existed must "
+                         "survive byte-for-byte, curve-less")
+        self.assertNotIn("weekly_detections", ent[("Turdus merula", 2025)])
+        # ...while the OPEN year gets the new fields.
+        fresh = ent[("Erithacus rubecula", 2026)]
+        self.assertEqual(len(fresh["weekly_detections"]), 52)
+        self.assertEqual(len(fresh["station_weekly_dates_with_detections"]), 52)
+        # ...and a mixed-shape ledger still reruns byte-identically.
+        first = _sha256(self.out)
+        self.assertEqual(self._run(), 0)
+        self.assertEqual(_sha256(self.out), first)
+
     def test_ledger_entry_for_a_species_gone_from_birds_db_is_never_deleted(self):
         """The freeze rule's fourth branch, stated on its own: an entry with no
         surviving rows AT ALL (not merely a purged year) is kept verbatim."""

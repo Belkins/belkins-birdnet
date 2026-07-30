@@ -2,6 +2,11 @@
 Description=Christina — Railway gen-service liveness check (alerts if the watcher silently dies)
 After=network-online.target
 Wants=network-online.target
+# railway_liveness.py returns 1 on every failed probe and 2 on an unset
+# AV_RAILWAY_BASE, so this unit is red on both -- including the case where its
+# OWN ntfy push failed and the journal was the only record.
+# See avian/realtime/christina-alert@.service.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot

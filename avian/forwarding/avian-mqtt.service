@@ -2,6 +2,8 @@
 Description=Belkins BirdNET MQTT bridge
 After=network-online.target
 
+OnFailure=christina-alert@%n.service
+
 [Service]
 Type=simple
 # Edit User= if BirdNET-Pi was installed under a different account.

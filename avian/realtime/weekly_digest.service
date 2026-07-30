@@ -2,6 +2,11 @@
 Description=Christina — weekly recap push (species.json + derived.json -> ntfy)
 After=network-online.target
 Wants=network-online.target
+# A recap that stops arriving reads exactly like a quiet week. Measured on the
+# live Pi 2026-07-30: weekly_digest.timer is not installed there at all, so the
+# recap has never been sent and nothing ever said so -- the same disease this
+# handler treats. See avian/realtime/christina-alert@.service.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot
