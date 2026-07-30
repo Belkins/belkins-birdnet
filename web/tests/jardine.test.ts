@@ -112,8 +112,15 @@ const sicSpans = jardineMod.sicSpans as (
 ) => Array<{ text: string; sic: SicRow | null }>;
 const fetchAccounts = jardineMod.fetchAccounts as () => Promise<Record<string, JardinePassage[]>>;
 const ACCOUNTS_PATH = new URL('../public/jardine-accounts.json', import.meta.url);
-function accountsRaw(): unknown | null {
-  if (!existsSync(ACCOUNTS_PATH)) return null;
+function accountsRaw(): unknown {
+  // Same fix, same reason — see corpusRaw(). 287 KB of verified 1838 prose whose
+  // deletion used to leave the suite entirely green.
+  if (!existsSync(ACCOUNTS_PATH)) {
+    assert.fail(
+      'web/public/jardine-accounts.json is MISSING. It is committed — without it the ' +
+        'reading room has nothing to open and 211 verified passages reach nobody.',
+    );
+  }
   return JSON.parse(readFileSync(ACCOUNTS_PATH, 'utf8')) as unknown;
 }
 
@@ -210,8 +217,25 @@ const london = JSON.parse(readFileSync(LONDON_PATH, 'utf8')) as CatalogSpecies[]
 /** The corpus is written by the extraction lane and assembled last. When it is
  *  not in the tree the tab must degrade to silence — every corpus test asserts
  *  THAT instead, so this file is never vacuously green. */
-function corpusRaw(): unknown | null {
-  if (!existsSync(CORPUS_PATH)) return null;
+function corpusRaw(): unknown {
+  // NOT NULLABLE ANY MORE, AND THAT IS THE FIX.
+  //
+  // This returned null when the file was missing, and 20 tests then did
+  // `if (raw === null) return;` — written when the corpus was still being
+  // produced by another lane and might genuinely not exist yet. The moment it
+  // WAS committed, every one of those became a silent no-op. Measured: deleting
+  // web/public/jardine.json AND the 287 KB jardine-accounts.json left the suite
+  // at 82/82 PASS. The entire Library could vanish and nothing went red.
+  //
+  // That is this project's signature bug — a check that cannot fail reporting
+  // success — in the one place meant to catch it. Both files are committed and
+  // guarded by repo-guards; their absence is a defect, so this fails loudly.
+  if (!existsSync(CORPUS_PATH)) {
+    assert.fail(
+      'web/public/jardine.json is MISSING. It is committed — if it is gone the ' +
+        'Library has no corpus and the whole tab is empty. This is not a state to skip past.',
+    );
+  }
   return JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as unknown;
 }
 
@@ -2085,6 +2109,15 @@ test('N3 no fabricated asset ships to a public path on the wall', () => {
       `dist/${dir}/ shipped to the wall — that is fabricated content at a public URL`,
     );
   }
+  // derived.json is the same class with a worse consequence: the deploy
+  // SYMLINKS the live one into the served directory, and shipping the fixture
+  // in the bundle replaced that symlink on every rsync. The wall served a
+  // 2026-07-02 console (8 species) for 27 days while the real one (48 species)
+  // sat on disk beside it.
+  assert.ok(
+    !existsSync(new URL('derived.json', dist)),
+    'dist/derived.json shipped — it will overwrite the live symlink on the next deploy',
+  );
   // and the sources must still be present, because dev and the suite need them
   assert.ok(existsSync(new URL('../public/dev/species-london.json', import.meta.url)),
     'the fixture was MOVED rather than excluded — the test suite reads it directly');
@@ -2362,4 +2395,70 @@ test('Q2 a closing that makes a live claim stops printing when it stops being tr
   const gatedSites = src.match(/e\.closing && closingHolds\(e, byCatalog\)/g) ?? [];
   assert.equal(gatedSites.length, sites.length,
     `${sites.length - gatedSites.length} closing render site(s) bypass the gate`);
+});
+
+// ═══ R · THE CORPUS vs A CATALOG THAT GROWS ════════════════════════════════
+
+test('R1 no bird is called silent while its account sits in the corpus', () => {
+  // WHY — the fourth and worst fabricated absence on this project.
+  //
+  // The live Roll printed "Gray Heron — the library is silent." That was FALSE:
+  // Jardine's Common Heron (v34-025, vol XXXIV, five paragraphs, binomial
+  // byte-identical to the modern one) was inside this museum's own verified
+  // extraction the whole time. It was never added because the corpus was pinned
+  // on 2026-07-27 and the garden first heard a heron on 2026-07-28. One day.
+  //
+  // THE ONE-OFF ROW IS NOT THE FIX. The corpus is static and the catalog rebuilds
+  // nightly and grows — the station is weeks old and still gaining birds — so
+  // every new species is a fresh chance to print the same lie, in the same column
+  // as the museum's most carefully earned TRUE silences, indistinguishable from
+  // them. This is the fix: the gap must fail a test, not greet a visitor.
+  //
+  // It asserts against the COMMITTED corpus, so it holds without a network. The
+  // catalog it checks is the committed fixture; a species the live station gains
+  // is caught the next time the fixture is refreshed or the reader is run with
+  // --live. That is a real limit and it is why tools/read-library.ts exists.
+  const j = normalize(corpusRaw());
+  const have = new Set(j.species.map((s) => s.sci_name));
+
+  const gz = new URL('../../tools/jardine/corpus/corpus.json.gz', import.meta.url);
+  if (!existsSync(gz)) {
+    assert.fail('the committed corpus is gone — coverage can no longer be checked at all');
+  }
+  const corpus = JSON.parse(gunzipSync(readFileSync(gz)).toString('utf8')) as unknown;
+  const walk = (o: unknown, out: Array<Record<string, unknown>> = []): Array<Record<string, unknown>> => {
+    if (Array.isArray(o)) o.forEach((x) => walk(x, out));
+    else if (o && typeof o === 'object') {
+      for (const [k, v] of Object.entries(o)) {
+        if (k === 'accounts' && Array.isArray(v)) out.push(...(v as Array<Record<string, unknown>>));
+        else walk(v, out);
+      }
+    }
+    return out;
+  };
+  // an account is only a candidate if its 1838 binomial is byte-identical to a
+  // modern one. ANY looser match is the Turdus musicus trap — Jardine's Song
+  // Thrush carries the modern binomial of the Redwing — so a fuzzy join here
+  // would file the wrong page under the right bird with total confidence.
+  const exact = new Map<string, string>();
+  for (const a of walk(corpus)) {
+    const b = String(a.jardine_binomial ?? '').trim();
+    const ps = (a.passages as Array<Record<string, unknown>> | undefined) ?? [];
+    const shippable = ps.filter((p) => p.shippable === true && p.is_quotation === false);
+    if (/^[A-Z][a-z]+ [a-z]+$/.test(b) && shippable.length > 0) exact.set(b, String(a.account_id));
+  }
+  assert.ok(exact.size > 50, `only ${exact.size} exact-binomial accounts — the join broke`);
+
+  const lying = london
+    .map((c) => c.sci_name)
+    .filter((sci) => !have.has(sci) && exact.has(sci))
+    .map((sci) => `${sci} (account ${exact.get(sci)})`);
+
+  assert.deepEqual(
+    lying,
+    [],
+    'these birds are in the catalog and have a verified account in the corpus, but no row in ' +
+      'jardine.json — so the Roll calls them silent while the library has a page for them:\n  ' +
+      lying.join('\n  '),
+  );
 });

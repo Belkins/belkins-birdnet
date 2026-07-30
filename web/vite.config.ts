@@ -41,6 +41,17 @@ export default defineConfig(({ mode }) => {
       for (const dir of ['dev', 'mock']) {
         rmSync(resolve(__dirname, outDir, dir), { recursive: true, force: true });
       }
+      // derived.json is the same class and cost 27 days of a stale console. The
+      // committed public/derived.json is a 2026-07-02 fixture (8 species, 188
+      // rows). deploy-christina.sh SYMLINKS the live one into place — and any
+      // rsync of dist/ over the served directory replaced that symlink with the
+      // fixture, so /lab quietly showed a month-old museum. The deploy recipe
+      // protects species.json by name and nobody had added this one.
+      //
+      // Excluding it from the bundle fixes it at the root: the file cannot
+      // clobber a symlink it is not in. `npm run dev` is unaffected — the dev
+      // server serves public/ directly and never reads dist/.
+      rmSync(resolve(__dirname, outDir, 'derived.json'), { force: true });
     },
   };
 
