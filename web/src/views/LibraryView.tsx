@@ -156,6 +156,7 @@ function FullAccount({
           {com} · vol. {volumeRoman(species.volume)} · {passages.length} passages, as printed
         </div>
         <div className="lib-acct-body">
+          <SpeciesPlate sp={species} />
           {passages.map((p, i) => (
             <div key={i}>
               <Prose p={p} />
@@ -289,6 +290,75 @@ function Attribution({ p, link = true }: { p: JardinePassage; link?: boolean }) 
         </a>
       )}
     </div>
+  );
+}
+
+/** THE ENGRAVING FOR ONE BIRD, captioned to exactly the strength of its claim.
+ *
+ *  In the book the plate faces the first page of the account, so it opens the
+ *  desk rather than trailing it.
+ *
+ *  Three captions, because there are three different truths to tell:
+ *
+ *  · A plate of one bird says which plate, and stops.
+ *  · A plate of TWO birds names both and places them. Jardine drew a Spotted
+ *    Sandpiper beside the Common, a Firecrest above the Goldcrest, the American
+ *    teal beside the European — printing one name would tell a reader the other
+ *    bird in the frame IS that species, which is the failure this whole museum
+ *    exists to refuse.
+ *  · A plate the VOLUME assigns, where the picture does not identify itself,
+ *    says so in as many words and prints why. That is a citation. The other two
+ *    are claims, and the difference is the point.
+ *
+ *  No plate renders nothing at all — 27 of 52 birds here have none, and an empty
+ *  frame is a broken feature where silence is an honest one. The masthead ledger
+ *  carries the count, which is where an absence belongs: stated once, in
+ *  aggregate, from the data. */
+function SpeciesPlate({ sp }: { sp: JardineSpecies }) {
+  const src = jardineImageUrl(sp.image);
+  if (!src) return null;
+  const cited = sp.plate_attribution === 'plate-list';
+  const also = sp.plate_also;
+  const plate = sp.plate_ref ? sp.plate_ref.replace(/-/g, ' ') : 'plate';
+  return (
+    <figure className="lib-fig-plate">
+      <img
+        className="lib-plate"
+        src={src}
+        width={sp.image_w ?? undefined}
+        height={sp.image_h ?? undefined}
+        alt={
+          also.length > 0
+            ? `Jardine's ${plate}: ${sp.jardine_title} ${sp.plate_where ?? ''}, with ${also
+                .map((a) => `${a.common} ${a.where}`)
+                .join(' and ')}`
+            : `Jardine's ${plate} of the ${sp.jardine_title}`
+        }
+        /* NOT lazy. On the live station these are progressive JPEGs behind
+           HTTP/1.1 with a permanent SSE stream holding one of six connections,
+           and a lazy plate took 10-20 seconds to arrive — an empty frame for
+           long enough to read as broken. One plate is on screen at a time here,
+           so it is fetched with the passage it faces. */
+        decoding="async"
+      />
+      <figcaption className="lib-plate-cap">
+        <span className="lib-plate-k">
+          {plate} · vol. {volumeRoman(sp.volume)}
+        </span>
+        {also.length > 0 && (
+          <span className="lib-plate-two">
+            two birds on this sheet — {sp.jardine_title} {sp.plate_where}
+            {also.map((a) => (
+              <span key={a.sci_name}>
+                , and the {a.common} {a.where}
+              </span>
+            ))}
+          </span>
+        )}
+        {cited && <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>}
+        {cited && sp.plate_note && <span className="lib-plate-why">{sp.plate_note}</span>}
+      </figcaption>
+    </figure>
   );
 }
 
@@ -443,6 +513,8 @@ function ReadingDesk({
           indistinguishable from the daily rotation happening to agree, and the
           reader cannot tell whether the button worked. */}
       {aimed && <span className="lib-desk-aim">you asked for this one</span>}
+      {/* The plate faces the account, as it does in the book. */}
+      <SpeciesPlate sp={sp} />
       {sp.voice && <Prose p={sp.voice} />}
       {sp.coda && <Prose p={sp.coda} tone="coda" />}
       {/* An aimed bird can be one of the silent ones. Rendering nothing would
@@ -1092,10 +1164,13 @@ export function LibraryView({
   const volumes = jardine?.volumes ?? [];
   const ornithology = volumes.filter((v) => v.division === 'birds').length;
   const withPage = (jardine?.species ?? []).filter((s) => byCatalog.has(s.sci_name));
-  // BOTH fields, not either: plate_ref !== null counts the two VIGNETTES as
-  // plates, and Erratum III three sections below argues the Robin was denied a
-  // plate — so the ledger was contradicting the erratum on the same screen.
-  const withPlate = withPage.filter((s) => s.plate_ref !== null && !s.plate_is_vignette).length;
+  // BOTH conditions, not either. Excluding vignettes is not tidiness: Erratum
+  // III three sections below argues the Robin was DENIED a plate, and counting
+  // its vignette would have the ledger contradicting the erratum on the same
+  // screen. And the test is now `image`, not `plate_ref` — a reference with no
+  // file behind it is a plate the museum does not have, and this sentence is
+  // the one place the collection states its own size.
+  const withPlate = withPage.filter((s) => s.image !== null && !s.plate_is_vignette).length;
   const heardCount = catalog?.length ?? 0;
 
   // THE ROLL — a left join of the garden onto the library. Sorted by drift class
@@ -1198,7 +1273,16 @@ export function LibraryView({
                 <div className="lib-epi-cite">
                   {jardine.epigraph.speaker} · vol. {volumeRoman(jardine.epigraph.volume)}
                   {jardine.epigraph.volume_title ? ` · ${jardine.epigraph.volume_title}` : ''}
-                  {jardine.epigraph.volume_author ? ` · ${jardine.epigraph.volume_author}` : ''} ·{' '}
+                  {/* The volume's author is worth printing only when he is not
+                      the speaker — otherwise the masthead reads "William
+                      Jardine · ... · William Jardine". <Attribution> has
+                      guarded this since it was written; the epigraph is the one
+                      citation that never got the same line. */}
+                  {jardine.epigraph.volume_author &&
+                  jardine.epigraph.volume_author !== jardine.epigraph.speaker
+                    ? ` · ${jardine.epigraph.volume_author}`
+                    : ''}{' '}
+                  ·{' '}
                   <a
                     className="lib-cite-l"
                     href={jardine.epigraph.source_url || 'https://www.c82.net/naturalists-library/'}
@@ -1310,7 +1394,15 @@ export function LibraryView({
                   );
                 })}
               </div>
-              <div className="lib-shelf-cap">{shelfHover ?? ' '}</div>
+              <div className="lib-shelf-cap">
+                {/* The caption height is reserved so the shelf cannot jump when a
+                    spine is hovered — but reserving it with a bare non-breaking
+                    space left an 1180px band of nothing under the shelf at rest,
+                    which reads as a component that failed rather than one that is
+                    waiting. At rest it says what the amber edge means, which is the
+                    one thing the shelf never said out loud. */}
+                {shelfHover ?? 'amber marks a volume this garden has heard from'}
+              </div>
             </section>
           )}
 

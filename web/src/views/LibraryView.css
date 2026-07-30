@@ -192,6 +192,65 @@
 
 /* An OCR artefact, preserved verbatim and admitted in the margin. Never
    corrected — the artefacts are the proof that no model cleaned the source. */
+/* ── THE ENGRAVING ───────────────────────────────────────────────────────────
+   The only rectangular hard-edged image in this museum: printed sheet against
+   cut specimen, two centuries legible without reading a word. No filter, no
+   glow, no rounded corner — a plate is a plate.
+
+   Height-capped rather than width-capped, because the set is half portrait and
+   half landscape: at the desk's 672px a portrait plate would run over a
+   thousand pixels tall and push the passage it is supposed to face off the
+   screen. Capping the height lets both orientations sit at the same visual
+   weight, which is what makes them read as one collection. */
+.lib-fig-plate {
+  margin: 0 0 var(--s-5);
+  max-width: var(--w-read);
+}
+.lib-fig-plate .lib-plate {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 380px;
+  height: auto;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+}
+.lib-plate-cap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+}
+.lib-plate-k {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+/* The two-bird line is the whole reason the plates could ship. It is the modern
+   hand's PROSE voice — a sentence, not a label — because a reader has to be
+   able to read it, not merely notice it. */
+.lib-plate-two,
+.lib-plate-cite,
+.lib-plate-why {
+  font-family: var(--mono);
+  font-size: var(--t-meta);
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+  color: var(--ink-2);
+  max-width: var(--w-read);
+}
+/* A citation is not a claim, and it does not get to look like one. */
+.lib-plate-cite {
+  border-left: 1px solid var(--mut);
+  padding-left: var(--s-3);
+}
+.lib-plate-why {
+  color: var(--mut);
+  font-size: var(--t-label);
+}
+
 .lib-sic {
   border-bottom: 1px dotted var(--mut-2);
 }
@@ -568,9 +627,18 @@
   border: 1px solid var(--line);
   border-radius: 0;
 }
+/* THE MOUNT WITH NO PLATE IN IT. It was a 22x92 sliver of flat card — narrower
+   than a thumbnail, exactly the shape of an image that failed to load, which is
+   the one thing a museum of provenance must never look like. Give it the
+   proportions of a real mount and a hairline, and it reads as an empty frame on
+   a wall: deliberate, and obviously not a broken picture. */
 .lib-mat-empty {
+  display: block;
   min-height: 92px;
+  aspect-ratio: 3 / 4;
   background: var(--card-2);
+  border: 1px solid var(--line-2);
+  border-radius: 2px;
 }
 .lib-plate {
   display: block;
@@ -685,10 +753,14 @@
   color: var(--ink);
   margin: 6px 0 10px;
 }
+/* A divider with a max-width, a height and a background, and NO width — as a
+   flex/grid child it resolved to 0px and has never once rendered. A rule that
+   is not there is not a subtle rule. */
 .lib-coll-rule {
+  width: 100%;
   height: 1px;
   background: var(--line);
-  margin: 0 auto 22px;
+  margin: 0 auto var(--s-5);
   max-width: 460px;
 }
 .lib-coll-cols {

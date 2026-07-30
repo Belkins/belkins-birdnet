@@ -2287,10 +2287,23 @@ test('O3 the ledger does not count vignettes as plates', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(
-    src,
-    /plate_ref !== null && !s\.plate_is_vignette/,
-    'the ledger counts vignettes as plates again — it now contradicts Erratum III',
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This used to match the exact string
+  // `plate_ref !== null && !s.plate_is_vignette`, so it went red when the
+  // predicate correctly changed to test `image` instead — while still being
+  // unable to catch the same bug written any other way. What Erratum III needs
+  // is one thing: whatever the ledger counts, it excludes vignettes.
+  const withPlate = /const withPlate = withPage\.filter\(\((\w+)\) => ([^;]*?)\)\.length;/.exec(src);
+  assert.ok(withPlate, 'the ledger no longer computes withPlate — find it and re-point this guard');
+  const [, param, predicate] = withPlate;
+  assert.ok(
+    predicate.includes(`!${param}.plate_is_vignette`),
+    `the ledger counts vignettes as plates again — it now contradicts Erratum III (predicate: ${predicate})`,
+  );
+  // And it must count something the museum actually hangs, not merely a
+  // reference: a plate_ref with no file behind it is a plate we do not have.
+  assert.ok(
+    predicate.includes(`${param}.image`),
+    `the ledger counts plate REFERENCES, not hung plates (predicate: ${predicate})`,
   );
 });
 
