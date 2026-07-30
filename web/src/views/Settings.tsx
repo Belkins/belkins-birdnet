@@ -202,6 +202,16 @@ export function SettingsPanel(props: {
             <button type="button" className="set-primary" onClick={onEnterFrame}>
               Enter frame mode ⤢
             </button>
+            {/* Both of these already worked and nothing said so. The reading wall
+                (App.tsx: frameLibrary) has been reachable since it shipped ONLY by
+                being on the LIBRARY tab and entering frame mode — no UI element
+                anywhere constructs that state, and the F key is handled off in
+                frame.ts:129 with no on-screen mention. A surface reachable only by
+                a keystroke nobody was told about is not shipped, it is hidden. */}
+            <p className="set-note">
+              Or press <b>F</b>. From the LIBRARY tab this becomes the reading wall — the same
+              chrome-free surface, set as a page of text rather than the rosette.
+            </p>
           </Section>
 
           <Section title="WINDOW">
