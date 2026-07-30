@@ -12,16 +12,34 @@ import './Listen.css';
 
 type Status = 'idle' | 'loading' | 'playing' | 'error';
 
-export function Listen({ sci, file }: { sci: string; file?: string }) {
+export function Listen({
+  sci,
+  file,
+  src: srcOverride,
+  idleLabel,
+  playingLabel,
+}: {
+  sci: string;
+  file?: string;
+  /** Play THIS url instead of resolving a recording from sci/file. Added for the
+   *  live station stream, which is not a clip and has no scientific name. */
+  src?: string;
+  /** Verb overrides for a source that is not "a recording of <bird>". */
+  idleLabel?: string;
+  playingLabel?: string;
+}) {
   const [status, setStatus] = useState<Status>('idle');
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // A specific clip when `file` is known (atlas detail modal replaying a past
   // recording); otherwise the newest recording, resolved by recording.php from
   // the scientific name. Both endpoints 404 when nothing plays — handled below.
-  const src = file
-    ? `${API_BASE}/recording.php?file=${encodeURIComponent(file)}`
-    : `${API_BASE}/recording.php?sci=${encodeURIComponent(sci)}`;
+  // An explicit `src` wins over both: the live stream is neither.
+  const src =
+    srcOverride ??
+    (file
+      ? `${API_BASE}/recording.php?file=${encodeURIComponent(file)}`
+      : `${API_BASE}/recording.php?sci=${encodeURIComponent(sci)}`);
 
   // Tear the element down whenever the source changes (e.g. the popup's detail
   // fetch resolves `file` after opening) and on unmount, so nothing keeps
@@ -74,10 +92,10 @@ export function Listen({ sci, file }: { sci: string; file?: string }) {
     status === 'error'
       ? 'No audio'
       : status === 'playing'
-        ? 'Pause'
+        ? (playingLabel ?? 'Pause')
         : status === 'loading'
           ? 'Loading'
-          : 'Listen';
+          : (idleLabel ?? 'Listen');
   const glyph = status === 'playing' ? '❚❚' : status === 'idle' ? '▶' : '';
 
   return (

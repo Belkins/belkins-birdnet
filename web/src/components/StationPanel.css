@@ -75,23 +75,27 @@
   color: var(--ink);
 }
 
-/* ── spectrogram ───────────────────────────────────────────── */
+/* ── spectrogram ───────────────────────────────────────────────
+   The band itself is .bp-spectro from BirdPopup.css — reused verbatim so the
+   live picture is the same instrument as the one under every recording row
+   (grey strip, inverted in night, inset shadow). Only two deltas here: it is
+   taller, because this is the subject of the window rather than a row
+   accessory, and it does not scrub — there is no playhead on a live feed, so
+   the ew-resize cursor would promise an interaction that does not exist. */
 .st-figure {
   margin: 0 0 22px;
 }
-.st-spec {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--page);
+.st-spectro {
+  height: 168px;
+  margin: 0;
+  cursor: default;
 }
-.st-spec-empty {
+.st-spectro-empty {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 132px;
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.04em;
@@ -109,52 +113,14 @@
   color: var(--red);
 }
 
-/* ── listen ────────────────────────────────────────────────── */
+/* ── listen ────────────────────────────────────────────────────
+   The control is <Listen> (.listen-btn), the same play/pause pill used on every
+   recording row and in the dossier. Nothing is restyled — this only gives it a
+   rule above and room to sit in. */
 .st-listen {
+  display: flex;
   padding-top: 18px;
   border-top: 1px solid var(--line);
-}
-.st-label {
-  display: block;
-  margin-bottom: 10px;
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--mut);
-}
-.st-audio {
-  width: 100%;
-  height: 38px;
-}
-.st-note {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  line-height: 1.7;
-  letter-spacing: 0.02em;
-  color: var(--mut);
-}
-.st-unlock {
-  color: var(--ink);
-  text-decoration: none;
-  border-bottom: 1px solid var(--amber);
-}
-.st-unlock:hover {
-  color: var(--amber);
-}
-.st-retry {
-  padding: 0;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-}
-.st-retry:hover {
-  color: var(--amber);
-  border-bottom-color: var(--amber);
 }
 
 /* ── the two surfaces that stay full pages ─────────────────── */
