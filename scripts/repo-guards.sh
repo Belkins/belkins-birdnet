@@ -530,10 +530,17 @@ done
 # 11d. A NOT-INSTALLED entry must name a unit that still exists, or the file
 #      rots into permission for units nobody can find.
 if [ -f avian/NOT-INSTALLED ]; then
-  grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED | while read -r _d; do
+  # PROCESS SUBSTITUTION, NOT A PIPE. `grep ... | while` runs the loop body in a
+  # SUBSHELL, so `fail` set FAIL=1 in a child that then exited and took the
+  # assignment with it: this guard printed "GUARD FAIL" and returned 0. Worse
+  # than a silent guard — it shouted an alarm CI was structurally unable to hear.
+  # I wrote it hours ago and my own negative test counted the MESSAGE instead of
+  # the exit code, which is how it passed. Test guards by `$?`, never by output.
+  while read -r _d; do
+    [ -n "$_d" ] || continue
     find avian -name "$_d" | grep -q . \
       || fail "avian/NOT-INSTALLED names $_d, which no longer exists — the exemption outlived the unit"
-  done
+  done < <(grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED)
 fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"

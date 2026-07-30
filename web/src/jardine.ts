@@ -572,7 +572,10 @@ export function silences(
     // 2026-07-27. Any editorial claim on this tab must be checked against
     // production, never against the fixture that makes it look true.
     .filter((r) => r.count > 0)
-    .sort((a, b) => b.count - a.count || a.species.sci_name.localeCompare(b.species.sci_name));
+    // code-unit order for the tie-break, for the same determinism reason as
+    // deskPool: a stable ledger must not reorder itself per viewer.
+    .sort((a, b) => b.count - a.count ||
+      (a.species.sci_name < b.species.sci_name ? -1 : a.species.sci_name > b.species.sci_name ? 1 : 0));
 }
 
 /** Does this erratum's closing SENTENCE still hold?
@@ -600,12 +603,21 @@ export function closingHolds(
     }
     return true;
   }
-  // 'subject_is_top' — a subject must be the single most-recorded species here
-  let top: CatalogSpecies | null = null;
+  // 'subject_is_top' — a subject must be the SINGLE most-recorded species here.
+  //
+  // Counting the maximum and then requiring exactly one holder, rather than
+  // keeping the first row that ties: a tie decided by catalog ORDER made the
+  // claim flip depending on how species.json happened to be sorted, which is not
+  // a property of the garden. On a tie nobody is "the most-recorded bird", so
+  // the sentence must not print at all.
+  let max = -Infinity;
+  for (const c of byCatalog.values()) max = Math.max(max, c.detection_count || 0);
+  if (max <= 0) return false; // nothing recorded — nothing can be top
+  const tops: string[] = [];
   for (const c of byCatalog.values()) {
-    if (top === null || (c.detection_count || 0) > (top.detection_count || 0)) top = c;
+    if ((c.detection_count || 0) === max) tops.push(c.sci_name);
   }
-  return top !== null && subjects.has(top.sci_name);
+  return tops.length === 1 && subjects.has(tops[0]);
 }
 
 export function jardineImageUrl(image: string | null): string | null {
@@ -664,7 +676,12 @@ export function deskPool(species: JardineSpecies[], catalog: CatalogSpecies[]): 
   for (const c of catalog) if (heardHere(c)) heard.add(c.sci_name);
   return species
     .filter((s) => s.voice !== null && heard.has(s.sci_name))
-    .sort((a, b) => a.sci_name.localeCompare(b.sci_name));
+    // CODE-UNIT ORDER, not localeCompare. The rotation promises to be
+    // "deterministic for a given date, so the passage never changes mid-read" —
+    // but localeCompare is locale-SENSITIVE, so two visitors reading the museum
+    // on the same day under different locales were shown different passages, and
+    // the frame and a phone could disagree. A machine key wants a machine order.
+    .sort((a, b) => (a.sci_name < b.sci_name ? -1 : a.sci_name > b.sci_name ? 1 : 0));
 }
 
 export interface DeskPick {

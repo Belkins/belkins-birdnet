@@ -2462,3 +2462,76 @@ test('R1 no bird is called silent while its account sits in the corpus', () => {
       lying.join('\n  '),
   );
 });
+
+test('S1 an unreadable ledger is UNKNOWN, never a measured zero', () => {
+  // WHY — the largest correctness defect a sweep found, and the file DOCUMENTED
+  // its own root cause three lines above the gate that suffers from it.
+  //
+  // fetchCatalog() collapsed a 404, a network error, a parse failure and a
+  // genuinely empty file to the same []. Callers wrote `catalog !== null`
+  // meaning "the ledger arrived" — a test that could never be false. So on the
+  // night the nightly does not publish, the museum did not go quiet. It printed
+  // measured zeroes: "0 of 0 species have a page", "never heard in this garden".
+  // Confident, and wrong, about a garden it simply could not read.
+  //
+  // fetchCatalogOrNull() returns null for "could not read" and [] for "read, and
+  // empty" — a real state on a station's first night. They must stay distinct.
+  const cat = readFileSync(new URL('../src/catalog.ts', import.meta.url), 'utf8');
+  assert.match(cat, /export async function fetchCatalogOrNull/,
+    'the nullable catalog fetch is gone — every failure collapses to [] again');
+  // a 200 with a non-array body is a failure wearing a success: Caddy's php
+  // try_files answers 200 text/html for ANY missing path under /collage/
+  assert.match(stripComments(cat).replace(/\s+/g, ' '), /if \(!Array\.isArray\(raw\)\) return null/,
+    'a non-array body is treated as an empty catalog — that is try_files 200 mistaken for data');
+
+  const view = stripComments(readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'));
+  assert.match(view, /fetchCatalogOrNull\(\)/,
+    'the Library reads the collapsing fetch again, so its catalog !== null gates cannot be false');
+  assert.ok(!/\bfetchCatalog\(\)/.test(view),
+    'the Library still calls the collapsing fetchCatalog() somewhere');
+
+  // and the derived claims must stay behind that gate
+  const flat = view.replace(/\s+/g, ' ');
+  for (const claim of ['lib-ledger', 'lib-desk-quiet']) {
+    assert.match(flat, new RegExp(`catalog !== null[^)]{0,120}${claim}`),
+      `the "${claim}" claim is no longer gated on the ledger being readable`);
+  }
+
+  // the selectors must agree: no catalog, no assertions about the garden
+  const raw = corpusRaw();
+  const j = normalize(raw);
+  assert.deepEqual(silences(j, []), [], 'the Index of Silences invents rows without a catalog');
+  for (const e of j.errata.filter((x) => x.closing_requires !== null)) {
+    assert.equal(closingHolds(e, new Map()), false,
+      `erratum ${e.no} asserts a live claim with no ledger to check it against`);
+  }
+});
+
+test('S2 a tie means nobody is "the most-recorded bird"', () => {
+  // WHY: Erratum III's closing — "The most-recorded bird in this garden is the
+  // one the library declined to describe" — is a live claim the museum
+  // re-checks every render precisely so it stops asserting things that stopped
+  // being true. It kept the FIRST row it saw at the maximum, so on a tie the
+  // answer depended on how species.json happened to be ordered. That is not a
+  // property of the garden, and a museum should not decide a superlative by
+  // whichever row the rebuilder wrote first.
+  const raw = corpusRaw();
+  const j = normalize(raw);
+  const e = j.errata.find((x) => x.closing_requires === 'subject_is_top');
+  assert.ok(e, 'no subject_is_top erratum — this guard is vacuous');
+  const subj = e.subjects[0].sci_name;
+  const row = (sci: string, n: number) =>
+    ({ ...london[0], sci_name: sci, detection_count: n }) as CatalogSpecies;
+  const map = (rows: CatalogSpecies[]) => new Map(rows.map((r) => [r.sci_name, r]));
+
+  // clear winner, either order → holds
+  assert.equal(closingHolds(e, map([row(subj, 900), row('Zzz zzz', 10)])), true);
+  assert.equal(closingHolds(e, map([row('Zzz zzz', 10), row(subj, 900)])), true);
+  // TIE → must not print, regardless of which row comes first
+  assert.equal(closingHolds(e, map([row(subj, 500), row('Zzz zzz', 500)])), false,
+    'a tie let the claim print — decided by row order, not by the garden');
+  assert.equal(closingHolds(e, map([row('Zzz zzz', 500), row(subj, 500)])), false,
+    'the same tie gave the OPPOSITE answer when the rows were reordered');
+  // an all-zero catalog has no top bird at all
+  assert.equal(closingHolds(e, map([row(subj, 0), row('Zzz zzz', 0)])), false);
+});
