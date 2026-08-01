@@ -8,8 +8,21 @@ max-complexity = 15
 # double — 164 of 354 findings were one file counted twice, which both inflated
 # the debt and made a real fix look like it had changed nothing.
 # Lint the canonical copy only.
+# .claude holds git worktrees (`git worktree add .claude/worktrees/<name>`),
+# i.e. a FULL SECOND CHECKOUT of this repo inside the repo. Without this,
+# flake8 lints every file twice and reports 21 findings that are the other
+# checkout's copy of the same lines — the identical double-count the symlink
+# note below records, arriving by a different route. It also loses the
+# per-file-ignores below, because those are relative paths that do not match
+# `.claude/worktrees/*/services/birdgen/verify.py`, so the worktree's copy of
+# a deliberately-exempt file reports as a fault.
+#
+# Same scope gap as scripts/repo-guards.sh guard 3, which discovered the
+# worktree's five test suites and failed the whole guard suite on a clean tree.
+# Fixed there 2026-08-01; this is the second instance of the same class.
 exclude =
     .git,
+    .claude,
     __pycache__,
     node_modules,
     web/dist,
