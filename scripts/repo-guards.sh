@@ -595,35 +595,69 @@ fi
 #      11 can never see — and a heredoc unit losing its OnFailure= is the exact
 #      incident guard 11's header records (birdcast), re-shipped once already
 #      (the BirdWeather-mode birdframe unit, caught in review 2026-08-01).
-#      This detects unit definitions by CONTENT (a heredoc body containing
-#      [Service]) rather than by the tee path, because deploy-realtime tees to
-#      a $UNIT variable a path-based grep would silently miss. The block count
-#      is pinned so a broken extraction fails instead of passing vacuously.
-#      Also pins the co-tenant limits (MemoryMax/OOMScoreAdjust/idle I/O) on
-#      the TEMPLATE unit only — the station materialization. The BirdWeather
-#      heredoc unit deliberately omits them: that mode is the standalone box
-#      (often 512MB total, no co-tenant), and its pre-&& shoot process would
-#      turn a cgroup OOM kill into a hard failure that re-alerts every 6h,
-#      the opposite of the template's documented keep-last-panel behavior.
-python3 - <<'PY' || fail "heredoc-written units: alert path or co-tenant limits missing (details above)"
+#      This detects unit definitions by CONTENT rather than by the tee path,
+#      because deploy-realtime tees to a $UNIT variable a path-based grep
+#      would silently miss. Its own adversarial review (2026-08-01) then
+#      refuted the first cut in both directions — substring checks passed on
+#      commented-out directives, [Service]-placed OnFailure, and a renamed
+#      IOSchedulingClass value; three legal heredoc spellings were invisible;
+#      a >=3 floor could hide a vanished block behind a new one; and prose
+#      quoting [Service] false-fired. So this PARSES: sections, ACTIVE lines
+#      only, exact values, a unit = [Unit]+[Service]+ExecStart, an EQUALITY
+#      pin on the block count, and the 11b handler exemption. Co-tenant
+#      limits (MemoryMax/OOMScoreAdjust/idle I/O) are pinned on the TEMPLATE
+#      unit only — the BirdWeather heredoc deliberately omits them (a
+#      standalone 512MB box, and its pre-&& shoot process would turn an OOM
+#      kill into a hard failure that re-alerts every 6h).
+#      Known limits, on purpose: units built by printf/echo are not heredocs
+#      and stay unseen; .timer units are out of scope for 11 AND 11e
+#      (class-wide, pre-existing); scripts/install_zram_service.sh writes a
+#      unit outside these three installers — flagged as follow-up, not
+#      silently annexed here.
+python3 - <<'PY' || fail "heredoc-written units: alert path / sections / co-tenant limits violated (details above)"
 import re, sys
 FILES = ["deploy-christina.sh", "deploy-realtime.sh", "frame/install.sh"]
-bad = []
-unit_blocks = 0
+EXPECTED_UNIT_HEREDOCS = 3  # birdcast in each deploy script + birdframe birdweather
+HEREDOC = re.compile(
+    r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(.*?)\n[ \t]*\2[ \t]*\n", re.S)
+
+def sections(text):
+    """{'Unit': [active stripped lines], ...} — comments and blanks dropped,
+    so a commented-out directive is ABSENT, exactly as systemd sees it."""
+    out, cur = {}, None
+    for ln in text.splitlines():
+        s = ln.strip()
+        m = re.match(r"^\[(\w+)\]$", s)
+        if m:
+            cur = m.group(1); out.setdefault(cur, []); continue
+        if cur is not None and s and not s.startswith("#"):
+            out[cur].append(s)
+    return out
+
+bad, unit_blocks = [], 0
 for path in FILES:
     src = open(path).read()
-    for m in re.finditer(r"<<-?['\"]?(\w+)['\"]?\n(.*?)\n\1\n", src, re.S):
-        body = m.group(2)
-        if re.search(r"^\[Service\]", body, re.M) is None:
-            continue
+    for m in HEREDOC.finditer(src):
+        sec = sections(m.group(3))
+        if not ("Unit" in sec and "Service" in sec
+                and any(l.startswith("ExecStart=") for l in sec["Service"])):
+            continue  # prose/config/env heredocs quote fragments; a unit has all three
         unit_blocks += 1
-        if "OnFailure=christina-alert@%n.service" not in body:
-            bad.append(f"{path}: heredoc unit block (marker {m.group(1)}) has no OnFailure=christina-alert@%n.service")
-if unit_blocks < 3:
-    bad.append(f"only {unit_blocks} heredoc unit blocks extracted across {FILES} — extraction broke, guard would pass vacuously")
-for d in ("MemoryMax=", "OOMScoreAdjust=", "IOSchedulingClass=idle"):
-    if d not in open("frame/systemd/birdframe.service").read():
-        bad.append(f"frame/systemd/birdframe.service lost co-tenant limit {d}")
+        where = f"{path} heredoc unit (marker {m.group(2)})"
+        if any(l.startswith("Description=") and "christina-alert@" in l for l in sec["Unit"]):
+            if any(l.startswith("OnFailure=") for ls in sec.values() for l in ls):
+                bad.append(f"{where}: the alert handler declares OnFailure= — infinite enqueue loop (guard 11b's law)")
+            continue
+        if "OnFailure=christina-alert@%n.service" not in sec["Unit"]:
+            bad.append(f"{where}: no ACTIVE OnFailure=christina-alert@%n.service line in [Unit]")
+        if path == "frame/install.sh" and "Install" in sec:
+            bad.append(f"{where}: grew an [Install] section — the EBIRD_API_KEY tee -a append relies on the file ENDING inside [Service]")
+if unit_blocks != EXPECTED_UNIT_HEREDOCS:
+    bad.append(f"{unit_blocks} heredoc unit blocks found, expected exactly {EXPECTED_UNIT_HEREDOCS} — a new/removed unit must be classified HERE, or the extraction broke")
+tmpl = sections(open("frame/systemd/birdframe.service").read())
+for d in ("MemoryMax=512M", "OOMScoreAdjust=500", "IOSchedulingClass=idle"):
+    if d not in tmpl.get("Service", []):
+        bad.append(f"frame/systemd/birdframe.service: {d} is not an ACTIVE [Service] line — the co-tenant cap is off")
 for b in bad:
     print("  " + b)
 sys.exit(1 if bad else 0)

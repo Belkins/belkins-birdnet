@@ -195,6 +195,8 @@ Nice=10
 TimeoutStartSec=300
 SERVICE
   # Remote ZIPs with no nearby station fall back to eBird, which needs a key.
+  # ORDER-DEPENDENT append: this lands in [Service] only because the heredoc
+  # above ends inside [Service] and has no [Install]. Guard 11e pins that.
   if [ -n "$EBIRD_KEY" ]; then
     echo "Environment=EBIRD_API_KEY=$EBIRD_KEY" | sudo tee -a /etc/systemd/system/birdframe.service >/dev/null
   fi
