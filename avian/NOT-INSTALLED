@@ -21,15 +21,15 @@ avian-mqtt.service
 #   carries the alert path.
 
 offbox-backup.service
-#   The nightly volume-plate archive. deploy-realtime.sh renders it, but its
-#   designed CHRISTINA_BACKUP_DEST is an off-box MOUNT and no such hardware
-#   exists — the env carries the REPLACE_ME placeholder, so the unit refuses to
-#   arm (that refusal is correct; do not silence it). The plates are protected
-#   in the interim by avian/backup/plates-to-r2.sh (one-shot to R2 through the
-#   crypt remote; proven 2026-08-01, 78 files, sha256 round-trip) — re-run it
-#   after any accession or repaint. The durable nightly (an R2-staging
-#   destination design, or real mount hardware) is a Sprint-2 item in
-#   _design-plan/strategy-2026-08/PLAN.md.
+#   The nightly volume-plate archive to an off-box MOUNT. deploy-realtime.sh
+#   renders it, but no such mount hardware exists — the env carries the
+#   REPLACE_ME placeholder, so the unit refuses to arm (that refusal is
+#   correct; do not silence it). The plates AND the station's config identity
+#   are covered weekly by continuity-r2.timer (config-to-r2.sh +
+#   plates-to-r2.sh through the crypt remote; installed + enabled by
+#   install-cloud-backup.sh; DEGRADED runs upload first, then alert). This
+#   unit stays for the day real mount hardware exists — a second medium, not
+#   a second copy of the same R2 basket.
 #
 # weekly_digest.service was listed here until 2026-08-01: the operator asked for
 # it and the timer was armed 2026-07-30 (first fire Sun 18:00), so the entry had

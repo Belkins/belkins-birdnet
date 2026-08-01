@@ -23,7 +23,9 @@ Deploy with EXACTLY (the two --exclude flags are load-bearing — a bare
   rsync -az --delete --exclude='species.json' --exclude='derived.json' \\
     "$DIST/" belkins@birdnet.local:BirdSongs/Extracted/collage/
 
-  ssh belkins@birdnet.local 'ln -sf ~/BirdNET-Pi/scripts/species.json ~/BirdSongs/Extracted/collage/species.json; [ -f ~/BirdNET-Pi/scripts/derived.json ] && ln -sf ~/BirdNET-Pi/scripts/derived.json ~/BirdSongs/Extracted/collage/derived.json'
+  ssh belkins@birdnet.local 'set -e; ln -sfn ~/BirdNET-Pi/scripts/species.json ~/BirdSongs/Extracted/collage/species.json; if [ -f ~/BirdNET-Pi/scripts/derived.json ]; then ln -sfn ~/BirdNET-Pi/scripts/derived.json ~/BirdSongs/Extracted/collage/derived.json; fi; echo SYMLINKS-OK'
+  # (set -e + the echoed SYMLINKS-OK make a failed ln loud — a silently missing
+  #  symlink renders as a calm empty museum, the documented signature failure)
 
 Then the durable pin (rsync to BirdNET-Pi/web/dist/, git add -f web/dist,
 commit "chore(pi): pin dist — <what>") and the annotated tag pi-$(date +%Y-%m-%d)
