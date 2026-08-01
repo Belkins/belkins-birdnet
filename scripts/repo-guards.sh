@@ -210,7 +210,7 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    saw it (a fresh checkout has no worktrees) — it broke the guards only for
 #    the person actually working, i.e. exactly when they are needed. .claude is
 #    gitignored (.gitignore:55); find does not read .gitignore.
-ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
+ENUMERATED="tests avian/catalog/tests avian/backup/tests avian/realtime/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
   case " $ENUMERATED " in

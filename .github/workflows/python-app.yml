@@ -71,5 +71,6 @@ jobs:
         python -m pytest tests/                       # stock BirdNET-Pi (root requirements)
         (cd avian/catalog && python -m pytest tests/) # christina catalog builder (stdlib)
         (cd avian/backup && python -m pytest tests/)  # off-box backup + restore (stdlib)
+        (cd avian/realtime && python -m pytest tests/)  # dead-mic watchdog (stdlib)
         (cd frame && python -m pytest tests/)         # e-ink frame watchdog (stdlib)
         (cd services/birdgen && python -m pytest tests/)  # birdgen microservice (own deps)
