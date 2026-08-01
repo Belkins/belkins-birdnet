@@ -192,7 +192,9 @@ Nice=10
 # process — a cgroup OOM kill of it would exit non-zero and turn the
 # template's documented silent keep-last-panel case into a hard unit failure
 # that re-alerts every 6h. Guard 11e pins the limits on the template only.
-TimeoutStartSec=300
+# 360 for the same ceiling-sum reason as the template: 3×45s page waits +
+# 2×30s Playwright defaults + cutout fetches from GitHub + panel ≤65s.
+TimeoutStartSec=360
 SERVICE
   # Remote ZIPs with no nearby station fall back to eBird, which needs a key.
   # ORDER-DEPENDENT append: this lands in [Service] only because the heredoc

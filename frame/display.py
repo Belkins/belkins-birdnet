@@ -22,6 +22,7 @@ import re
 import statistics
 import sys
 import time
+import urllib.error
 import urllib.request
 from datetime import datetime
 
@@ -298,6 +299,25 @@ def save_state(path, sig, when):
     os.replace(tmp, path)  # atomic: a power cut can't leave a half-written file
 
 
+def note_auth_error(path, when):
+    """Stamp an HTTP 401/403 from the station into state.json. save_state
+    writes a fresh dict on the next successful paint, so the key's PRESENCE
+    means 'auth has failed since the last success' — frame_watch reads it to
+    name re-gating as the cause when the freshness budget finally trips,
+    instead of a generic 'wall frozen'. Without this, a reverted STATION_OPEN
+    looks identical to every other silent freeze for ~30h."""
+    s = load_state(path)
+    s["auth_error"] = when
+    path = os.path.expanduser(path)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
 def in_quiet_hours(cfg, hour):
     s, e = cfg["quiet_start"], cfg["quiet_end"]
     if s == e:
@@ -333,6 +353,13 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
         try:
             species = fetch_recent(cfg["base_url"], cfg["hours"], cfg["timeout"], _auth(cfg))
             sig = signature(species)
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                print(f"AUTH REQUIRED (HTTP {e.code}): the station is gated; set basic_user/basic_pass "
+                      "in the frame config", file=sys.stderr)
+                note_auth_error(cfg["state"], now)
+            else:
+                print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
         except Exception as e:
             print(f"signature fetch failed: {e}", file=sys.stderr)  # treat as no change
     heal_due = now - state.get("last_refresh", 0) >= cfg["heal_hours"] * 3600
@@ -351,6 +378,14 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
 
     try:
         img = fit_panel(obtain_image(cfg))
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            print(f"AUTH REQUIRED (HTTP {e.code}): could not fetch the image — the station is gated; "
+                  "set basic_user/basic_pass in the frame config", file=sys.stderr)
+            note_auth_error(cfg["state"], now)
+        else:
+            print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
+        return
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
         return

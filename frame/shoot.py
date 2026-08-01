@@ -37,6 +37,11 @@ from playwright.sync_api import sync_playwright
 RAW_ILLUSTRATIONS = ("https://raw.githubusercontent.com/Belkins/belkins-birdnet/"
                      "main/avian/assets/illustrations/")
 
+# Default --spa target: the React museum's Library page under the e-ink display
+# profile. ?surface=eink already means spectra6 / motion off / portrait
+# (web/src/profile.ts), so the SPA needs nothing injected at capture time.
+SPA_URL = "http://127.0.0.1/collage/?surface=eink&tab=library"
+
 # Hide the controls and the other views, freeze animations. Titles + collage
 # stay. Injected before first paint.
 HIDE_CSS = """
@@ -217,6 +222,49 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
     return out
 
 
+def shoot_spa(url, out, *, timeout_ms=45000, vw=600, vh=800, dsf=2):
+    """Screenshot the React museum (/collage/) instead of the legacy apt.js page.
+
+    UNTESTED against a live SPA. Nothing below has ever run against a real
+    /collage/ build; it is code waiting for hardware day. Until it has been run
+    there, shoot() above remains the SHIPPED DEFAULT — display.py's shoot_path
+    still points at /index.html and nothing calls this unless --spa is passed by
+    hand.
+
+    Deliberately bare: no CSS injection, no route rewrites, no apt.js tunables.
+    The SPA styles itself from ?surface=eink (web/src/profile.ts: spectra6
+    palette, motion off, portrait) and publishes its OWN readiness —
+    markFrameReady() sets data-frame-ready on <html>, and LibraryFrameView only
+    lets it through once the data resolved, the webfonts decoded and two frames
+    painted. So the whole capture contract here is that one attribute; there is
+    nothing left for this side to tune or to wait on.
+
+    The wait is an ATTRIBUTE selector on purpose: it carries no class token, and
+    guard 17 extracts every class token this file waits on and asserts the
+    legacy frontend still ships it. A selector like ".frame-ready" would put the
+    SPA's private class into that legacy assertion.
+
+    A page that never sets the attribute times out and stays fatal, exactly as
+    on the legacy path — display.py keeps the last panel image rather than
+    painting a half-drawn one.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--force-color-profile=srgb", "--disable-dev-shm-usage"])
+        try:
+            page = browser.new_context(viewport={"width": vw, "height": vh},
+                                       device_scale_factor=dsf).new_page()
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            if resp is None or not resp.ok:
+                raise RuntimeError(f"site returned {resp.status if resp else 'no response'}")
+            page.wait_for_selector("html[data-frame-ready]", state="attached", timeout=timeout_ms)
+            page.wait_for_timeout(250)
+            # clip is CSS px; device_scale_factor scales the PNG to vw*dsf by vh*dsf = 1200x1600
+            page.screenshot(path=out, clip={"x": 0, "y": 0, "width": vw, "height": vh})
+        finally:
+            browser.close()
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description="Screenshot the Belkins BirdNET collage for the e-ink frame.")
     # NOT the bare root: it now 302s to /collage/ (the React museum), and this
@@ -251,7 +299,26 @@ def main():
     ap.add_argument("--user")
     ap.add_argument("--password")
     ap.add_argument("--timeout", type=int, default=45000)
+    # UNTESTED path (see shoot_spa): shoot the React museum instead of the legacy
+    # page. Takes its own target because --url defaults to the legacy page; bare
+    # --spa uses SPA_URL.
+    ap.add_argument("--spa", nargs="?", const=SPA_URL, default=None, metavar="URL",
+                    help="shoot the /collage/ SPA (UNTESTED against a live SPA; "
+                         f"bare --spa uses {SPA_URL})")
     a = ap.parse_args()
+    if a.spa is not None:
+        # --url drives the LEGACY shooter. Moving it while asking for --spa names
+        # two targets, so refuse rather than silently shooting one of them.
+        if a.url != ap.get_default("url"):
+            print("--spa carries its own target: pass it as `--spa <url>`, not --url", file=sys.stderr)
+            sys.exit(2)
+        try:
+            shoot_spa(a.spa, a.out, timeout_ms=a.timeout, vw=a.width, vh=a.height, dsf=a.dsf)
+        except Exception as e:
+            print(f"shoot failed: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(f"wrote {a.out}")
+        return
     url, title, subtitle, species, cutout_base = a.url, a.title, a.subtitle, None, None
     if a.bird_weather:
         if not a.zip:

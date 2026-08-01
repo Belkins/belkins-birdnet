@@ -580,6 +580,48 @@ class TestFaults(BackupCase):
         degraded = self.manifest_of(self.archives(True)[0])["degraded"]
         self.assertTrue(any("OSError" in d for d in degraded), degraded)
 
+    def test_a_transient_timeout_is_retried_once_and_the_run_stays_COMPLETE(self):
+        """2026-08-01: the first two weekly continuity-r2 runs BOTH degraded on
+        scattered read timeouts -- different plates each run, and the 'failing'
+        plate served its 1.3 MB in 0.5 s when probed alone. One retry absorbs a
+        spike so the weekly alert stays meaningful. The call count is asserted
+        so a retry loop that silently never retries fails HERE, not on the box."""
+        real = self.server.__call__
+        calls = {"n": 0}
+
+        def spiky(url, timeout=None, **kw):
+            if isinstance(url, str) and url.endswith("/asset/erithacus-rubecula.png"):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise TimeoutError("The read operation timed out")
+            return real(url, timeout=timeout, **kw)
+
+        with mock.patch.object(offbox_backup.urllib.request, "urlopen", spiky), \
+             mock.patch.object(offbox_backup.time, "sleep"):
+            rc, _out, _err = self.run_backup()
+        self.assertEqual(rc, 0, "one absorbed spike must not degrade the run")
+        self.assertEqual(calls["n"], 2)
+
+    def test_a_persistent_timeout_degrades_after_exactly_two_attempts(self):
+        """The retry is ONE, not a loop: a genuinely down Railway must still
+        produce a loud DEGRADED archive, and must not spin the BUDGET away."""
+        real = self.server.__call__
+        calls = {"n": 0}
+
+        def dead(url, timeout=None, **kw):
+            if isinstance(url, str) and url.endswith("/asset/psittacula-krameri.png"):
+                calls["n"] += 1
+                raise TimeoutError("The read operation timed out")
+            return real(url, timeout=timeout, **kw)
+
+        with mock.patch.object(offbox_backup.urllib.request, "urlopen", dead), \
+             mock.patch.object(offbox_backup.time, "sleep"):
+            rc, _out, _err = self.run_backup()
+        self.assertEqual(rc, 3)
+        self.assertEqual(calls["n"], 2, "exactly one retry -- never zero, never unbounded")
+        degraded = self.manifest_of(self.archives(True)[0])["degraded"]
+        self.assertTrue(any("TimeoutError" in d for d in degraded), degraded)
+
 
 class TestRotationAndAlerts(BackupCase):
 
