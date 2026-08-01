@@ -467,10 +467,14 @@ fi
 #    NOT ASSERTED ANY MORE: the 11-path `basicauth` set in update_caddyfile.sh.
 #    That pin was removed on 2026-08-01 because it described a file that cannot
 #    reach the box. update_caddyfile.sh exits 2 whenever STATION_OPEN=1 (the
-#    owner's deliberate 2026-07-30 choice), and it emits the pre-2.7 `basicauth`
-#    spelling Caddy 2.11 rejects, so the set it gated had not been live for
-#    days. The guard was green and protected nothing — the exact shape it was
-#    written to prevent, one level up. What IS live is asserted below.
+#    owner's deliberate 2026-07-30 choice), so the set it gated had not been
+#    live for days. The guard was green and protected nothing — the exact shape
+#    it was written to prevent, one level up. What IS live is asserted below.
+#    (An earlier version of this comment also cited "the pre-2.7 `basicauth`
+#    spelling Caddy 2.11 rejects". That was an unverified claim inherited from
+#    update_caddyfile.sh's own header, contradicted by version.md:49, and I
+#    repeated it here as fact. Both writers now DETECT the directive from the
+#    installed binary, so the spelling is no longer anybody's assumption.)
 
 # 8e. THE FILE THAT IS ACTUALLY SERVING.
 #     avian/ops/Caddyfile.live is the tracked copy of the live config, committed
@@ -838,6 +842,40 @@ _lc=$(printf '%s\n' "$_dep_c" | grep -cE '^link_catalog_data (species|derived)\.
 # it silently did nothing useful, so the link must be READ BACK.
 printf '%s\n' "$_dep_c" | grep -q 'readlink "\$dst"' \
   || fail "link_catalog_data no longer reads the symlink back — 'ln -sf' returning 0 does not prove \$dst points at scripts/<file>, and that difference is exactly the fixture-on-the-wall bug"
+
+# 16. THE CADDY AUTH DIRECTIVE IS DETECTED, NEVER HARDCODED.
+#     Caddy renamed `basicauth` -> `basic_auth` in v2.7. This repo asserted BOTH
+#     spellings as fact and contradicted itself: version.md:49 says "Ships with
+#     Caddy 2.4.5" (pre-2.7), while update_caddyfile.sh's header claimed 2.11
+#     "rejects outright" the old name — a claim nobody verified, which I then
+#     repeated in guard 8's own comment as though it were established.
+#
+#     Neither note describes this box: install_services.sh installs `caddy` from
+#     the caddy/stable apt repo, i.e. whatever is current on install day. So the
+#     spelling was a coin flip resolved on the DISASTER-RECOVERY path, which
+#     nobody exercises until the SD card is already dead — and getting it wrong
+#     means the station's auth config does not parse.
+#
+#     Both writers now ask the binary. This guard stops either regressing to a
+#     literal, and pins the path COUNTS so a silently shrinking auth set fails
+#     too (the lesson of the 5-of-11 enumeration recorded at guard 8).
+for _cw in scripts/update_caddyfile.sh scripts/install_services.sh; do
+  _cwb=$(grep -vE '^[[:space:]]*#' "$_cw")
+  printf '%s\n' "$_cwb" | grep -qE '^[[:space:]]*basic_?auth ' \
+    && fail "$_cw emits a HARDCODED caddy auth directive again. Caddy renamed basicauth -> basic_auth at v2.7 and this repo does not know which version the box runs (version.md says 2.4.5, a comment claimed 2.11, the installer pulls caddy/stable). Render \${AUTHDIR} and detect it from \`caddy version\`."
+  printf '%s\n' "$_cwb" | grep -q 'caddy version' \
+    || fail "$_cw no longer detects the caddy version — the auth directive is back to being an assumption, decided on the disaster-recovery path"
+  printf '%s\n' "$_cwb" | grep -qE '\-ge 7' \
+    || fail "$_cw lost the v2.7 boundary test that chooses basic_auth over basicauth"
+done
+# Counts, derived from each file, so a dropped auth path is loud. update_caddyfile
+# gates 11; install_services' password branch gates 6.
+_n_uc=$(grep -cE '^[[:space:]]*\$\{AUTHDIR\} ' scripts/update_caddyfile.sh || true)
+_n_is=$(grep -cE '^[[:space:]]*\$\{AUTHDIR\} ' scripts/install_services.sh || true)
+[ "$_n_uc" -ge 11 ] \
+  || fail "scripts/update_caddyfile.sh gates only $_n_uc paths (expected >= 11) — a path was dropped from the auth variant; /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
+[ "$_n_is" -ge 6 ] \
+  || fail "scripts/install_services.sh gates only $_n_is paths (expected >= 6) — the disaster-recovery installer lost an auth gate"
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

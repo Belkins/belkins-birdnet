@@ -221,36 +221,3 @@ test('F4 the live counter is never hidden — it is the product', () => {
   }
 });
 
-test('F4 the live counter is never hidden — it is the product', () => {
-  // I removed the live species/calls readout from Index, Stats, Atlas, Wall AND
-  // the Library, as collateral of a Library typography fix. The ask was about
-  // one tab; the counter is the instrument this whole appliance exists to be.
-  // Vlad's words on finding it: "you killing my product."
-  //
-  // The overlap that prompted it predates the session and is not worth the
-  // counter. If it is ever worth solving, move the TEXT — never remove the
-  // instrument. This fails on any rule that hides it, at any width, on any view.
-  const css = readFileSync(new URL('../src/App.css', import.meta.url), 'utf8')
-    // comments discuss the removal on purpose; the guard must read RULES only
-    .replace(/\/\*[\s\S]*?\*\//g, '');
-
-  const rules = css.split('}');
-  for (const rule of rules) {
-    if (!/\.live-counter/.test(rule)) continue;
-    assert.doesNotMatch(
-      rule,
-      /display\s*:\s*none/,
-      `a rule hides the live counter — it is the product, not chrome:\n${rule.trim().slice(0, 200)}`,
-    );
-    assert.doesNotMatch(
-      rule,
-      /visibility\s*:\s*hidden|opacity\s*:\s*0(?!\.)/,
-      `a rule makes the live counter invisible by another name:\n${rule.trim().slice(0, 200)}`,
-    );
-  }
-
-  // And it must still be rendered at all — a hidden rule is not the only way to
-  // lose it; deleting the element is the other.
-  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-  assert.match(app, /<LiveCounter/, 'App no longer renders the live counter');
-});

@@ -173,6 +173,28 @@ EOF
 }
 
 install_Caddyfile() {
+  # THE AUTH DIRECTIVE IS DETECTED, NEVER ASSUMED — same rule and same fallback
+  # as update_caddyfile.sh, kept in sync by repo-guards.sh guard 16.
+  #
+  # Caddy renamed `basicauth` -> `basic_auth` in v2.7, and this repo carried BOTH
+  # spellings as documented fact while contradicting itself: version.md:49 says
+  # "Ships with Caddy 2.4.5" (pre-2.7), update_caddyfile.sh's header claimed 2.11
+  # rejects the old name. Neither is a fact about this box — line 17 above
+  # installs `caddy` from the caddy/stable apt repo, i.e. whatever is current on
+  # the day of the install. Hardcoding either spelling is a coin flip decided on
+  # the disaster-recovery path, which nobody exercises until the card is dead.
+  local _v _major _minor
+  _v=$(caddy version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
+  _major=${_v%%.*}; _minor=${_v##*.}
+  AUTHDIR=basicauth   # widest acceptance: a pre-2.7 caddy CANNOT read basic_auth
+  case "$_major$_minor" in
+    ''|*[!0-9]*) ;;
+    *) if [ "$_major" -gt 2 ] || { [ "$_major" -eq 2 ] && [ "$_minor" -ge 7 ]; }; then
+         AUTHDIR=basic_auth
+       fi ;;
+  esac
+  echo "install_services: caddy $(caddy version 2>/dev/null | head -1) -> using '$AUTHDIR'" >&2
+
   [ -d /etc/caddy ] || mkdir /etc/caddy
   if [ -f /etc/caddy/Caddyfile ];then
     cp /etc/caddy/Caddyfile{,.original}
@@ -189,22 +211,22 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
-  basicauth /views.php?view=File* {
+  ${AUTHDIR} /views.php?view=File* {
     birdnet ${HASHWORD}
   }
-  basicauth /Processed* {
+  ${AUTHDIR} /Processed* {
     birdnet ${HASHWORD}
   }
-  basicauth /scripts* {
+  ${AUTHDIR} /scripts* {
     birdnet ${HASHWORD}
   }
-  basicauth /stream {
+  ${AUTHDIR} /stream {
     birdnet ${HASHWORD}
   }
-  basicauth /phpsysinfo* {
+  ${AUTHDIR} /phpsysinfo* {
     birdnet ${HASHWORD}
   }
-  basicauth /terminal* {
+  ${AUTHDIR} /terminal* {
     birdnet ${HASHWORD}
   }
   # DNS-rebinding defence. basic_auth does NOT stop rebinding — browsers replay

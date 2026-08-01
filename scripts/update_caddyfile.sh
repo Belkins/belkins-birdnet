@@ -10,6 +10,37 @@ set -x
 FPM_SOCK=$(ls /run/php/php*-fpm.sock 2>/dev/null | head -n1)
 FPM_SOCK=${FPM_SOCK:-/run/php/php-fpm.sock}
 
+# THE AUTH DIRECTIVE IS DETECTED, NEVER ASSUMED.
+#
+# Caddy renamed `basicauth` -> `basic_auth` in v2.7. Both spellings appear in
+# this repo's own documentation as fact, and they contradict each other:
+#   version.md:49            "Ships with Caddy 2.4.5"   (pre-2.7 => basicauth)
+#   this file, until now     "the pre-2.7 `basicauth` spelling that Caddy 2.11
+#                             rejects outright"          (=> basic_auth)
+# and install_services.sh installs from the `caddy/stable` apt repo, i.e.
+# whatever is current on the day of the install -- so NEITHER note is a fact
+# about this box. Hardcoding either spelling is a coin-flip that breaks the
+# station's auth on a rebuild, and the rebuild is the one path nobody exercises
+# until the SD card is already dead.
+#
+# Ask the binary instead. Unknown/unparseable version falls back to `basicauth`,
+# the older name, because a pre-2.7 caddy CANNOT understand `basic_auth` while a
+# 2.7+ caddy has at worst deprecated the old one -- the fallback should be the
+# spelling with the wider acceptance, not the newer one.
+caddy_auth_directive() {
+  local v major minor
+  v=$(caddy version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
+  major=${v%%.*}; minor=${v##*.}
+  case "$major$minor" in ''|*[!0-9]*) printf 'basicauth\n'; return ;; esac
+  if [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 7 ]; }; then
+    printf 'basic_auth\n'
+  else
+    printf 'basicauth\n'
+  fi
+}
+AUTHDIR=$(caddy_auth_directive)
+echo "update_caddyfile: caddy $(caddy version 2>/dev/null | head -1) -> using '$AUTHDIR'" >&2
+
 [ -d /etc/caddy ] || sudo mkdir -p /etc/caddy
 # TIMESTAMPED, not a fixed name. `cp Caddyfile{,.original}` meant a SECOND run
 # overwrote the only good copy with the bad one the first run had just left --
@@ -37,10 +68,14 @@ trap 'rm -f "$CADDYFILE" 2>/dev/null' EXIT
 # this script would silently put the passwords back and undo that choice.
 #
 # This is a refusal, not a TODO. The script already could not reproduce the live
-# /etc/caddy/Caddyfile — it emits the pre-2.7 `basicauth` spelling that Caddy
-# 2.11 rejects outright, and it knows nothing about the hand-added /events SSE
-# route or the extra Host pins. Teaching it a third branch would make it look
-# safe to run while it still is not. Edit the live file surgically instead.
+# /etc/caddy/Caddyfile — it knows nothing about the hand-added /events SSE route
+# or the extra Host pins. Teaching it a third branch would make it look safe to
+# run while it still is not. Edit the live file surgically instead.
+#
+# (This paragraph used to lead with "it emits the pre-2.7 `basicauth` spelling
+# that Caddy 2.11 rejects outright". That claim was never verified, contradicts
+# version.md:49, and is now MOOT either way — the directive is detected from the
+# installed binary above. The remaining reasons stand on their own.)
 #
 # ADDED 2026-07-30, and this is now the bigger loss: the live file also carries
 # the SERVING WORK that made the museum 11.5x lighter, none of which this script
@@ -59,29 +94,10 @@ if [ "${STATION_OPEN}" = "1" ];then
   echo "update_caddyfile: REFUSING to run — STATION_OPEN=1 in birdnet.conf." >&2
   echo "  This script re-emits basic_auth on 11 paths and would restore every" >&2
   echo "  password gate the owner deliberately removed on 2026-07-30." >&2
-  echo "  It also cannot reproduce the live file (old 'basicauth' spelling," >&2
-  echo "  no /events route, no extra Host pins, and NO encode/@immutable --" >&2
+  echo "  It also cannot reproduce the live file (no /events route, no extra" >&2
+  echo "  Host pins, and NO encode/@immutable --" >&2
   echo "  regenerating would silently undo the 11.5x serving win), so it must" >&2
   echo "  not be used to" >&2
-  echo "  re-gate either. To restore the gates: edit /etc/caddy/Caddyfile by" >&2
-  echo "  hand, or unset STATION_OPEN first and diff before applying." >&2
-  exit 2
-fi
-# STATION_OPEN="1" — the deliberate LAN-open opt-out (owner's choice, 2026-07-30).
-# REFUSE rather than regenerate. Every path below re-emits basic_auth, so running
-# this script would silently put the passwords back and undo that choice.
-#
-# This is a refusal, not a TODO. The script already could not reproduce the live
-# /etc/caddy/Caddyfile — it emits the pre-2.7 `basicauth` spelling that Caddy
-# 2.11 rejects outright, and it knows nothing about the hand-added /events SSE
-# route or the extra Host pins. Teaching it a third branch would make it look
-# safe to run while it still is not. Edit the live file surgically instead.
-if [ "${STATION_OPEN}" = "1" ];then
-  echo "update_caddyfile: REFUSING to run — STATION_OPEN=1 in birdnet.conf." >&2
-  echo "  This script re-emits basic_auth on 11 paths and would restore every" >&2
-  echo "  password gate the owner deliberately removed on 2026-07-30." >&2
-  echo "  It also cannot reproduce the live file (old 'basicauth' spelling," >&2
-  echo "  no /events route, no extra Host pins), so it must not be used to" >&2
   echo "  re-gate either. To restore the gates: edit /etc/caddy/Caddyfile by" >&2
   echo "  hand, or unset STATION_OPEN first and diff before applying." >&2
   exit 2
@@ -104,43 +120,43 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
-  basicauth /views.php?view=File* {
+  ${AUTHDIR} /views.php?view=File* {
     birdnet ${HASHWORD}
   }
-  basicauth /Processed* {
+  ${AUTHDIR} /Processed* {
     birdnet ${HASHWORD}
   }
-  basicauth /scripts* {
+  ${AUTHDIR} /scripts* {
     birdnet ${HASHWORD}
   }
-  basicauth /stream {
+  ${AUTHDIR} /stream {
     birdnet ${HASHWORD}
   }
-  basicauth /phpsysinfo* {
+  ${AUTHDIR} /phpsysinfo* {
     birdnet ${HASHWORD}
   }
-  basicauth /terminal* {
+  ${AUTHDIR} /terminal* {
     birdnet ${HASHWORD}
   }
   # play.php is symlinked to the WEB ROOT by install_services.sh, so /scripts*
   # does not cover it -- and it holds an exec("sudo rm ...") of a GET parameter.
-  basicauth /play.php* {
+  ${AUTHDIR} /play.php* {
     birdnet ${HASHWORD}
   }
-  basicauth /log* {
+  ${AUTHDIR} /log* {
     birdnet ${HASHWORD}
   }
-  basicauth /stats* {
+  ${AUTHDIR} /stats* {
     birdnet ${HASHWORD}
   }
   # The recordings/charts archives are browsable indexes of what is audible at
   # the operator's home, with timestamps. The museum never fetches these
   # directly (it goes through /avian/api/recording.php + spectrogram.php), so
   # gating them costs nothing and removes an occupancy-inference leak.
-  basicauth /By_Date* {
+  ${AUTHDIR} /By_Date* {
     birdnet ${HASHWORD}
   }
-  basicauth /Charts* {
+  ${AUTHDIR} /Charts* {
     birdnet ${HASHWORD}
   }
   # DNS-rebinding defence: a hostile page cannot rebind its own hostname to this
