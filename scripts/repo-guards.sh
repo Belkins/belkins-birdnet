@@ -202,6 +202,14 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    workflow hardcodes the suite list. A NEW tests/ dir that isn't enumerated
 #    silently never runs while the badge stays green. This guard turns that
 #    silent skip into a red build with instructions.
+#
+#    ./.claude is pruned for the same reason as ./node_modules and ./.venv, and
+#    it is not cosmetic: `git worktree add .claude/worktrees/<name>` puts a FULL
+#    SECOND CHECKOUT inside the repo, so this find discovered all five suites
+#    again under it and the ENTIRE guard suite exited 1 on a clean tree. CI never
+#    saw it (a fresh checkout has no worktrees) — it broke the guards only for
+#    the person actually working, i.e. exactly when they are needed. .claude is
+#    gitignored (.gitignore:55); find does not read .gitignore.
 ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
@@ -213,6 +221,7 @@ done < <(find . \
   -path ./.git -prune -o \
   -path ./node_modules -prune -o -path '*/node_modules' -prune -o \
   -path ./_design-plan -prune -o -path ./_plan -prune -o \
+  -path ./.claude -prune -o \
   -name venv -prune -o -name .venv -prune -o -name .tox -prune -o \
   -path '*/site-packages/*' -prune -o \
   -type d -name tests -print | while IFS= read -r t; do
