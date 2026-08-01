@@ -593,5 +593,44 @@ if [ -f avian/NOT-INSTALLED ]; then
   done < <(grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED)
 fi
 
+# 12. THE GUARD RUNNER MUST RUN ON EVERY BRANCH.
+#     Until 2026-08-01 python-app.yml was scoped to `push: [main, test_me]`, so
+#     on design/library-recompose — 25 commits carrying the ENTIRE cloud backup,
+#     the off-box dead-man's switch, the mic-flatline watchdog fix and
+#     Caddyfile.live — this script and ~200 tests never ran once. web-ci.yml has
+#     no branch filter and was green throughout, which made the absence of a
+#     python verdict look like a pass. Every other guard in this file is worth
+#     exactly as much as this one: a guard that does not run is not a guard.
+#
+#     COMMENT-STRIPPED, and that is load-bearing here: python-app.yml's own
+#     docblock explains the ban and therefore CONTAINS the string `branches:`.
+#     A bare grep would match the prose forbidding the thing and pass on a file
+#     that does the thing — the self-matching-grep sin recorded at guards 6, 7,
+#     10 and in scripts/repo-guards.sh's own history.
+#     PATH INDIRECTION so this guard is negative-testable without editing the
+#     real workflow: PYTHON_WF=/tmp/broken.yml bash scripts/repo-guards.sh must
+#     exit 1. CI never sets it. A guard nobody can point at a broken input is a
+#     guard nobody has ever seen fail.
+_pwf="${PYTHON_WF:-.github/workflows/python-app.yml}"
+if [ -f "$_pwf" ]; then
+  _pci=$(grep -vE '^[[:space:]]*#' "$_pwf")
+  # (a) the push trigger still exists — deleting it disarms this as thoroughly
+  #     as scoping it, and leaves no `branches:` for (b) to catch.
+  printf '%s\n' "$_pci" | grep -qE '^[[:space:]]*push:' \
+    || fail "$_pwf no longer triggers on push — the guard suite and ~200 tests would run on nothing. This is the disarm that hid the entire DR arc for 25 commits."
+  # (b) assert the PROPERTY (no branch scoping anywhere in this workflow), not
+  #     the spelling of one key. There is no other legitimate `branches:` in
+  #     this file, so any occurrence is a re-scope.
+  _br=$(printf '%s\n' "$_pci" | grep -cE '^[[:space:]]*branches(-ignore)?:' || true)
+  [ "$_br" = "0" ] \
+    || fail "$_pwf has re-acquired a branch filter ($_br occurrence(s)) — feature branches would stop running the guard suite, which is exactly the state that let the cloud backup, the dead-man's switch and the watchdog fix land across 25 commits with zero python CI"
+  # (c) the disarm one level down: a workflow that still runs but no longer
+  #     calls this script leaves 20 guards dark with a green checkmark.
+  printf '%s\n' "$_pci" | grep -qF 'bash scripts/repo-guards.sh' \
+    || fail "$_pwf no longer invokes 'bash scripts/repo-guards.sh' — every guard in this file is dark, and CI is green"
+else
+  fail "$_pwf is missing — nothing runs the guard suite or the python tests"
+fi
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
