@@ -814,5 +814,30 @@ PY
   fi
 fi
 
+# 15. THE DEPLOY MUST FAIL WHEN THE WALL IS WRONG.
+#     deploy-christina.sh does `rm -rf $EXTRACTED/collage && cp -r web/dist ...`,
+#     which drops the bundled 8-species Nearctic DEV FIXTURE (American Robin,
+#     Cardinal, Blue Jay — none ever heard at this London station) into the
+#     serving directory with a brand-new mtime. Only the species.json/derived.json
+#     symlinks put the real catalog back.
+#
+#     Those links were written as `[ -d X ] && ln -sf A B && ok "..."`. Under
+#     `set -euo pipefail` that is NOT protected: in `A && B && C` only C's status
+#     reaches set -e. Reproduced 2026-08-01 — with the target dir read-only the
+#     pre-fix form printed "ln: Permission denied", then "...deploy continues...
+#     Christina deployed." and exited 0, with the fixture still on the wall.
+_dep_c=$(grep -vE '^[[:space:]]*#' deploy-christina.sh)
+printf '%s\n' "$_dep_c" | grep -qE '&&[[:space:]]*ln -sf' \
+  && fail "deploy-christina.sh links catalog data with an '&& ln -sf' chain again — set -e does not check a non-final command in an && list, so a failed link leaves the 8-species dev FIXTURE on the wall and the deploy still reports success"
+printf '%s\n' "$_dep_c" | grep -q 'link_catalog_data()' \
+  || fail "deploy-christina.sh lost link_catalog_data() — the species.json/derived.json symlinks are what stand between the wall and the bundled Nearctic fixture, and they must be asserted, not attempted"
+_lc=$(printf '%s\n' "$_dep_c" | grep -cE '^link_catalog_data (species|derived)\.json' || true)
+[ "$_lc" = "2" ] \
+  || fail "deploy-christina.sh calls link_catalog_data for $_lc of the 2 catalog files (species.json, derived.json) — the unlinked one serves whatever web/dist bundled"
+# The assertion inside it is the load-bearing part: `ln -sf` succeeds even when
+# it silently did nothing useful, so the link must be READ BACK.
+printf '%s\n' "$_dep_c" | grep -q 'readlink "\$dst"' \
+  || fail "link_catalog_data no longer reads the symlink back — 'ln -sf' returning 0 does not prove \$dst points at scripts/<file>, and that difference is exactly the fixture-on-the-wall bug"
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

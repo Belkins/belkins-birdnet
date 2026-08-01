@@ -134,15 +134,44 @@ elif command -v npm >/dev/null; then
 else
   warn "no web/dist committed and no npm on PATH — collage skipped (commit a /collage-based dist, or install node)"
 fi
-# Serve the nightly species catalog under /collage/ so the life-list "wall" tab
-# reads ${BASE}species.json. Overrides the bundled dev fixture that shipped in
-# web/dist; a no-op if the collage dir wasn't built above.
-[ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/species.json" "$EXTRACTED/collage/species.json" && ok "species.json -> scripts/species.json (served at /collage/species.json)"
-# Same for the honest derived-intelligence bundle the /lab console reads
-# (${BASE}derived.json). derive.py writes scripts/derived.json after the nightly
-# rebuild; the symlink serves the real file over the bundled dev fixture. /lab
-# degrades to "not built yet" until the first catalog run produces it.
-[ -d "$EXTRACTED/collage" ] && ln -sf "$HERE/scripts/derived.json" "$EXTRACTED/collage/derived.json" && ok "derived.json -> scripts/derived.json (served at /collage/derived.json)"
+# Serve the nightly catalog under /collage/ so the life-list "wall" tab reads
+# ${BASE}species.json and /lab reads ${BASE}derived.json. Both OVERRIDE the
+# bundled dev fixture that ships inside web/dist.
+#
+# WHY THIS IS A FUNCTION WITH HARD FAILURES. This used to be
+#     [ -d X ] && ln -sf A B && ok "..."
+# and under `set -euo pipefail` that is NOT protected: in `A && B && C`, only
+# the LAST command's status is checked by set -e. A failing `ln` — or a missing
+# collage dir — simply fell through, `ok` never printed, and the deploy carried
+# on to announce success. Two lines above, `rm -rf $EXTRACTED/collage` followed
+# by `cp -r web/dist` has just dropped the 8-species Nearctic DEV FIXTURE
+# (American Robin, Cardinal, Blue Jay — birds this London station has never
+# heard) into place with a brand-new mtime. Only these symlinks put the real
+# catalog back. If they don't, the wall serves invented birds and every
+# timestamp looks perfect.
+#
+# The link is asserted LOCALLY — no HTTP, no clock, no catalog run — because
+# that is the thing this step is responsible for and it can be checked
+# deterministically. Whether the TARGET exists yet is a different question with
+# a legitimate answer on a fresh box, so it warns rather than dies.
+link_catalog_data() { # $1=basename  $2=what reads it
+  local src="$HERE/scripts/$1" dst="$EXTRACTED/collage/$1"
+  [ -d "$EXTRACTED/collage" ] \
+    || die "$EXTRACTED/collage does not exist, so $1 cannot be linked — the collage was not deployed above, and the wall has no data plane"
+  ln -sf "$src" "$dst" \
+    || die "could not link $1 onto the wall. web/dist ships an 8-species Nearctic DEV FIXTURE and the copy above just put it there; without this symlink the museum serves invented birds with a perfect mtime."
+  [ -L "$dst" ] \
+    || die "$dst is not a symlink after ln -sf — it is the bundled fixture, and the wall would serve 8 Nearctic species as if they had been heard here"
+  [ "$(readlink "$dst")" = "$src" ] \
+    || die "$dst points at $(readlink "$dst"), not $src — the wall is reading the wrong catalog"
+  if [ -e "$dst" ]; then
+    ok "$1 -> scripts/$1 (served at /collage/$1)"
+  else
+    warn "$1 is linked but scripts/$1 does not exist yet — $2 stays empty until catalog.service has run once (expected on a fresh box; NOT expected on a station that has been up a day)"
+  fi
+}
+link_catalog_data species.json "the life-list wall"
+link_catalog_data derived.json "the /lab console"
 
 say "5. regenerate collage silhouette masks (so any new illustration is placeable)"
 if ( cd "$HERE/avian/scripts" && "$PY" build_masks.py ) >/dev/null 2>&1; then ok "masks rebuilt"; else warn "build_masks failed (Pillow missing?)"; fi
