@@ -973,6 +973,16 @@ python3 - <<'PY' || fail "frame shot target: legacy page no longer matches shoot
 import re, sys
 src = open("frame/shoot.py").read()
 bad = []
+# BOTH legacy files are REQUIRED — "deleting the legacy frontend" is the exact
+# case this guard names, so a missing file is a FINDING with a message, never
+# an unhandled traceback (the first version crashed on exactly its own named
+# case: apt.js deleted → FileNotFoundError — right exit code, wrong diagnostic).
+legacy_files = {}
+for lf in ("avian/frontend/apt.js", "avian/frontend/index.html"):
+    try:
+        legacy_files[lf] = open(lf).read()
+    except OSError:
+        bad.append(f"{lf} is gone — the legacy shot target no longer exists; the wall will freeze silently")
 m = re.search(r"for pat, repl in \((.*?)\):\n", src, re.S)
 if not m:
     bad.append("could not locate the apt.js rewrite tuple in frame/shoot.py — if the legacy shot path was removed on purpose, update guard 17")
@@ -980,21 +990,15 @@ else:
     pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
     if len(pats) != 4:
         bad.append(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously")
-    js = open("avian/frontend/apt.js").read()
+    js = legacy_files.get("avian/frontend/apt.js")
     for p in pats:
-        if not re.search(p, js):
+        # js None = apt.js missing, already a finding above; don't stack noise.
+        if js is not None and not re.search(p, js):
             bad.append("no match in avian/frontend/apt.js for rewrite pattern: " + p)
 sels = re.findall(r'wait_for_selector\(\s*"([^"]+)"', src)
 if not sels:
     bad.append("no wait_for_selector calls extracted from frame/shoot.py — extraction broke, or the wait moved; update guard 17")
-# BOTH legacy files are REQUIRED — "deleting the legacy frontend" is the exact
-# case this guard names, so a missing file is a finding, not an option.
-legacy = ""
-for lf in ("avian/frontend/apt.js", "avian/frontend/index.html"):
-    try:
-        legacy += open(lf).read()
-    except OSError:
-        bad.append(f"{lf} is gone — the legacy shot target no longer exists; the wall will freeze silently")
+legacy = "".join(legacy_files.values())
 for group in sels:
     for tok in re.findall(r"\.([A-Za-z][\w-]*)", group):
         # The class must appear inside a SHORT quoted class-shaped string —
