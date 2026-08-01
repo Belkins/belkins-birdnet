@@ -15,12 +15,23 @@ Documentation=https://github.com/Belkins/belkins-birdnet
 # am-I-the-right-box precondition -- never on the state it watches.)
 Wants=network-online.target
 After=network-online.target
+# Station handler; absent on a standalone frame Pi (one systemd log line, no
+# harm). Trade accepted with eyes open: frame_watch exits 1 on every failing
+# hourly tick, so during an outage this fires christina-alert@ hourly on top
+# of frame_watch's own single deduped push — exactly mic-watch's shape.
+OnFailure=christina-alert@%n.service
 
 [Service]
 # install.sh rewrites User= and the paths to match your install.
 Type=oneshot
 User=monalisa
 WorkingDirectory=/home/monalisa/belkins-birdnet/frame
+# Two optional env files, later wins per-var. forwarder.env exists only on the
+# station Pi and already carries the working NOTIFY_URL (mic-watch and
+# christina-alert@ prove it daily); a standalone frame Pi simply lacks the file
+# ('-' = not fatal) and uses watch.env alone. watch.env ships comment-only, so
+# on the station the forwarder topic wins without anyone copying a secret.
+EnvironmentFile=-/home/monalisa/.christina/forwarder.env
 # Optional operator env ('-' = the watchdog still runs, journal-only, without
 # it): NOTIFY_URL=https://ntfy.sh/<topic> -- the SAME var mic-watch,
 # railway-liveness and weekly_digest read on the mic Pi. No new channel.

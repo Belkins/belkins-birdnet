@@ -7,9 +7,10 @@ titles, and rewrites a few of the page's own apt.js tunables at capture time
 (cluster bias, count-to-size exponent, a rare-bird floor). The result is the
 actual website, framed for the wall, with no changes to Belkins BirdNET.
 
-Needs a real headless browser, so it runs on any 64-bit capable machine, NOT
-the Pi Zero W driving the panel. Writes a 1200x1600 PNG; display.py turns it
-into panel pixels.
+Needs a real headless browser, so it runs on any 64-bit machine — including
+the panel's own host when that host can afford one (the station Pi 5 can; a
+Pi Zero W cannot). Writes a 1200x1600 PNG; display.py turns it into panel
+pixels.
 
   pip install playwright && playwright install chromium
   python3 shoot.py --url https://bird.example.com \

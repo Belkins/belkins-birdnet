@@ -60,6 +60,41 @@ BirdWeather mode renders on the Pi from this repo's illustrations on GitHub, so 
 
 ---
 
+## Hosting on the station Pi itself (one-box install)
+
+The two-Pi split above is the gentle default, but the panel can hang off the
+BirdNET station Pi directly — the live Belkins install runs this way on a
+Pi 5. Differences that matter on a box that is also recording audio:
+
+```bash
+cd ~/BirdNET-Pi/frame           # the station's own checkout, not a fresh clone
+./install.sh --no-reboot        # NEVER let an installer reboot the station unasked
+sed -i 's|birdnet.local|127.0.0.1|' ~/.birdframe/config.toml   # same box; mDNS flakes
+sudo reboot                     # when YOU are ready — this brings SPI up
+```
+
+- **Attach with the power off.** Shut down, seat the panel (grip the board
+  edges, never press the glass), then boot and install.
+- `--no-reboot` is required station etiquette: the installer otherwise
+  reboots to bring SPI up, which on this box means a gap in the recording.
+- `base_url = "http://127.0.0.1"` — the station screenshots itself; its own
+  mDNS name is the one name it may fail to resolve.
+- Alerting integrates automatically: both frame units carry
+  `OnFailure=christina-alert@%n.service` (the handler is already installed by
+  the station deploy scripts), and `frame-watch.service` layers
+  `~/.christina/forwarder.env`, so the existing `NOTIFY_URL` works with no
+  new secret. The station is LAN-open by choice (`STATION_OPEN`), so no
+  `basic_user`/`basic_pass` is needed; the keys exist in
+  [`config.example.toml`](config.example.toml) if auth ever returns.
+- The service ships co-tenant limits (`MemoryMax=512M`, `OOMScoreAdjust=500`,
+  `Nice`, idle I/O): if memory runs short, the kernel kills the screenshot,
+  the wall keeps its last picture, and the detector never notices.
+- Rollback is two commands and no hardware:
+  `sudo systemctl disable --now birdframe.timer frame-watch.timer` — the
+  panel keeps its last image unpowered.
+
+---
+
 ### If the frame ever freezes
 
 `display.py` keeps the last picture on the panel and exits cleanly whenever a refresh fails — that is deliberate (a blank wall is worse than a stale one), but it means a dead screenshotter or a dead panel is completely silent. `frame_watch.py` runs hourly and alerts when the wall stops repainting: it compares the capture file and `~/.birdframe/state.json` against the frame's own configured cadence (`heal_hours` plus any quiet window), so a quiet garden or a muted night can never trigger it.

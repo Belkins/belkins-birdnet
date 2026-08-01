@@ -9,6 +9,10 @@
 #                                           (e.g. a public Cloudflare Worker)
 #   ./install.sh --bird-weather --zip <ZIP> standalone from BirdWeather, no mic
 #                                           (add --ebird-key <KEY> for remote ZIPs)
+#
+# --no-reboot: print the reboot instruction instead of rebooting. REQUIRED
+# form on a box that does anything besides drive the panel (the station Pi
+# records audio around the clock; an installer must not bounce it unasked).
 set -euo pipefail
 cd "$(dirname "$0")"
 FRAME="$(pwd)"
@@ -17,8 +21,10 @@ MODE=local            # local | image | birdweather
 ZIP=""
 IMAGE_URL=""
 EBIRD_KEY=""
+NO_REBOOT=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --no-reboot) NO_REBOOT=1; shift ;;
     --bird-weather) MODE=birdweather; shift ;;
     --zip) [ $# -ge 2 ] || { echo "--zip needs a value, e.g. --zip 94107" >&2; exit 1; }
            ZIP="$2"; shift 2 ;;
@@ -95,6 +101,12 @@ python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements-frame.txt
 if [ "$NEEDS_BROWSER" = 1 ]; then
+  # Chromium + its apt deps cost roughly 450-650MB. Warn (not fail) below 2GB
+  # free: the operator may know better, but must not find out from a full SD.
+  _free_mb=$(df -Pm . | awk 'NR==2 {print $4}')
+  if [ "${_free_mb:-0}" -lt 2048 ]; then
+    echo "     WARNING: only ${_free_mb}MB free on this filesystem; Chromium needs ~650MB." >&2
+  fi
   echo "     Installing Playwright + Chromium so the Pi can render the collage (a few minutes)..."
   .venv/bin/pip install -q playwright
   sudo .venv/bin/playwright install-deps chromium
@@ -141,7 +153,12 @@ elif [ "$MODE" = image ]; then
     printf '%s\n' 'saturation = 0.6'
   } > "$CONFIG"
 else
-  { printf '%s\n' '# birdframe-mode: birdweather'; cat config.example.toml; } > "$CONFIG"
+  # shoot=false is the load-bearing line: the example ships shoot=true (right
+  # for local mode), and display.py checks `shoot` BEFORE image_url — verbatim,
+  # this mode rendered frame.png, discarded it, and screenshotted a
+  # birdnet.local that a standalone box does not have. Green unit, blank wall.
+  { printf '%s\n' '# birdframe-mode: birdweather'
+    sed 's/^shoot = true$/shoot = false/' config.example.toml; } > "$CONFIG"
 fi
 
 echo "5/5  Installing systemd service + timer..."
@@ -154,17 +171,32 @@ Description=Belkins BirdNET frame, BirdWeather mode (ZIP $ZIP)
 Documentation=https://github.com/Belkins/belkins-birdnet
 Wants=network-online.target
 After=network-online.target
+# Same alert path as the repo template (systemd/birdframe.service). This unit
+# is written by heredoc, not rendered from that template — guard 11e exists
+# because exactly this split once cost birdcast its OnFailure= line.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot
 User=$USER
 WorkingDirectory=$FRAME
-ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature --force'
+# --no-signature already forces "changed" on every 6h tick; --force would ALSO
+# bypass quiet_start/quiet_end and the min-refresh floor, flashing the panel
+# at 3am against the operator's own config. Cadence gates stay honored.
+ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature'
 Environment=PYTHONUNBUFFERED=1
 Nice=10
+# Deliberately NO MemoryMax/OOMScoreAdjust here, unlike the station template:
+# BirdWeather mode is by definition the standalone no-mic box (often a 512MB
+# Zero 2 W with nothing to protect), and shoot.py runs pre-&& as its own
+# process — a cgroup OOM kill of it would exit non-zero and turn the
+# template's documented silent keep-last-panel case into a hard unit failure
+# that re-alerts every 6h. Guard 11e pins the limits on the template only.
 TimeoutStartSec=300
 SERVICE
   # Remote ZIPs with no nearby station fall back to eBird, which needs a key.
+  # ORDER-DEPENDENT append: this lands in [Service] only because the heredoc
+  # above ends inside [Service] and has no [Install]. Guard 11e pins that.
   if [ -n "$EBIRD_KEY" ]; then
     echo "Environment=EBIRD_API_KEY=$EBIRD_KEY" | sudo tee -a /etc/systemd/system/birdframe.service >/dev/null
   fi
@@ -230,9 +262,13 @@ DONE
 esac
 
 # SPI only takes effect on a reboot, so do it for the user. Skip if SPI is
-# already up (e.g. a re-run) so we don't bounce a working frame.
+# already up (e.g. a re-run) so we don't bounce a working frame. --no-reboot
+# hands the moment back to the operator: on a co-tenant box (the station Pi
+# records audio continuously) the reboot must be a decision, not a side effect.
 if [ -e /dev/spidev0.0 ]; then
   echo "SPI already active, no reboot needed."
+elif [ "$NO_REBOOT" = 1 ]; then
+  echo "SPI is enabled but not yet live (--no-reboot). Reboot when ready:  sudo reboot"
 else
   echo "Rebooting to bring SPI up (back on its own in ~1 min)..."
   sleep 4
