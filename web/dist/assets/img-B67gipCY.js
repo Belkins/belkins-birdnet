@@ -1,0 +1,1 @@
+import{b as e,f as t,h as n,o as r,p as i}from"./catalog-cLKaYeNA.js";var a=new Set(r.filter(e=>e.hasAsset).map(e=>t(e.sci)));function o(t,r,o=1){return e?a.has(t)?`${n}mock/${t}.png`:null:`${i}/cutout.php?sci=${encodeURIComponent(r)}&pose=${o}`}export{o as t};

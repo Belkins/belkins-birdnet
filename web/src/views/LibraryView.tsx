@@ -52,6 +52,13 @@ import {
   DRIFT_BANDS,
   plateCaption,
   stationClaimAllowed,
+  stationCaption,
+  artProvenance,
+  ambersBinomial,
+  hangsAPlate,
+  gardenFact,
+  heardPages,
+  type GardenFact,
 } from '../jardine';
 import type { RosterRow } from '../types';
 import './LibraryView.css';
@@ -385,23 +392,91 @@ function PlateViewer({ plate, onClose }: { plate: PlateView; onClose: () => void
         <div className="lib-view-cap">
           <span className="lib-plate-k">{plate.locator}</span>
           <span className="lib-view-t">{plate.subject}</span>
-          {plate.also.length > 0 && (
-            <span className="lib-plate-two">
-              two birds on this sheet — {plate.subject} {plate.where}
-              {plate.also.map((a) => (
-                <span key={a.sci_name}>
-                  , and the {a.common} {a.where}
-                </span>
-              ))}
-            </span>
-          )}
-          {plate.cited && (
-            <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>
-          )}
-          {plate.cited && plate.note && <span className="lib-plate-why">{plate.note}</span>}
+          <PlateObligations
+            subject={plate.subject}
+            where={plate.where}
+            also={plate.also}
+            cited={plate.cited}
+            note={plate.note}
+          />
         </div>
       </div>
     </div>
+  );
+}
+
+/** THE ONLY SENTENCE THIS TAB MAY PRINT WHERE A BIRD IS NOT.
+ *
+ *  "Never heard in this garden" is a measurement. "Not to hand" is the absence
+ *  of one. gardenFact() has told them apart since M2 was written — an empty
+ *  catalog returns `unknown: true`, because fetchCatalog collapses 404, offline
+ *  and malformed alike to `[]`, so an empty map is not evidence of an empty
+ *  garden.
+ *
+ *  Only ONE of its consumers read that flag. The collision slip printed "not in
+ *  this garden's catalogue." unconditionally, so a station that could not reach
+ *  its own species.json told visitors, in print, that two birds had never been
+ *  recorded here — one of which is among the garden's loudest. A fabricated
+ *  absence, in the branch next door to the guard against fabricated absences.
+ *
+ *  One component, so there is no second copy to forget. */
+function AbsentNote({ unknown }: { unknown?: boolean }) {
+  return (
+    <div className="lib-inert">
+      {unknown
+        ? 'the garden’s ledger is not to hand.'
+        : 'no recording — never heard in this garden.'}
+    </div>
+  );
+}
+
+/** EVERYTHING A PLATE OBLIGES ITS CAPTION TO SAY, IN ONE PLACE.
+ *
+ *  Both sentences existed twice — once in the printed figcaption, once in the
+ *  enlarged viewer — and E8 asserted them with a whole-file `assert.match`, so
+ *  either copy could be deleted with the suite green. Six reviewers reported it
+ *  independently, and one pointed out the worse half: the copy a reader
+ *  actually faces on the page is the FIRST one, so the deletion that matters
+ *  most is the one the surviving match hides.
+ *
+ *  Two birds on a sheet is not decoration. Jardine drew two species on one
+ *  plate five times, and a caption that names one of them asserts the picture
+ *  is of that bird alone. Same for the citation: without it, a plate the VOLUME
+ *  assigns becomes a plate Jardine drew.
+ *
+ *  One component, both call sites. plateCaption() in jardine.ts states the
+ *  obligation; this discharges it; E8 checks each sentence exists exactly ONCE
+ *  and that both surfaces render this. */
+function PlateObligations({
+  subject,
+  where,
+  also,
+  cited,
+  note,
+}: {
+  subject: string;
+  where: string | null;
+  also: JardinePlateFigure[];
+  cited: boolean;
+  note: string | null;
+}) {
+  return (
+    <>
+      {also.length > 0 && (
+        <span className="lib-plate-two">
+          two birds on this sheet — {subject} {where}
+          {also.map((a) => (
+            <span key={a.sci_name}>
+              , and the {a.common} {a.where}
+            </span>
+          ))}
+        </span>
+      )}
+      {cited && (
+        <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>
+      )}
+      {cited && note && <span className="lib-plate-why">{note}</span>}
+    </>
   );
 }
 
@@ -441,25 +516,14 @@ function PlateOpener({ plate, children }: { plate: PlateView | null; children: R
  *  sentence: back to silence, which was always the honest fallback. On the live
  *  station art coverage is 47/47, so this renders; in a dev tree with no Pi it
  *  does not, and that difference is exactly what it should be. */
-/** The three honest captions, by who actually made the picture.
- *
- *  A sweep verified by sha256 against the live station that three of these
- *  birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
- *  IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
- *  with a fresh clone. This station never painted them, and cutout.php serves
- *  them with X-Av-Real:1 exactly as it serves generated art, so no header can
- *  tell them apart. The caption said "AI visualized by THIS STATION" over all
- *  of them.
- *
- *  Two of that sentence's three clauses were true — the bundled art IS
- *  AI-generated, and it is neither engraving nor photograph. Only the agency
- *  was false, so only the agency changes. An unreadable art_source falls to the
- *  claim with no agency in it at all, never to the strong one. */
-const STATION_CAPTION: Record<string, string> = {
-  autogen: 'AI visualized by this station · not an engraving, not a photograph',
-  bundled: 'AI illustration, shipped with this museum · not painted here, not a photograph',
-};
-const STATION_CAPTION_UNKNOWN = 'AI illustration · not an engraving, not a photograph';
+/** The captions that say who made each coloured bird have MOVED to jardine.ts,
+ *  as stationCaption(). The table lived here and E6 asserted its entries — that
+ *  one string says "by this station" and the others do not. Six reviewers found
+ *  the same gap in one sweep: pinning the entries says nothing about which entry
+ *  is SELECTED, and a single defaulted lookup re-arms the agency claim for every
+ *  bird whose source cannot be read. Until the station began emitting
+ *  art_source, that was every bird on the wall. The selection is the decision,
+ *  so it lives where a test can call it with arguments. */
 
 function StationBird({
   sci,
@@ -472,10 +536,10 @@ function StationBird({
   com: string;
   slug: string;
   art: Map<string, string> | null;
-  /** 'bundled' | 'autogen' | '' — see STATION_CAPTION. */
+  /** 'bundled' | 'autogen' | '' — see stationCaption() in jardine.ts. */
   artSource: string;
 }) {
-  const caption = STATION_CAPTION[artSource] ?? STATION_CAPTION_UNKNOWN;
+  const caption = stationCaption(artSource);
   const url = birdImageUrl(slug, sci);
   const { phase, src } = useBirdImage(url, art?.get(slug) === 'ready' && !!url);
   // The decision lives in jardine.ts so a test can CALL it — a regex over this
@@ -620,18 +684,13 @@ function SpeciesPlate({
         <span className="lib-plate-k">
           {plate} · vol. {volumeRoman(sp.volume)}
         </span>
-        {also.length > 0 && (
-          <span className="lib-plate-two">
-            two birds on this sheet — {sp.jardine_title} {sp.plate_where}
-            {also.map((a) => (
-              <span key={a.sci_name}>
-                , and the {a.common} {a.where}
-              </span>
-            ))}
-          </span>
-        )}
-        {cited && <span className="lib-plate-cite">the volume assigns this plate; the picture does not say so</span>}
-        {cited && sp.plate_note && <span className="lib-plate-why">{sp.plate_note}</span>}
+        <PlateObligations
+          subject={sp.jardine_title}
+          where={sp.plate_where}
+          also={also}
+          cited={cited}
+          note={sp.plate_note}
+        />
       </figcaption>
     </figure>
   );
@@ -872,36 +931,12 @@ function ReadingDesk({
 
 // ── THE ERRATA ───────────────────────────────────────────────────────────────
 
-interface GardenFact {
-  present: boolean;
-  count: number;
-  pct: string;
-  com: string;
-  /** true = the catalog never loaded, so presence is UNKNOWN, not false. */
-  unknown?: boolean;
-}
-
-function gardenFact(
-  sub: JardineErratumSubject,
-  byCatalog: Map<string, CatalogSpecies>,
-  totalCalls: number,
-): GardenFact {
-  // AN EMPTY CATALOG IS NOT AN ABSENCE. fetchCatalog() collapses every failure —
-  // 404, offline, malformed — to [], never null, so `catalog !== null` cannot
-  // tell "this garden has never heard it" from "species.json did not load". With
-  // no catalog at all the slip must say nothing rather than assert a silence the
-  // museum has not measured; that is the fabricated-absence class again.
-  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
-  const c = byCatalog.get(sub.sci_name);
-  if (!c) return { present: false, count: 0, pct: '0', com: '' };
-  const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
-  return {
-    present: true,
-    count: c.detection_count,
-    pct: `${pct.toFixed(2)}%`,
-    com: c.com_name || c.sci_name,
-  };
-}
+// gardenFact() MOVED to jardine.ts. It decides whether the museum may state an
+// absence, and a sweep showed the decision could be neutered by REORDERING it —
+// look the bird up before checking whether the ledger loaded and `unknown` can
+// never be true again, with every branch that reads it still intact. M2 audits
+// the branches; only a call with an empty catalog audits the flag itself, and
+// that needs the function somewhere `node --test` can reach.
 
 /** The 2026 half of any comparison: the museum's own cut specimen, its live
  *  tally in amber (a number measured by the Pi), and a working control — or one
@@ -922,11 +957,7 @@ function ModernHalf({
   if (!fact.present) {
     return (
       <div className="lib-modern lib-modern-none">
-        <div className="lib-inert">
-          {fact.unknown
-            ? 'the garden’s ledger is not to hand.'
-            : 'no recording — never heard in this garden.'}
-        </div>
+        <AbsentNote unknown={fact.unknown} />
       </div>
     );
   }
@@ -1025,7 +1056,7 @@ function ErratumSlip({
   onOpen?: (r: RosterRow) => void;
   slugFor: (sci: string) => string;
 }) {
-  const facts = e.subjects.map((s) => gardenFact(s, byCatalog, totalCalls));
+  const facts = e.subjects.map((s) => gardenFact(s.sci_name, byCatalog, totalCalls));
   // A slip with nothing to correct is not a correction: No. V concedes, and
   // concessions are set in --mut, not --red. Derived, never tagged by hand.
   const conceded = facts.length > 0 && facts.every((f) => !f.present);
@@ -1086,16 +1117,21 @@ function ErratumSlip({
   // No. IV — THE COLLISION. One binomial, two entirely different birds, both in
   // this garden, both in the same 1838 volume two headings apart.
   if (e.kind === 'collision') {
-    // the shared 1838 name both birds were filed under. A plain string, not a
-    // rendered species: the slip is ABOUT the collision of the name itself, and
-    // there is no single species whose provenance marker would be correct here.
-    const sharedName = e.subjects
-      .map((s) => bySci.get(s.sci_name)?.jardine_binomial)
-      .find(Boolean);
+    // The name that collided — READ, never derived. This line used to take the
+    // first subject's `jardine_binomial`, which printed `Merula musica`: the
+    // name Jardine set over the Song Thrush and nobody else, that belongs to no
+    // living bird, beneath a rule announcing "one binomial, two entirely
+    // different birds". The name that equivocates is the one he CITES,
+    // `Turdus musicus` — it is in the quoted prose and in no field, so no
+    // amount of mapping over subjects could ever have found it.
+    //
+    // Still a plain string, not a rendered species: the slip is ABOUT the name,
+    // and neither bird's provenance marker would be the right one to hang on it.
+    // E9 holds it verbatim to the quote.
     return (
       <article className="acard lib-slip lib-slip-wide" data-tone="red">
         {heading}
-        <div className="lib-coll-name">{sharedName || e.headline}</div>
+        <div className="lib-coll-name">{e.collision_name}</div>
         <div className="lib-coll-rule" aria-hidden="true" />
         <div className="lib-coll-cols">
           {e.subjects.map((sub, i) => {
@@ -1120,7 +1156,7 @@ function ErratumSlip({
                 ) : (
                   <div className="lib-modern lib-modern-none">
                     <span className="lib-mat lib-mat-empty" aria-hidden="true" />
-                    <div className="lib-inert">not in this garden's catalogue.</div>
+                    <AbsentNote unknown={fact.unknown} />
                   </div>
                 )}
                 <div className="lib-coll-sci">{sub.sci_name}</div>
@@ -1154,6 +1190,18 @@ function ErratumSlip({
                     <span className="lib-fig-l">
                       {f.com} · {f.count.toLocaleString()} calls · of everything this station
                       has ever heard
+                    </span>
+                  </>
+                ) : f.unknown ? (
+                  /* A ZERO IS A MEASUREMENT. This branch printed one — in the
+                     slip's largest figure — whenever the catalog was merely
+                     unreachable, which is the strongest form of the fabricated
+                     absence this file guards against everywhere else. An em
+                     dash is the honest figure for a number we do not have. */
+                  <>
+                    <b className="lib-fig lib-fig-zero">—</b>
+                    <span className="lib-fig-l">
+                      {sub.sci_name} · the garden&rsquo;s ledger is not to hand
                     </span>
                   </>
                 ) : (
@@ -1374,7 +1422,12 @@ export function LibraryView({
   /** The active period in hours. Under ALL the window is a non-claim (the same
    *  reasoning as BirdPopup's showWindowStat), so the desk stops answering
    *  "in this window" and falls to its daily rotation. */
-  windowHours?: number;
+  /** REQUIRED, and that is the guard. A sweep dropped this prop at the call
+   *  site and the suite stayed green, because the default silently named a
+   *  window nobody had selected. A window's name is a claim about the numbers
+   *  under it; there is no honest default for it, so the compiler refuses the
+   *  omission instead of a test having to notice it. */
+  windowHours: number;
   /** ?read= — the bird the reader named from a dossier. Tier zero of the desk. */
   aim?: string | null;
   /** Called when the reader turns the page: the aim is spent and the URL should
@@ -1456,7 +1509,7 @@ export function LibraryView({
         species: jardine?.species ?? [],
         rows,
         catalog: catalog ?? [],
-        windowHours: windowHours ?? 24,
+        windowHours,
         now: new Date(),
         aim,
         step,
@@ -1470,14 +1523,14 @@ export function LibraryView({
   // The masthead's one derived ledger sentence, never hand-written.
   const volumes = jardine?.volumes ?? [];
   const ornithology = volumes.filter((v) => v.division === 'birds').length;
-  const withPage = (jardine?.species ?? []).filter((s) => byCatalog.has(s.sci_name));
+  const withPage = heardPages(jardine?.species ?? [], byCatalog);
   // BOTH conditions, not either. Excluding vignettes is not tidiness: Erratum
   // III three sections below argues the Robin was DENIED a plate, and counting
   // its vignette would have the ledger contradicting the erratum on the same
   // screen. And the test is now `image`, not `plate_ref` — a reference with no
   // file behind it is a plate the museum does not have, and this sentence is
   // the one place the collection states its own size.
-  const withPlate = withPage.filter((s) => s.image !== null && !s.plate_is_vignette).length;
+  const withPlate = withPage.filter(hangsAPlate).length;
   const heardCount = catalog?.length ?? 0;
 
   // THE ROLL — a left join of the garden onto the library. Sorted by drift class
@@ -1495,8 +1548,22 @@ export function LibraryView({
   }, [catalog, bySci]);
   const silentCount = roll.filter((r) => !r.j).length;
   const firstSilent = roll.findIndex((r) => !r.j);
+  // THE CROWS THE SENTENCE IS ACTUALLY ABOUT.
+  //
+  // This counted `!r.j` — rows with no Jardine record AT ALL — under a sentence
+  // reading "Jardine gave the family thousands of words and their voices none".
+  // A bird with no record has no words of his to be given, so the count and the
+  // claim were about different sets, and the claim contradicted the count.
+  //
+  // Measured against the live station: rows with no record = 2, of which crows
+  // = 0, so the line had never once printed. The set it DESCRIBES — a Jardine
+  // account with no voice passage in it — is 4: the Carrion Crow, the Rook, the
+  // Jackdaw and the Magpie. That is the tab's own argument, and it was silent.
   const silentCorvids = roll.filter(
-    (r) => !r.j && CORVID_GENERA.some((g) => r.c.sci_name.startsWith(`${g} `)),
+    (r) =>
+      r.j &&
+      r.j.voice === null &&
+      CORVID_GENERA.some((g) => r.c.sci_name.startsWith(`${g} `)),
   ).length;
 
   // The shelf lights only where this garden lives.
@@ -1762,8 +1829,9 @@ export function LibraryView({
                       out.push(
                         <tr className="lib-roll-break" key="lib-roll-break">
                           <td colSpan={4}>
-                            {silentCorvids} of the silent are crows. Jardine gave the family
-                            thousands of words and their voices none.
+                            {silentCorvids} of this garden's crows have an account here and no
+                            voice in it. Jardine gave the family thousands of words and their
+                            song none.
                           </td>
                         </tr>,
                       );
@@ -1786,7 +1854,7 @@ export function LibraryView({
                         {j ? (
                           <td
                             className={
-                              j.drift === 'unchanged' ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
+                              ambersBinomial(j) ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
                             }
                           >
                             {j.jardine_binomial ? <JardineName species={j} /> : '—'}
@@ -1870,10 +1938,24 @@ export function LibraryView({
                 reader would reasonably read the line above as covering
                 everything on the page; leaving it to do so would be the exact
                 failure this tab exists to correct, on the tab's own colophon. */}
+            {/* COUNTED, NOT ASSERTED. This line used to say the coloured birds
+                "are AI visualized by this station", full stop — false for the
+                eight whose art ships inside the repo, on the one label whose
+                job is to be exact. It is composed from the catalog now, and the
+                birds this station cannot attribute are named rather than
+                folded into whichever number reads better. */}
             <div className="lib-col-l">
               the engravings are Jardine's, scanned from the 1833–1843 volumes · the birds in
-              colour are AI visualized by this station from the species name — not engraved, not
-              photographed · which is which is printed under every image
+              colour are AI illustrations — not engraved, not photographed
+              {(() => {
+                const p = artProvenance(catalog ?? []);
+                if (p.station + p.shipped + p.unattributed === 0) return null;
+                const parts: string[] = [];
+                if (p.station) parts.push(`${p.station} painted by this station from the species name`);
+                if (p.shipped) parts.push(`${p.shipped} shipped with the museum`);
+                if (p.unattributed) parts.push(`${p.unattributed} this station cannot attribute`);
+                return ` · ${parts.join(', ')}`;
+              })()}
             </div>
             <div className="lib-col-l">
               Sir William Jardine, The Naturalist's Library, Edinburgh 1833–1843.{' '}

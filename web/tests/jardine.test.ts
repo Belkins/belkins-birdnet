@@ -32,8 +32,13 @@ import { gunzipSync } from 'node:zlib';
 import { registerHooks } from 'node:module';
 
 import { createHash } from 'node:crypto';
+// The real parser, for the one guard that cannot be written as a regex — see
+// rawNameRenders(). typescript is already a hard dependency of the build and CI
+// runs `npm ci` before `npm test`, so this adds no install surface.
+import ts from 'typescript';
 import type { LoadHookSync, ResolveHookSync } from 'node:module';
 import { parseCatalogDate } from '../src/almanac.ts';
+import { PERIODS, ALL_TIME_HOURS, windowLabel, windowHeadline } from '../src/window.ts';
 import type { CatalogSpecies } from '../src/catalog.ts';
 import type { Jardine, JardineErratum, JardinePassage, JardineSpecies } from '../src/jardine.ts';
 
@@ -101,6 +106,31 @@ const DRIFT_BANDS = jardineMod.DRIFT_BANDS as Record<
   string,
   { label: string; holds: (jardineBinomial: string, sciName: string) => boolean }
 >;
+const hangsAPlate = jardineMod.hangsAPlate as (s: JardineSpecies) => boolean;
+const ambersBinomial = jardineMod.ambersBinomial as (s: JardineSpecies) => boolean;
+// catalog.ts imports './config' extensionless, so it must come through the same
+// shim jardine.ts does — a static import is hoisted above registerHooks() and
+// fails to resolve before the hook exists.
+const catalogMod = (await import(new URL('catalog.ts', SRC).href)) as Record<string, unknown>;
+const catalogOrder = catalogMod.catalogOrder as (a: CatalogSpecies, b: CatalogSpecies) => number;
+const stationCaption = jardineMod.stationCaption as (artSource: string) => string;
+const gardenFact = jardineMod.gardenFact as (
+  sciName: string,
+  byCatalog: Map<string, CatalogSpecies>,
+  totalCalls: number,
+) => { present: boolean; count: number; pct: string; com: string; unknown?: boolean };
+const heardPages = jardineMod.heardPages as (
+  species: JardineSpecies[],
+  byCatalog: Map<string, CatalogSpecies>,
+) => JardineSpecies[];
+const artProvenance = jardineMod.artProvenance as (
+  rows: ReadonlyArray<{ art_status: string; art_source: string }>,
+) => { station: number; shipped: number; unattributed: number };
+const LABEL_CLAIMS = jardineMod.LABEL_CLAIMS as ReadonlyArray<{
+  phrase: string;
+  holds: ((jardineBinomial: string, sciName: string) => boolean) | null;
+  provenBy?: string;
+}>;
 const EMPTY = jardineMod.EMPTY_JARDINE as Jardine;
 const fetchJardine = jardineMod.fetchJardine as () => Promise<Jardine>;
 const speciesBySci = jardineMod.speciesBySci as (j: Jardine) => Map<string, JardineSpecies>;
@@ -305,6 +335,47 @@ function corpusRaw(): unknown {
   return JSON.parse(readFileSync(CORPUS_PATH, 'utf8')) as unknown;
 }
 
+/** EVERY LEAF RULE IN A STYLESHEET, INCLUDING THE ONES INSIDE @media.
+ *
+ *  Both CSS guards in this file used `/([^{}]+)\{([^}]*)\}/g`, and a sweep
+ *  walked past both: that pattern cannot nest. Given
+ *
+ *      @media (max-width: 480px) { .lib-mount { min-width: 240px; } }
+ *
+ *  it captures `@media (max-width: 480px)` as the SELECTOR and the inner rule
+ *  as part of its body — so a filter on the selector never sees `.lib-mount`,
+ *  and Erratum I's ratio was flattened on every phone with the suite at 117
+ *  green. Reproduced before fixing.
+ *
+ *  A brace counter is enough: track the selector at each depth and yield only
+ *  blocks that contain no further block. `context` carries the at-rules a rule
+ *  is nested under, so a failure can name the breakpoint it happened at. */
+interface CssRule {
+  selector: string;
+  body: string;
+  context: string;
+}
+function cssRules(text: string): CssRule[] {
+  const s = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const out: CssRule[] = [];
+  const stack: string[] = [];
+  let buf = '';
+  for (const ch of s) {
+    if (ch === '{') {
+      stack.push(buf.trim().replace(/\s+/g, ' '));
+      buf = '';
+    } else if (ch === '}') {
+      const selector = stack.pop() ?? '';
+      // a block whose buffer holds declarations (no nested block survived here)
+      if (buf.trim()) out.push({ selector, body: buf, context: stack.join(' ') });
+      buf = '';
+    } else {
+      buf += ch;
+    }
+  }
+  return out;
+}
+
 /** Strip block and line comments so a guard asserts an INVOCATION and not a
  *  mention. A commented-out call is exactly the regression these tests exist to
  *  catch, so it must never satisfy one. */
@@ -314,11 +385,176 @@ function stripComments(src: string): string {
 
 /** Every file that renders a Jardine row. A new one must be added here — which
  *  is the point: the list is the checklist. */
-const CONSUMERS = [
-  '../src/views/LibraryView.tsx',
-  '../src/views/LibraryFrameView.tsx',
-  '../src/components/BirdPopup.tsx',
-];
+/** DERIVED, NOT LISTED. This was three hand-written paths, and the Atlas was
+ *  not among them — AtlasView.tsx renders <JardineName> on its first-specimen
+ *  card and reads jardine_binomial to decide whether to, and G4 never parsed
+ *  the file. A raw binomial there would have shipped without its [sic] or its
+ *  provenance marker, on a surface the museum shows on every tab change.
+ *
+ *  A checklist maintained by hand is exactly the artefact that goes stale, and
+ *  "the list is the point" was my own comment defending it. So the list is now
+ *  the ANSWER to a question about the tree: every .tsx that touches an 1838
+ *  name is a consumer, and adding a new surface adds it here for free.
+ *  JardineName.tsx is excluded because it IS the renderer; the count is pinned
+ *  so a scan that finds nothing fails instead of passing vacuously. */
+function jardineConsumers(): string[] {
+  const roots = ['../src/views/', '../src/components/'];
+  const found: string[] = [];
+  for (const dir of roots) {
+    const base = new URL(dir, import.meta.url);
+    for (const name of readdirSync(base)) {
+      if (!name.endsWith('.tsx') || name === 'JardineName.tsx') continue;
+      const body = stripComments(readFileSync(new URL(name, base), 'utf8'));
+      if (/jardine_binomial|jardine_authority|<JardineName/.test(body)) found.push(dir + name);
+    }
+  }
+  return found.sort();
+}
+const CONSUMERS = jardineConsumers();
+
+/** The two raw 1838 strings. Both carry OCR artefacts and both belong to a
+ *  provenance chain, so neither may reach the DOM except through
+ *  <JardineName>. */
+const RAW_1838 = ['jardine_binomial', 'jardine_authority'];
+
+/** Every place a file lets one of those strings become rendered TEXT.
+ *
+ *  WHY A PARSER. G4 used to be a regex — `\{\s*\w+\.jardine_binomial\s*(\||\})`
+ *  — which is a guard that knows two spellings of the bug. It sees
+ *  `{x.jardine_binomial}` and `{x.jardine_binomial || '—'}` and is blind to
+ *  `?? '—'`, to `x?.jardine_binomial`, to a destructured `{jardine_binomial}`,
+ *  to `String(x.jardine_binomial)`, and to a template literal. That is the
+ *  scope-blindness class this project keeps re-shipping: assert the PROPERTY,
+ *  not the spelling.
+ *
+ *  The property is "this expression's VALUE is rendered", which is why testing
+ *  a field is fine and printing it is not. So the walk computes each JSX
+ *  expression's RESULT positions — the right of `&&`, both arms of `?:` and
+ *  `||`/`??`, the returns of an inlined IIFE — and only those are inspected. A
+ *  guard like `{j.jardine_authority && <JardineName …/>}` reads the field and
+ *  renders a component; it passes, correctly.
+ *
+ *  One level of local indirection is followed, because that is how the real bug
+ *  hid: the collision slip rendered `{sharedName || e.headline}`, and
+ *  `sharedName` was a const three lines up mapping subjects to their binomials.
+ *  No regex over the JSX could have seen it. Deeper chains and cross-file
+ *  helpers are NOT followed — the limit is stated here rather than implied. */
+function rawNameRenders(fileUrl: URL): string[] {
+  const sf = ts.createSourceFile(
+    'consumer.tsx',
+    readFileSync(fileUrl, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+
+  const locals = new Map<string, ts.Node>();
+  const collect = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      locals.set(n.name.text, n.initializer);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(sf);
+
+  /** the watched field this subtree reaches, or null. `depth` caps indirection. */
+  const mentions = (root: ts.Node, depth: number): string | null => {
+    let hit: string | null = null;
+    const walk = (x: ts.Node): void => {
+      if (hit) return;
+      if (ts.isIdentifier(x)) {
+        if (RAW_1838.includes(x.text)) {
+          hit = x.text;
+          return;
+        }
+        const init = depth > 0 ? locals.get(x.text) : undefined;
+        if (init) {
+          const via = mentions(init, depth - 1);
+          if (via) hit = `${via} (via ${x.text})`;
+          if (hit) return;
+        }
+      }
+      ts.forEachChild(x, walk);
+    };
+    walk(root);
+    return hit;
+  };
+
+  const results = (e: ts.Expression): ts.Expression[] => {
+    if (ts.isParenthesizedExpression(e)) return results(e.expression);
+    if (ts.isBinaryExpression(e)) {
+      const k = e.operatorToken.kind;
+      if (k === ts.SyntaxKind.AmpersandAmpersandToken) return results(e.right);
+      if (k === ts.SyntaxKind.BarBarToken || k === ts.SyntaxKind.QuestionQuestionToken) {
+        return [...results(e.left), ...results(e.right)];
+      }
+      return [e];
+    }
+    if (ts.isConditionalExpression(e)) {
+      return [...results(e.whenTrue), ...results(e.whenFalse)];
+    }
+    // A call that renders through a CALLBACK — an inlined IIFE (AtlasView has
+    // one) or the `rows.map(r => …)` every list in this app is built from. What
+    // reaches the DOM is what the callback RETURNS; the guard clauses above the
+    // return read the field legitimately and must not be flagged.
+    if (ts.isCallExpression(e)) {
+      const bare = ts.isParenthesizedExpression(e.expression) ? e.expression.expression : e.expression;
+      const last = e.arguments[e.arguments.length - 1];
+      const fn =
+        e.arguments.length === 0 && (ts.isArrowFunction(bare) || ts.isFunctionExpression(bare))
+          ? bare
+          : last && (ts.isArrowFunction(last) || ts.isFunctionExpression(last))
+            ? last
+            : null;
+      if (fn) {
+        if (!ts.isBlock(fn.body)) return results(fn.body);
+        const out: ts.Expression[] = [];
+        const rets = (n: ts.Node): void => {
+          if (ts.isReturnStatement(n) && n.expression) out.push(...results(n.expression));
+          // don't descend into a NESTED function — its returns are not this
+          // call's result. The callback's own body is reached via forEachChild
+          // on fn.body below, so the guard here only stops one level down.
+          if (!ts.isFunctionLike(n)) ts.forEachChild(n, rets);
+        };
+        ts.forEachChild(fn.body, rets);
+        return out;
+      }
+    }
+    return [e];
+  };
+
+  const isJsx = (n: ts.Node): boolean =>
+    ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n);
+
+  /** the tag an attribute belongs to, e.g. 'JardineName' */
+  const ownerTag = (attr: ts.JsxAttribute): string => {
+    const opening = attr.parent.parent;
+    return opening.tagName.getText(sf);
+  };
+
+  const bad: string[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isJsxExpression(n) && n.expression) {
+      // a prop handed to <JardineName> is the whole point — it is the component
+      // that owns the marker. Any OTHER attribute (title=, aria-label=, alt=)
+      // renders text and is inspected like a child.
+      const exempt = ts.isJsxAttribute(n.parent) && ownerTag(n.parent) === 'JardineName';
+      if (!exempt) {
+        for (const r of results(n.expression)) {
+          if (isJsx(r)) continue;
+          const via = mentions(r, 1);
+          if (via) {
+            const { line } = sf.getLineAndCharacterOfPosition(r.getStart(sf));
+            bad.push(`line ${line + 1}: ${via} — ${r.getText(sf).replace(/\s+/g, ' ').slice(0, 90)}`);
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return bad;
+}
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -1400,19 +1636,32 @@ test('G4 no surface prints an 1838 name except through <JardineName>', () => {
   // strings are not rendered at all, which is what actually makes the bug
   // unrepresentable. A new section printing a bare binomial fails on the day it
   // is written.
+  // UPDATE — this was a regex that knew two spellings of the bug, and a THIRD
+  // spelling shipped past it: the collision slip rendered a local const built by
+  // mapping subjects to their binomials. It is a parse now; see rawNameRenders()
+  // for what it follows and what it deliberately does not.
+  // The derived list disagreed with the hand-written one in BOTH directions,
+  // which is the argument for deriving it. It gained AtlasView, which really
+  // does render a binomial and was never being parsed. It lost
+  // LibraryFrameView, which prints `jardine_title` — an 1838 common name — and
+  // no binomial at all, so it had been sitting in the list passing vacuously.
+  // The floor is what the tree actually contains.
+  for (const must of ['LibraryView.tsx', 'BirdPopup.tsx', 'AtlasView.tsx']) {
+    assert.ok(
+      CONSUMERS.some((c) => c.endsWith(must)),
+      `${must} renders an 1838 binomial and the scan did not find it — a broken scan ` +
+        `passes vacuously (found: ${CONSUMERS.join(', ') || 'nothing'})`,
+    );
+  }
   for (const file of CONSUMERS) {
-    const body = stripComments(readFileSync(new URL(file, import.meta.url), 'utf8'))
-      .replace(/\s+/g, ' ');
-    for (const field of ['jardine_binomial', 'jardine_authority']) {
-      // a JSX interpolation of the raw string — `{x.jardine_binomial}` or
-      // `{x.jardine_binomial || '—'}` — is the regression this catches.
-      const raw = new RegExp(`\\{\\s*[A-Za-z_$][\\w$]*\\.${field}\\s*(\\||\\})`);
-      assert.ok(
-        !raw.test(body),
-        `${file} renders a raw ${field} instead of <JardineName> — that copy would ` +
-          `silently lose its [sic] and its provenance marker`,
-      );
-    }
+    const found = rawNameRenders(new URL(file, import.meta.url));
+    assert.deepEqual(
+      found,
+      [],
+      `${file} renders a raw 1838 name instead of <JardineName> — that copy loses ` +
+        `its [sic] and its provenance marker, and drifts from every other surface ` +
+        `printing the same string:\n  ${found.join('\n  ')}`,
+    );
   }
   // and the component itself must still do both jobs
   const jn = stripComments(readFileSync(new URL('../src/components/JardineName.tsx', import.meta.url), 'utf8'));
@@ -2118,15 +2367,147 @@ test('M2 an unreachable catalog is never reported as an absence', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(
-    src,
-    /byCatalog\.size === 0/,
-    'gardenFact() no longer distinguishes an empty catalog from a real absence',
-  );
+  // (The source-grep for `byCatalog.size === 0` that stood here is gone:
+  //  gardenFact() lives in jardine.ts now and is CALLED below, which is a
+  //  strictly stronger check — a grep for the expression could not tell whether
+  //  it still ran before the lookup, and the reorder is the whole attack.)
   assert.match(src, /unknown/, 'the unknown state was removed from the slip');
+
+  // EVERY CONSUMER, NOT THE ONE. gardenFact() distinguished the two cases and
+  // only one of its readers looked. The collision slip printed "not in this
+  // garden's catalogue." unconditionally, so an unreachable species.json made
+  // the museum state in print that two birds had never been recorded here —
+  // one of them among the garden's loudest. The guard was one branch away from
+  // the bug it was written for.
+  //
+  // The sentence pair lives in <AbsentNote> now. Nowhere that renders an
+  // absence may write its own.
+  const absent = src.split('<AbsentNote').length - 1;
+  assert.ok(
+    absent >= 2,
+    `only ${absent} place renders an absence through <AbsentNote> — a second, ` +
+      `hand-written absence sentence is how a missing catalog became a claim about birds`,
+  );
+
+  // AND THE FLAG ITSELF MUST STILL BE REACHABLE.
+  //
+  // Auditing the branches proves each one ASKS. It cannot prove the answer can
+  // ever be yes — a sweep reordered gardenFact() so the bird is looked up
+  // before the ledger is checked, `unknown` became unreachable, every branch
+  // that reads it still compiled, and the suite stayed at 117. So this calls it.
+  const empty = new Map<string, CatalogSpecies>();
+  const noLedger = gardenFact('Turdus merula', empty, 0);
+  assert.equal(noLedger.present, false, 'an empty catalog reports a bird as present');
+  assert.equal(
+    noLedger.unknown,
+    true,
+    'an EMPTY catalog no longer reports `unknown` — the slip will state that this garden ' +
+      'has never heard the bird, when in fact species.json did not load. The order of the ' +
+      'two checks in gardenFact() is the guarantee; looking the bird up first destroys it.',
+  );
+  const oneBird = new Map<string, CatalogSpecies>([
+    ['Turdus merula', { sci_name: 'Turdus merula', com_name: 'Blackbird', detection_count: 10 } as CatalogSpecies],
+  ]);
+  const realAbsence = gardenFact('Corvus corone', oneBird, 100);
+  assert.equal(realAbsence.present, false, 'a bird outside a REAL catalog is reported present');
+  assert.ok(
+    !realAbsence.unknown,
+    'a readable catalog that simply lacks the bird is being reported as unreadable — ' +
+      'then the museum can never state a measured absence at all',
+  );
+  assert.equal(gardenFact('Turdus merula', oneBird, 100).pct, '10.00%', 'the measured share changed');
+
+  // and the masthead may only count birds this garden has actually heard
+  const pages = heardPages(
+    [
+      { sci_name: 'Turdus merula' } as JardineSpecies,
+      { sci_name: 'Corvus corone' } as JardineSpecies,
+    ],
+    oneBird,
+  );
+  assert.deepEqual(
+    pages.map((p) => p.sci_name),
+    ['Turdus merula'],
+    'the ledger counts pages for birds this garden has never heard — the masthead would ' +
+      'read "52 of the 47 species heard in this garden have a page"',
+  );
+
+  // EVERY BRANCH, FOUND BY THE PARSER RATHER THAN BY MY GREP.
+  //
+  // The first version of this guard counted <AbsentNote> call sites, and it
+  // passed while a THIRD consumer was still fabricating — the plain errata
+  // slip, which printed a literal `0` in its largest figure with "never heard
+  // here" beside it. It used different words, so searching for the sentence I
+  // had already fixed could never have found it. A zero is a measurement, and
+  // that one was published whenever the catalog was simply unreachable.
+  //
+  // So: parse, find every `…present ? … : …`, and require the ELSE branch to
+  // consult `unknown`. This finds branches nobody remembered to look for.
+  const sf = ts.createSourceFile(
+    'lib.tsx',
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const mentionsUnknown = (n: ts.Node): boolean => {
+    let hit = false;
+    const walk = (x: ts.Node): void => {
+      if (hit) return;
+      if (ts.isIdentifier(x) && x.text === 'unknown') hit = true;
+      else ts.forEachChild(x, walk);
+    };
+    walk(n);
+    return hit;
+  };
+  let branches = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isConditionalExpression(n) && /\bpresent\b/.test(n.condition.getText(sf))) {
+      branches++;
+      const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
+      assert.ok(
+        mentionsUnknown(n.whenFalse),
+        `LibraryView.tsx:${line + 1} branches on \`${n.condition.getText(sf)}\` and its ` +
+          `absent case never asks whether the ledger was READABLE. An empty catalog is ` +
+          `not an empty garden — this prints a fact about birds when a fetch failed`,
+      );
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  assert.ok(branches >= 2, `only ${branches} present/absent branch found — re-point this guard`);
+  for (const branch of [/not in this garden's catalogue/, /never heard in this garden\.<\/div>/]) {
+    const n = (src.match(new RegExp(branch.source, 'g')) || []).length;
+    assert.ok(
+      n <= 1,
+      `an absence sentence is written ${n} times — the copy outside <AbsentNote> cannot ` +
+        `see the unknown state`,
+    );
+  }
+  // the component itself must branch on it
+  const note = /function AbsentNote\(([\s\S]*?)\n\}/.exec(
+    stripComments(readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8')),
+  );
+  assert.ok(note, 'AbsentNote is gone — re-point this guard');
+  // ASSERT THE PROPERTY, NOT THE SPELLING. This was `/unknown\s*\?/` and it
+  // passed a mutation that deleted the branch outright — because the component's
+  // own type annotation reads `unknown?: boolean`, and the regex matched THAT.
+  // A guard that its own signature satisfies is not a guard. What matters is
+  // that both sentences are reachable: one measurement, one admission.
+  for (const [sentence, what] of [
+    ['ledger is not to hand', 'the admission that the catalog is unreachable'],
+    ['never heard in this garden', 'the measured absence'],
+  ]) {
+    assert.ok(
+      note[1].includes(sentence),
+      `AbsentNote can no longer say ${what} — with only one sentence left it states the ` +
+        `same thing whether the garden was silent or merely unreachable`,
+    );
+  }
+
   // silences() must agree: no catalog, no rows — never a wall of amber zeroes
   const raw = corpusRaw();
-  if (raw !== null) assert.deepEqual(silences(normalize(raw), []), []);
+  assert.deepEqual(silences(normalize(raw), []), []);
 });
 
 test('M3 the Blind Ear claims its own number keys', () => {
@@ -2334,18 +2715,25 @@ test('O3 the ledger does not count vignettes as plates', () => {
   // predicate correctly changed to test `image` instead — while still being
   // unable to catch the same bug written any other way. What Erratum III needs
   // is one thing: whatever the ledger counts, it excludes vignettes.
-  const withPlate = /const withPlate = withPage\.filter\(\((\w+)\) => ([^;]*?)\)\.length;/.exec(src);
-  assert.ok(withPlate, 'the ledger no longer computes withPlate — find it and re-point this guard');
-  const [, param, predicate] = withPlate;
-  assert.ok(
-    predicate.includes(`!${param}.plate_is_vignette`),
-    `the ledger counts vignettes as plates again — it now contradicts Erratum III (predicate: ${predicate})`,
-  );
-  // And it must count something the museum actually hangs, not merely a
-  // reference: a plate_ref with no file behind it is a plate we do not have.
-  assert.ok(
-    predicate.includes(`${param}.image`),
-    `the ledger counts plate REFERENCES, not hung plates (predicate: ${predicate})`,
+  // BEHAVIOUR, NOT SUBSTRINGS. This read the predicate's SOURCE and asked
+  // whether it contained `s.image` and `!s.plate_is_vignette`. Both appear in
+  // `s.image || !s.plate_is_vignette`, which means the opposite and would count
+  // every vignette in the corpus as a plate — an operator is not a substring,
+  // and this file has now shipped that mistake twice.
+  //
+  // The rule is hangsAPlate() and this calls it over the whole truth table.
+  const V = (image: string | null, vignette: boolean) =>
+    hangsAPlate({ image, plate_is_vignette: vignette } as unknown as JardineSpecies);
+  assert.equal(V('jardine/24-3.jpg', false), true, 'a full plate we hold is not counted');
+  assert.equal(V('jardine/24-3.jpg', true), false, 'a VIGNETTE is counted as a plate — that is the claim Erratum III makes');
+  assert.equal(V(null, false), false, 'a bird with no engraving on disk is counted as having one');
+  assert.equal(V(null, true), false, 'a missing vignette is counted as a plate');
+
+  // and the ledger must use it rather than re-deriving the pair
+  assert.match(
+    src,
+    /const withPlate = withPage\.filter\(hangsAPlate\)\.length;/,
+    'the ledger hand-rolls its plate test again — that is where the operator went wrong',
   );
 });
 
@@ -2717,10 +3105,153 @@ test('T1 every band heading is TRUE of every row beneath it', () => {
 
   // Every band must earn its place: a caption with no rows is a claim about
   // nothing, and a predicate no row exercises has never been run.
+  //
+  // The `|| drift === 'family'` exemption that used to sit on the next line is
+  // gone. It was written when the family tier was empty; the tier has a row now,
+  // and an exemption kept past its cause is a guard that cannot fail.
   for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
     const rows = j.species.filter((s) => s.drift === drift);
-    assert.ok(rows.length > 0 || drift === 'family', `band '${drift}' has no rows — remove it or the caption is decorative`);
+    assert.ok(rows.length > 0, `band '${drift}' has no rows — remove it or the caption is decorative`);
     assert.ok(band.label.trim().length > 0, `band '${drift}' has an empty caption`);
+  }
+
+  // ── AND THE SENTENCE ITSELF ────────────────────────────────────────────────
+  // Everything above this line checks the PREDICATE. Seven independent
+  // reviewers landed on the same hole in one sweep: `label` is a free string
+  // that no assertion above ever reads, so the exact caption this guard was
+  // written to retire — "the same name, spelled the way 1838 spelled it" —
+  // could be pasted back over fourteen non-identical binomials and every
+  // assertion so far would still pass. Storing the caption next to its
+  // predicate was not the same as binding it to one.
+  //
+  // A band heading may only claim something in words registered in
+  // LABEL_CLAIMS, each carrying the test that makes it true. No registered
+  // phrase in a label = the heading asserts something unverifiable, and that
+  // is the failure, not an exemption.
+  // THE SUBGENUS, PINNED BY BEHAVIOUR. `Parus (Mecistura) Caudatus` split on
+  // whitespace put `(Mecistura)` in the epithet slot, so the comparison against
+  // `Aegithalos caudatus` reported BOTH halves moved and the Roll filed the
+  // Long-tailed Tit under "both halves of the name changed" — over a row whose
+  // epithet has not changed since 1838. The data is corrected; correcting it
+  // also made the HELPER bug invisible, because `genus` holds either way
+  // (measured: reverting the filter left this test green). So the case is
+  // asserted through the exported bands, on the one name in the corpus that
+  // carries a subgenus.
+  const SUB = 'Parus (Mecistura) Caudatus';
+  const SUB_NOW = 'Aegithalos caudatus';
+  assert.equal(
+    DRIFT_BANDS.family.holds(SUB, SUB_NOW),
+    false,
+    `"${SUB}" → "${SUB_NOW}" moved ONE half. If the family band accepts it, a ` +
+      `parenthesised subgenus is being counted as the species epithet again`,
+  );
+  assert.equal(
+    DRIFT_BANDS.spelling.holds(SUB, SUB_NOW),
+    true,
+    `"${SUB}" → "${SUB_NOW}" is one word away once the subgenus is set aside`,
+  );
+
+  // ── AND THE REST OF THE SENTENCE ───────────────────────────────────────────
+  //
+  // LABEL_CLAIMS binds a PHRASE and leaves the rest of the label free, and a
+  // sweep walked straight through that door: drop the second disjunct from the
+  // spelling band —
+  //
+  //   'the same bird one word away — a Victorian spelling, or a second name
+  //    since replaced'   ->   'the same bird one word away — a Victorian spelling'
+  //
+  // — and the registered phrase 'one word away' survives, still holds of all 14
+  // rows, and the suite stays at 117 green. But the sentence now says those 14
+  // are Victorian ORTHOGRAPHY, and measured: only 2 of them are. The other 12
+  // changed a real word — `Alcedo ispida` → `Alcedo atthis`. That is the
+  // original defect back, in different words, with the whole apparatus green.
+  // Two independent reviewers reproduced it; so did I.
+  //
+  // No predicate can read English, so this does the only honest thing: it PINS
+  // each sentence to the measurement that makes it true. A label change is
+  // deliberate now — the lock fails until someone re-derives the sentence
+  // against its rows and says, in the same commit, what makes it hold.
+  const LABEL_LOCK: Record<string, { label: string; because: string }> = {
+    unchanged: {
+      label: 'the same binomial in 1838 and now — letter for letter',
+      because: '15 rows, all 15 byte-identical. "letter for letter" is exact, not rhetoric.',
+    },
+    spelling: {
+      label: 'the same bird one word away — a Victorian spelling, or a second name since replaced',
+      because:
+        '14 rows: 2 move zero words (Hæmatopus/Haematopus, Sitta Europea/europaea — those are ' +
+        'the Victorian spellings), 12 move exactly one. BOTH halves of the sentence carry rows. ' +
+        'Delete "or a second name since replaced" and it is false of the 12.',
+    },
+    genus: {
+      label: 'the name has moved further — a different genus, or a different species within it',
+      because:
+        '21 rows: 13 move one word, 8 move both. The disjunction covers `Anser ferus` → ' +
+        '`Anser anser`, which never left its genus — drop the second clause and that row ' +
+        'falsifies the heading.',
+    },
+    family: {
+      label: 'both halves of the name changed — the bird was refiled entirely',
+      because:
+        '1 row, `Sylvia hippolais` → `Phylloscopus collybita`, wordsMoved 2. The Long-tailed ' +
+        'Tit was here until its subgenus stopped being counted as its epithet; it moved one ' +
+        'half and belongs under genus.',
+    },
+    collision: {
+      label: 'the 1838 name now belongs to a DIFFERENT bird',
+      because:
+        '1 row. Not provable from the two strings — E9 proves it from the 1838 page and the ' +
+        'recorded collision_name.',
+    },
+  };
+  for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
+    const lock = LABEL_LOCK[drift];
+    assert.ok(lock, `band '${drift}' has no locked heading — add one with the measurement that makes it true`);
+    assert.equal(
+      band.label,
+      lock.label,
+      `band '${drift}' heading changed and its lock did not.\n\n` +
+        `  now : ${band.label}\n  was : ${lock.label}\n\n` +
+        `  what made the old one true: ${lock.because}\n\n` +
+        `  A heading is a claim about the rows under it, and shortening one is how the ` +
+        `retired falsehood came back with every predicate still passing. Re-derive the new ` +
+        `sentence against the tier, then update the lock in the same commit.`,
+    );
+    assert.ok(lock.because.length > 40, `band '${drift}' is locked with no stated evidence`);
+  }
+
+  const testSrc = readFileSync(new URL('./jardine.test.ts', import.meta.url), 'utf8');
+  for (const [drift, band] of Object.entries(DRIFT_BANDS)) {
+    const rows = j.species.filter((s) => s.drift === drift);
+    const claims = LABEL_CLAIMS.filter((c) => band.label.includes(c.phrase));
+    assert.ok(
+      claims.length > 0,
+      `band '${drift}' reads "${band.label}" and makes no claim anything can check. ` +
+        `Register the words that carry its claim in LABEL_CLAIMS with the predicate ` +
+        `that makes them true, or say less.`,
+    );
+    for (const c of claims) {
+      if (c.holds) {
+        for (const s of rows) {
+          assert.ok(
+            c.holds(s.jardine_binomial, s.sci_name),
+            `band '${drift}' says "${c.phrase}" and ${s.sci_name} is filed under it — ` +
+              `${JSON.stringify(s.jardine_binomial)} → ${JSON.stringify(s.sci_name)} makes ` +
+              `that sentence false for this row`,
+          );
+        }
+        continue;
+      }
+      assert.ok(
+        c.provenBy,
+        `claim "${c.phrase}" has no predicate and names no test — it is checked by nothing`,
+      );
+      assert.match(
+        testSrc,
+        new RegExp(`test\\('${c.provenBy}\\b`),
+        `claim "${c.phrase}" defers its proof to ${c.provenBy}, and there is no such test`,
+      );
+    }
   }
 
   // And the Roll must actually render them from this source, not a local copy.
@@ -2850,40 +3381,98 @@ test('E6 the station may only claim a bird it actually painted', () => {
   // Two of the caption's three clauses were true even for those three — bundled
   // art IS AI-generated and is neither engraving nor photograph. Only the
   // agency was false. So only the agency is gated here.
-  const table = /const STATION_CAPTION: Record<string, string> = \{([\s\S]*?)\};/.exec(src);
-  assert.ok(table, 'STATION_CAPTION is gone — the caption no longer varies by who made the picture');
-  const autogen = /autogen:\s*'([^']*)'/.exec(table[1]);
-  const bundled = /bundled:\s*'([^']*)'/.exec(table[1]);
-  assert.ok(autogen && bundled, 'STATION_CAPTION must cover both bundled and autogen art');
-  assert.match(autogen[1], /by this station/, 'station-painted art no longer says the station painted it');
-  assert.doesNotMatch(
-    bundled[1],
-    /by this station/,
-    'BUNDLED art claims the station painted it — it shipped with the repo and never could have',
-  );
-  const unknown = /const STATION_CAPTION_UNKNOWN = '([^']*)'/.exec(src);
-  assert.ok(unknown, 'there is no caption for art whose source could not be read');
-  assert.doesNotMatch(
-    unknown[1],
-    /by this station/,
-    'an unreadable art_source falls back to CLAIMING the station painted it — it must fall to the weaker claim',
-  );
-  // And the agency sentence must exist nowhere else, gated or not.
-  assert.equal(
-    (src.match(/by this station · not an engraving/g) || []).length,
-    1,
-    'a second copy of the agency claim exists outside STATION_CAPTION',
-  );
-  assert.match(station[0], /STATION_CAPTION/, 'StationBird no longer selects its caption by art source');
-
+  // THE SELECTION, NOT THE TABLE. This block used to regex the entries of a
+  // STATION_CAPTION literal in the view and assert their wording. Six reviewers
+  // found the same hole in one sweep: which entry is CHOSEN was never checked,
+  // so `TABLE[artSource || 'autogen']` re-arms the agency claim for every bird
+  // with an unreadable source — and until the station began emitting
+  // art_source, that was EVERY bird on the wall. So this calls the decision.
+  //
+  // Exactly one input may reach a caption claiming this station painted the
+  // bird. Everything else — including inputs that look almost right — must not.
   assert.match(
-    src.replace(/\s+/g, ' '),
-    /the engravings are Jardine's, scanned[^<]*the birds in colour are AI visualized by this station/,
-    'the colophon no longer distinguishes the scanned engravings from the painted birds',
+    stationCaption('autogen'),
+    /by this station/,
+    'station-painted art no longer says the station painted it',
+  );
+  for (const s of ['bundled', '', ' ', 'AUTOGEN', 'autogen ', ' autogen', 'unknown', 'none', 'x']) {
+    assert.doesNotMatch(
+      stationCaption(s),
+      /by this station/,
+      `art_source ${JSON.stringify(s)} is not proof this station painted the bird, and its ` +
+        `caption claims it did`,
+    );
+  }
+  assert.match(stationCaption('bundled'), /shipped with this museum/, 'bundled art no longer says where it came from');
+  // AND THE UNREADABLE CASE MUST CLAIM NEITHER ORIGIN. Checking only that it
+  // avoids "by this station" let a sweep re-point the fallback at the BUNDLED
+  // entry — which does not claim agency, and does assert the art shipped with
+  // the museum, which for a bird whose source we cannot read is equally invented.
+  const unknownCap = stationCaption('');
+  assert.notEqual(unknownCap, stationCaption('autogen'), 'an unreadable art_source takes the station-painted caption');
+  assert.notEqual(unknownCap, stationCaption('bundled'), 'an unreadable art_source takes the shipped-with-the-museum caption');
+  assert.doesNotMatch(
+    unknownCap,
+    /by this station|shipped with|painted here/,
+    `the caption for art whose source cannot be read makes an origin claim anyway: ` +
+      `${JSON.stringify(unknownCap)}`,
+  );
+
+  // The view must ASK, and must not pre-cook the answer: no 'autogen' literal
+  // may exist in LibraryView at all, which is what a `|| 'autogen'` default is.
+  assert.match(station[0], /stationCaption\(/, 'StationBird no longer selects its caption by art source');
+  assert.doesNotMatch(
+    src,
+    /'autogen'|"autogen"/,
+    "LibraryView names 'autogen' — the only legitimate place for that string is the caption " +
+      'table in jardine.ts, and a copy here is how the fallback gets re-pointed at the strong claim',
+  );
+
+  // THE COLOPHON. This assertion used to require the sentence
+  // "the birds in colour are AI visualized by this station" — a blanket claim
+  // that is FALSE of the eight birds whose art ships in the repo. The guard was
+  // holding the falsehood in place: correcting the sentence turned this test
+  // red. It is counted from the catalog now.
+  const flat = src.replace(/\s+/g, ' ');
+  assert.match(flat, /the engravings are Jardine's, scanned/, 'the colophon no longer names the engravings');
+  assert.doesNotMatch(
+    flat,
+    /birds in colour are AI visualized by this station/,
+    'the colophon makes the blanket agency claim again — it is false for every bundled bird',
+  );
+  assert.match(
+    flat,
+    /artProvenance\(/,
+    'the colophon no longer counts who painted what — it is asserting again',
+  );
+  // NO UNIVERSAL PROMISE ABOUT CAPTIONS. The line used to end "which is which
+  // is printed under every image", and it was false on its own page: the two
+  // <BirdThumb> cuts inside the errata slips and the Blind Ear reveal carry a
+  // NAME and no provenance line. The counts above say which is which; a
+  // promise about every image on the page is a claim nothing can keep.
+  assert.doesNotMatch(
+    flat,
+    /which is which is printed under (?:every|each)/,
+    'the colophon promises a caption under every image again — the cuts inside the ' +
+      'slips carry a bird name and no provenance line, so that sentence is false on ' +
+      'the page that prints it',
+  );
+  // and the counter itself must never hand a bundled bird to the station
+  const prov = artProvenance([
+    { art_status: 'ready', art_source: 'autogen' },
+    { art_status: 'ready', art_source: 'bundled' },
+    { art_status: 'ready', art_source: '' },
+    { art_status: 'none', art_source: 'autogen' },
+    { art_status: 'unknown', art_source: '' },
+  ]);
+  assert.deepEqual(
+    prov,
+    { station: 1, shipped: 1, unattributed: 1 },
+    'artProvenance miscounts: a bird with no picture, or none this station painted, is being ' +
+      'credited to it',
   );
 
   const raw = corpusRaw();
-  if (raw === null) return;
   const j = normalize(raw);
   const withPlate = j.species.filter((s) => s.image !== null).length;
   assert.ok(withPlate > 0, 'no species carries an engraving — run tools/jardine/link_plates.py');
@@ -2927,8 +3516,56 @@ test('E8 a plate caption says everything the plate obliges it to say', () => {
   const src = stripComments(
     readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
   ).replace(/\s+/g, ' ');
-  assert.match(src, /two birds on this sheet/, 'the two-bird naming is gone from the captions');
-  assert.match(src, /the volume assigns this plate; the picture does not say so/, 'the citation disclaimer is gone');
+  // EXACTLY ONCE, NOT AT LEAST ONCE. These were `assert.match` over the whole
+  // file while both sentences existed TWICE — in the printed figcaption and
+  // again in the enlarged viewer — so either copy could be deleted and the
+  // surviving one satisfied the guard. Six reviewers found it independently,
+  // and the copy that matters most is the first: it is the one on the page.
+  // The sentences live in <PlateObligations> now, once, and both surfaces
+  // render it.
+  for (const [sentence, what] of [
+    ['two birds on this sheet', 'the two-bird naming'],
+    ['the volume assigns this plate; the picture does not say so', 'the citation disclaimer'],
+  ]) {
+    const n = src.split(sentence).length - 1;
+    assert.equal(
+      n,
+      1,
+      n === 0
+        ? `${what} is gone from the captions`
+        : `${what} exists ${n} times — a duplicate is a copy that can be deleted ` +
+          `while a whole-file match stays green, which is how this guard was beaten`,
+    );
+  }
+  const obligations = src.split('<PlateObligations').length - 1;
+  assert.equal(
+    obligations,
+    2,
+    `both the printed caption and the enlarged viewer must discharge the obligations ` +
+      `through the one component — found ${obligations} call sites`,
+  );
+
+  // THE THRESHOLD, which two lenses of a sweep found independently.
+  // Collapsing the sentences into one component fixed the duplication and left
+  // the CONDITION unguarded: `also.length > 0` -> `> 1` is one character, reads
+  // like a fencepost tidy, and every corpus shared plate carries EXACTLY ONE
+  // co-occupant — so it silences all five at once. Each of those engravings
+  // then names one bird while showing two, which is the single claim this whole
+  // caption exists to prevent.
+  const coOccupants = j.species.map((s) => s.plate_also.length).filter((n) => n > 0);
+  assert.ok(coOccupants.length > 0, 'no shared plate in the corpus — this check is vacuous');
+  assert.equal(
+    Math.min(...coOccupants),
+    1,
+    'no shared plate carries exactly one co-occupant any more — re-read the threshold below',
+  );
+  assert.match(
+    src,
+    /\{also\.length > 0 && \(/,
+    `the two-bird sentence is gated on something other than "there is a co-occupant". ` +
+      `Every shared plate in this corpus has exactly ${Math.min(...coOccupants)}, so any ` +
+      `threshold above 0 prints nothing on any of the ${coOccupants.length} of them`,
+  );
   assert.match(src, /plateCaption\(/, 'the view no longer derives its caption obligations from plateCaption()');
 });
 
@@ -2964,13 +3601,69 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   assert.match(src, /<PlateViewer\s/, 'PlateViewer is never mounted');
   assert.match(src, /OpenPlateCtx\.Provider/, 'nothing provides the open-plate handler');
 
-  // The mount width must still be a FUNCTION of Jardine's scale.
-  const mount = /\.lib-mount \{([^}]*)\}/.exec(css);
-  assert.ok(mount, '.lib-mount is gone — find the vitrine and re-point this guard');
+  // THE MOUNT MUST STAY PROPORTIONAL — every rule, not the first one.
+  //
+  // This used to be `/\.lib-mount \{([^}]*)\}/` plus a check that the token
+  // `var(--scale` appeared inside. Six reviewers found the same two holes: the
+  // regex reads only the FIRST matching block, so any later rule (a media
+  // query, a state selector) overrides it unseen; and the token surviving says
+  // nothing about proportionality — `min-width: 300px` keeps it and flattens
+  // the Robin's 0.38 vignette onto the same width as a full plate. Erratum I is
+  // ABOUT that ratio: its argument is what the exhibit shows, so a clamped
+  // exhibit contradicts the text above it.
+  //
+  // So: collect every rule that targets .lib-mount anywhere in the sheet, and
+  // require each to leave the width a linear function of Jardine's own scale.
+  const rules = cssRules(css).filter((r) => /\.lib-mount(?![\w-])/.test(r.selector));
+  assert.ok(rules.length > 0, '.lib-mount is gone — find the vitrine and re-point this guard');
+  let scaled = 0;
+  for (const rule of rules) {
+    const { body } = rule;
+    const sel = rule.context ? `${rule.context} { ${rule.selector}` : rule.selector;
+    const width = /(?:^|;)\s*width\s*:([^;]*)/.exec(body);
+    if (width) {
+      assert.match(
+        width[1],
+        /var\(--scale/,
+        `"${sel}" sets a width that ignores Jardine's scale — the vitrine stops comparing plates`,
+      );
+      scaled++;
+    }
+    assert.doesNotMatch(
+      body,
+      /(?:^|;)\s*(?:min-width|min-inline-size)\s*:/,
+      `"${sel}" floors the mount's width. A floor is exactly how the ratio dies while ` +
+        `var(--scale) is still written on the line above it: a 0.38 vignette clamps up to ` +
+        `the same width as a full plate, and Erratum I's exhibit stops showing its argument`,
+    );
+    const maxw = /(?:^|;)\s*(?:max-width|max-inline-size)\s*:([^;]*)/.exec(body);
+    if (maxw) {
+      assert.match(
+        maxw[1],
+        /100%|none/,
+        `"${sel}" caps the mount at ${maxw[1].trim()} — anything but 100% clamps the large ` +
+          `plate down and closes the same gap from the other side`,
+      );
+    }
+  }
+  assert.ok(scaled > 0, 'no .lib-mount rule sizes by var(--scale) at all');
+  // and the view must hand each subject its own scale, ON the element the CSS
+  // sizes. A reviewer noted the variable can be moved one DOM level down and
+  // every check above still passes — `--scale` set on an inner node leaves
+  // `.lib-mount` computing `var(--scale, 1)`, which falls back to 1, so every
+  // plate renders at full width and the ratio quietly disappears. So the style
+  // and the class must be on the same element.
+  const flat = src.replace(/\s+/g, ' ');
   assert.match(
-    mount[1],
-    /var\(--scale/,
-    'the vitrine no longer sizes by Jardine’s own scale — Erratum I’s exhibit now contradicts its text',
+    flat,
+    /'--scale':\s*String\(sub\.scale\)/,
+    'the vitrine no longer passes each subject its recorded scale — every mount is 1.0',
+  );
+  assert.match(
+    flat,
+    /<figure className="lib-mount" style=\{style\}>/,
+    'the scale variable is no longer set on .lib-mount itself — anywhere else and ' +
+      'var(--scale, 1) takes its fallback, which is 1 for every plate',
   );
   // And the data must still carry a real spread of scales, or (2) is vacuous.
   const raw = corpusRaw();
@@ -2980,6 +3673,407 @@ test('E7 every plate opens, and the vitrine keeps Jardine’s own proportions', 
   assert.ok(
     scales.size > 1,
     'every errata subject now has the same scale — the vitrine has nothing left to compare',
+  );
+});
+
+test('T5 the wall keeps its own three promises', () => {
+  // Three claims the collection wall makes, each found by a sweep, each one an
+  // ordinary tidy away from being false. All three reproduced before fixing.
+
+  // 1 — "IN ORDER OF FIRST APPEARANCE". The comparator's three-branch null
+  // dance IS that sentence. Collapse it to `(af ?? '') < (bf ?? '')` — exactly
+  // the simplification it invites — and an empty string sorts before every real
+  // date, so a wall headed "in order of first appearance" opens with the birds
+  // whose first appearance is unknown.
+  const row = (sci: string, first: string | null, com = sci): CatalogSpecies =>
+    ({ sci_name: sci, com_name: com, first_confident: first }) as CatalogSpecies;
+  const wall = [
+    row('D undated', null, 'Aardvark Bird'),
+    row('B later', '2026-07-20'),
+    row('A earliest', '2026-06-30'),
+    row('C undated too', null, 'Zebra Bird'),
+  ].sort(catalogOrder);
+  assert.deepEqual(
+    wall.map((r) => r.sci_name),
+    ['A earliest', 'B later', 'D undated', 'C undated too'],
+    'the wall is no longer in order of first appearance: a bird with no date must come ' +
+      'LAST — it has no place in that order at all — and undated ties break by name',
+  );
+
+  // 2 — "THE LIBRARY NEVER DESCRIBED ITS VOICE" is a claim about a page that
+  // EXISTS. counterpointFor(null) is the no-page case and must stay null, or an
+  // optional-chaining tidy in the wall's card —
+  //     counterpointFor(jard.get(sci))?.kind === 'voice' ? … : …
+  // — sends every bird Jardine never wrote about into the else branch, where
+  // the wall states the library considered it and stayed silent.
+  assert.equal(
+    counterpointFor(null),
+    null,
+    'a bird with NO Jardine page no longer yields null — every such bird on the wall ' +
+      'would then be captioned as one the library declined to describe',
+  );
+  const wallSrc = stripComments(
+    readFileSync(new URL('../src/views/CollectionWallView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    wallSrc,
+    /const cp = counterpointFor[^;]*; if \(!cp\) return null;/,
+    'the wall no longer separates "no page" from "a page with no voice" before it prints ' +
+      '"the library never described its voice"',
+  );
+
+  // 3 — and it must ask the shared authority, not re-derive the distinction.
+  assert.match(wallSrc, /counterpointFor\(/, 'the wall hand-rolls the voice/silence split again');
+});
+
+test('T4 the two hands stay apart — 1838 prose, 2026 apparatus', () => {
+  // THE LAW THE WHOLE TAB RESTS ON, GUARDED IN ONE RULE UNTIL NOW.
+  //
+  // Two hands, and a reader can tell them apart at a glance without being
+  // told: 1838 is Cormorant (var(--display)), set ragged-right in --ink-2;
+  // 2026 is Space Mono (var(--mono)), small, uppercase, --mut. That is not
+  // decoration — it is how this page distinguishes what Jardine wrote from
+  // what this station says ABOUT what Jardine wrote.
+  //
+  // A reviewer pointed out the obvious hole: the attribution line is 2026
+  // apparatus, and moving it to var(--display) makes a modern annotation look
+  // like 1838 text. Nothing checked. Same for every other apparatus class, and
+  // for the prose in the other direction.
+  const css = readFileSync(new URL('../src/views/LibraryView.css', import.meta.url), 'utf8');
+  // EVERY rule for the class, joined — not the first one the regex happens to
+  // find. A later rule (or one inside a breakpoint) overrides the first, and
+  // reading only the first is how the vitrine guard was beaten.
+  const ruleFor = (cls: string): string | null => {
+    const hits = cssRules(css).filter((r) =>
+      new RegExp(`\\.${cls}(?![\\w-])`).test(r.selector),
+    );
+    return hits.length ? hits.map((h) => h.body).join(';') : null;
+  };
+
+  // The 2026 hand. Every one of these annotates; none of them is Jardine.
+  for (const cls of ['lib-cite', 'lib-lab', 'lib-plate-k', 'lib-mount-k']) {
+    const body = ruleFor(cls);
+    assert.ok(body, `.${cls} is gone — re-point this guard`);
+    assert.match(
+      body,
+      /font-family:\s*var\(--mono\)/,
+      `.${cls} is 2026 apparatus and no longer set in the modern hand — in Cormorant it ` +
+        `reads as something Jardine wrote, which is the one confusion this tab exists to prevent`,
+    );
+    assert.doesNotMatch(
+      body,
+      /font-family:\s*var\(--display\)/,
+      `.${cls} takes Jardine's hand`,
+    );
+  }
+
+  // The 1838 hand. Prose is his, and it must not be dressed as apparatus.
+  for (const cls of ['lib-prose']) {
+    const body = ruleFor(cls);
+    assert.ok(body, `.${cls} is gone — re-point this guard`);
+    assert.match(
+      body,
+      /font-family:\s*var\(--display\)/,
+      `.${cls} carries 1838 prose and is no longer in Jardine's hand`,
+    );
+    assert.doesNotMatch(
+      body,
+      /text-transform:\s*uppercase/,
+      `.${cls} sets 1838 prose in uppercase — that is the 2026 register`,
+    );
+  }
+
+  // AMBER, BY ALLOWLIST RATHER THAN BY DENYLIST.
+  //
+  // This used to name four classes that must NOT be amber, and a sweep simply
+  // used a fifth: `.lib-roll-o` is every binomial cell in the Roll, and giving
+  // it `color: var(--amber)` paints all 52 names — the marker then says every
+  // 1838 name is unmoved, when 37 of them moved. T2 proves the CLASS is applied
+  // to the right rows and had no idea the colour had leaked to their neighbour.
+  // A denylist can only ever forbid the selectors I thought of.
+  //
+  // So: enumerate every rule in the sheet that uses --amber, and require each to
+  // be a known amber-bearer. A new one fails until someone says which of the two
+  // things it is — a Pi measurement, or a binomial that has not moved.
+  const AMBER_ALLOWED: Record<string, string> = {
+    '.lib-band-head': 'the playhead sweeping the spectrogram — the Pi\'s own recording, playing now',
+    ".lib-answer[data-kind='heard']": 'the quiz reveal for a bird this garden has recorded — a measurement',
+    '.lib-fig': "the errata slips' big figure — a call count measured by the Pi",
+    '.lib-plate-open:focus-visible': 'the focus ring, not type — carries no claim',
+    '.lib-tally b': 'the shelf tally — a measured number of volumes',
+    ".lib-spine[data-lit='yes'] .lib-spine-foil": 'a volume this garden has been heard from — measured',
+    '.lib-roll-un': 'THE unmoved 1838 binomial — the other half of the law',
+    '.lib-sil-n': 'the Index of Silences count — measured by the Pi',
+  };
+  // Comments must go FIRST or the captured "selector" is the comment above it —
+  // my own first attempt reported `.lib-band-head` as an unknown selector
+  // spelled "/* The one thing that moves… */ .lib-band-head".
+  const amberRules = cssRules(css)
+    .filter((r) => /var\(--amber\)/.test(r.body))
+    .map((r) => r.selector);
+  assert.ok(amberRules.length > 0, 'nothing in the Library uses amber — re-point this guard');
+  for (const sel of amberRules) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(AMBER_ALLOWED, sel),
+      `"${sel}" uses amber and is not on the allowlist. Amber means exactly two things ` +
+        `here — a number the Pi measured, or an 1838 binomial that has not moved a letter. ` +
+        `If this is one of them, add it with which one; if it is neither, it must not be amber. ` +
+        `(A denylist missed .lib-roll-o, which would have painted all 52 names.)`,
+    );
+  }
+  for (const cls of ['lib-cite', 'lib-lab', 'lib-prose', 'lib-plate-k']) {
+    assert.doesNotMatch(
+      ruleFor(cls) ?? '',
+      /var\(--amber\)/,
+      `.${cls} uses amber — reserved for a Pi measurement and an unmoved 1838 name`,
+    );
+  }
+});
+
+test('T3 the crow line counts the birds its own sentence describes', () => {
+  // A SENTENCE POINTED AT THE WRONG SET, AND THEREFORE NEVER PRINTED.
+  //
+  // "N of the silent are crows. Jardine gave the family thousands of words and
+  // their voices none." — N counted rows with NO Jardine record at all. A bird
+  // with no record has no words of his to have been given, so the count
+  // contradicted the claim directly. Measured on the live station: rows with no
+  // record = 2, crows among them = 0. The line had never once appeared.
+  //
+  // The set the sentence describes — an account in the corpus with no voice
+  // passage in it — is four birds: the Carrion Crow, the Rook, the Jackdaw and
+  // the Magpie. That is the tab's whole argument, and it was unreachable.
+  const j = normalize(corpusRaw());
+  const viewSrc = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  );
+
+  // THE GENUS LIST IS ITSELF A CLAIM, AND NOTHING BOUND IT.
+  //
+  // A sweep changed one entry — `Cyanopica` to `Cyanistes`, the kind of edit
+  // that looks like clearing a stale name — and the line went from "4 of this
+  // garden's crows" to "5", the fifth being Cyanistes caeruleus, the Blue Tit.
+  // This garden's loudest bird, and its central silence, counted as a crow, with
+  // the suite green. Reproduced here before fixing.
+  //
+  // So the list is read from the SOURCE (never copied here, or the copy drifts)
+  // and cross-checked against 1838's own naming: Jardine titles every one of
+  // these birds a Crow, Rook, Jackdaw, Jay or Magpie. A genus that drags in a
+  // Titmouse fails on the book's own words, which is a better authority than a
+  // second list of mine.
+  const generaBlock = /const CORVID_GENERA = \[([\s\S]*?)\];/.exec(viewSrc);
+  assert.ok(generaBlock, 'CORVID_GENERA is gone from the view — re-point this guard');
+  const CORVIDS = [...generaBlock[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]);
+  assert.ok(CORVIDS.length >= 4, `only ${CORVIDS.length} corvid genera parsed — re-point this guard`);
+  const isCorvid = (sci: string) => CORVIDS.some((g) => sci.startsWith(`${g} `));
+
+  const CORVID_WORDS = /\b(crow|rook|jackdaw|jay|magpie|chough|nutcracker|raven)\b/i;
+  let matched = 0;
+  for (const s of j.species) {
+    if (!isCorvid(s.sci_name)) continue;
+    matched++;
+    assert.match(
+      s.jardine_title ?? '',
+      CORVID_WORDS,
+      `CORVID_GENERA matches ${s.sci_name}, which Jardine titles ` +
+        `${JSON.stringify(s.jardine_title)} — that is not a crow by the book's own naming, ` +
+        `and the Roll would count it in a sentence about the family`,
+    );
+  }
+  assert.ok(matched > 0, 'CORVID_GENERA matches nothing in the corpus — the line cannot print');
+
+  const withAccountNoVoice = j.species.filter((s) => s.voice === null && isCorvid(s.sci_name));
+  assert.ok(
+    withAccountNoVoice.length > 0,
+    'no corvid in the corpus has an account without a voice — the line would be vacuous, ' +
+      'and a line that cannot print is not an editorial choice, it is a dead branch',
+  );
+
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  // the count must require a record AND an absent voice — never the bare !r.j
+  assert.match(
+    src,
+    /const silentCorvids = roll\.filter\( \(r\) => r\.j && r\.j\.voice === null/,
+    'silentCorvids counts something other than "has an account, has no voice" — if it ' +
+      'counts rows with no record, the sentence beneath it contradicts its own number',
+  );
+  assert.doesNotMatch(
+    src,
+    /silentCorvids[\s\S]{0,80}of the silent are crows/,
+    'the sentence calls them "the silent" again — in the Roll that word means "not in ' +
+      'Jardine at all", which is the opposite of what the rest of the sentence claims',
+  );
+  assert.match(
+    src,
+    /have an account here and no voice in it/,
+    'the crow line no longer says which silence it means',
+  );
+});
+
+test('T2 amber is only ever an unmoved 1838 name', () => {
+  // THE AMBER LAW HAD NO GUARD AT ALL, on a tab whose vocabulary is three
+  // colours wide. Amber means two things here and only two: a number the Pi
+  // measured, and a binomial that has not moved a letter since 1838. Its whole
+  // weight comes from being rare and always meaning the same thing.
+  //
+  // The Roll minted it from a ternary on the drift LABEL. Widen that test by
+  // one band and fourteen CHANGED binomials go amber — `Alcedo ispida` →
+  // `Alcedo atthis`, `Motacilla Yarrellii` → `Motacilla alba` — each then
+  // asserting in the museum's own vocabulary that the name never moved.
+  //
+  // The decision reads the STRINGS now, so a drift field that disagrees with
+  // its own row cannot mint the colour.
+  const j = normalize(corpusRaw());
+
+  let amber = 0;
+  for (const s of j.species) {
+    const earned = s.jardine_binomial === s.sci_name && !!s.jardine_binomial;
+    assert.equal(
+      ambersBinomial(s),
+      earned,
+      earned
+        ? `${s.sci_name} is byte-identical to its 1838 name and is not marked`
+        : `${s.sci_name} wears amber over ${JSON.stringify(s.jardine_binomial)} — the ` +
+          `colour states the name has not moved, and it has`,
+    );
+    if (earned) amber++;
+  }
+  assert.ok(amber > 0, 'no row earns amber — this guard is vacuous');
+  assert.ok(amber < j.species.length, 'every row earns amber — the marker distinguishes nothing');
+
+  // and the Roll must not have a second path to the class
+  const src = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  const mints = (src.match(/lib-roll-un/g) || []).length;
+  assert.equal(mints, 1, `the amber class is applied at ${mints} places — one is the law`);
+  assert.match(
+    src,
+    /ambersBinomial\(j\) \? 'lib-roll-o lib-roll-un'/,
+    'the Roll mints amber from something other than the two names themselves',
+  );
+});
+
+test('E9 the collision slip prints the name that actually collided', () => {
+  // A LIVE FALSE CLAIM, and the third of its family this session.
+  //
+  // Slip No. IV sets one name in display type under a rule, over two columns
+  // headed 1838 · Song Thrush and 2026 · Redwing, and its whole argument is
+  // "one binomial, two entirely different birds". The name it printed was
+  // computed:
+  //
+  //     e.subjects.map((s) => bySci.get(s.sci_name)?.jardine_binomial).find(Boolean)
+  //
+  // — the FIRST subject's own 1838 binomial, `Merula musica`. That name was
+  // Jardine's for the Song Thrush and for nothing else; the Redwing stands two
+  // headings away under `Merula Iliaca`. So the slip's centrepiece was a name
+  // that never collided with anything, and belongs to no living bird.
+  //
+  // The name that equivocates is the one Jardine CITES: `Turdus musicus, Linn.`
+  // — the Song Thrush's synonym in 1838, the Redwing's name now. add_seven.py
+  // says so in its own comment ("where the name Turdus musicus actually
+  // equivocates"). It exists only inside the quoted prose, in no field at all,
+  // so no expression over `subjects` could ever have produced it. That is why
+  // it is now RECORDED and not derived.
+  //
+  // The name must be on the page, and it must not be a heading.
+  //
+  // VERBATIM IN THE QUOTE is necessary and — measured — not sufficient: the
+  // wrong name `Merula musica` is on that page too, in the same sentence. So
+  // the second assertion carries the weight. Both subjects' 1838 HEADING
+  // binomials are recorded (`Merula musica`, `Merula Iliaca`), and the slip's
+  // own claim is that Jardine filed these birds two headings apart — under
+  // different headings. A name that is itself one of those headings is that
+  // bird's own name, not the one that equivocates between them.
+  //
+  // If a future collision genuinely has the other shape — Jardine's HEADING for
+  // one bird being another bird's name today — this line is the one to revisit,
+  // and the slip's headline would have to change with it. Relax it in a commit
+  // that argues the case; never by deleting the assertion to get to green.
+  //
+  // What no check here can reach: whether `Turdus musicus` is the Redwing's
+  // name TODAY. That is external taxonomy. The corpus was searched — the
+  // Redwing's own 1838 account never names it — so this half of the claim rests
+  // on the curator, and the closing sentence states it in the open rather than
+  // implying it.
+  const raw = corpusRaw();
+  const j = normalize(raw);
+  const bySci = speciesBySci(j);
+
+  let checked = 0;
+  for (const e of j.errata) {
+    if (e.kind !== 'collision') continue;
+    checked++;
+    const name = (e.collision_name ?? '').trim();
+    assert.ok(
+      name.length > 0,
+      `slip ${e.no} is a collision and names nothing — the rule has a blank line over it`,
+    );
+    const quote = e.quote?.text ?? '';
+    assert.ok(
+      quote.includes(name),
+      `slip ${e.no} prints "${name}" as the name that collided, and its own 1838 ` +
+        `quotation does not contain those words. Either the page says otherwise or ` +
+        `someone typed it: ${JSON.stringify(quote.slice(0, 120))}`,
+    );
+    for (const s of e.subjects) {
+      const heading = (bySci.get(s.sci_name)?.jardine_binomial ?? '').trim();
+      if (!heading) continue;
+      assert.notEqual(
+        name,
+        heading,
+        `slip ${e.no} names "${name}" as the binomial two birds share, and that is ` +
+          `${s.sci_name}'s own 1838 heading. A heading belongs to one bird — this ` +
+          `slip would be printing a name that never collided with anything`,
+      );
+    }
+  }
+  assert.ok(checked > 0, 'no collision slip in the corpus — E9 would be vacuous');
+
+  // SUBJECT ORDER IS THE SLIP'S ARGUMENT, and nothing was holding it.
+  // The collision slip labels its columns by INDEX — `i === 0 ? '1838' : '2026'`
+  // — so subjects[0] is the bird Jardine's name stood over and subjects[1] is
+  // the bird it belongs to now. A sweep proposed adding a determinism sort to
+  // asSubjects(), matching the wording of the one deskPool() already carries;
+  // `Turdus iliacus` sorts before `Turdus philomelos`, the columns swap, and the
+  // slip states the Redwing was Jardine's Song Thrush. Two headings, both wrong,
+  // no test moved.
+  const twoIn = normalize({
+    version: 1,
+    errata: [
+      {
+        no: 'Z',
+        headline: 'Z',
+        kind: 'collision',
+        subjects: [{ sci_name: 'Zzz last' }, { sci_name: 'Aaa first' }],
+      },
+    ],
+  });
+  assert.deepEqual(
+    twoIn.errata[0].subjects.map((s) => s.sci_name),
+    ['Zzz last', 'Aaa first'],
+    'normalize() REORDERS errata subjects. The collision slip labels its columns by ' +
+      'position — index 0 is 1838, index 1 is 2026 — so any sort here silently swaps ' +
+      'which bird Jardine named and which one owns the name today',
+  );
+
+  // And the view must READ it. The defect was not a wrong string in a file; it
+  // was a string DERIVED from the wrong place, which no data check can see.
+  const view = stripComments(
+    readFileSync(new URL('../src/views/LibraryView.tsx', import.meta.url), 'utf8'),
+  ).replace(/\s+/g, ' ');
+  assert.match(
+    view,
+    /lib-coll-name["'][^>]*>\{\s*e\.collision_name\s*\}/,
+    'the collision slip no longer prints e.collision_name',
+  );
+  // the exact shape of the bug, pinned: no path from subjects to that line.
+  assert.doesNotMatch(
+    view,
+    /subjects[\s\S]{0,120}?jardine_binomial/,
+    'the collision name is being derived from a subject binomial again — that is ' +
+      'the bug: it prints a name only one of the two birds ever wore',
   );
 });
 
@@ -3003,7 +4097,7 @@ test('U1 no view headlines windowed counts with a fixed period', () => {
     stripComments(readFileSync(new URL(`../src/views/${f}`, import.meta.url), 'utf8'));
 
   const idx = read('IndexView.tsx');
-  assert.match(idx, /WINDOW_HEADLINE/, 'IndexView no longer derives its headline from the window');
+  assert.match(idx, /windowHeadline\(windowHours\)/, 'IndexView no longer names its own window');
   assert.doesNotMatch(
     idx,
     /'most-heard · last 24 hours'/,
@@ -3023,15 +4117,47 @@ test('U1 no view headlines windowed counts with a fixed period', () => {
   );
   assert.match(stats, /windowHeadline/, 'StatsView no longer takes the window it is describing');
 
-  // Every window the UI offers must have a headline, or the fallback silently
-  // reintroduces a wrong one for that window only.
-  const app = read('../App.tsx');
-  const periods = [...app.matchAll(/hours:\s*([\d_]+)/g)].map((m) => Number(m[1].replace(/_/g, '')));
-  assert.ok(periods.length >= 4, 'could not read PERIODS from App.tsx — re-point this guard');
-  const headline = /export const WINDOW_HEADLINE[^{]*\{([^}]*)\}/.exec(idx);
-  assert.ok(headline, 'WINDOW_HEADLINE is gone');
-  const keys = [...headline[1].matchAll(/([\d_]+)\s*:/g)].map((m) => Number(m[1].replace(/_/g, '')));
-  for (const h of periods) {
-    assert.ok(keys.includes(h), `the UI offers a ${h}-hour window with no headline of its own`);
+  // ── AND THE SENTENCES THEMSELVES ───────────────────────────────────────────
+  // This block used to read WINDOW_HEADLINE's KEYS out of the source and check
+  // that every preset had one. Six reviewers found the same hole in one sweep:
+  // a map keyed by preset proves an entry EXISTS, never that the entry is about
+  // that window. `24: 'Heard Today'` — the exact defect the map was added to
+  // remove — satisfied every assertion here.
+  //
+  // Worse, the KEY check could only ever see the five presets, and `?win=`
+  // accepts any positive number (profile.ts). A sixth window fell to the chip
+  // label, and the chip label ended `?? PERIODS[2]`, which is 24H. `?win=6`
+  // counted six hours and said 24H twice.
+  //
+  // Both are one function now, total over every window, and this CALLS it.
+  for (const p of PERIODS) {
+    assert.equal(
+      windowLabel(p.hours),
+      p.label,
+      `the chip for a ${p.hours}-hour window no longer says ${p.label}`,
+    );
   }
+  // A window's name must contain that window. 'Today' names a calendar day and
+  // never a rolling window, so it is banned outright — that is the sentence
+  // this whole guard exists because of.
+  for (const h of [1, 2, 3, 6, 12, 24, 36, 48, 72, 168, 336, ALL_TIME_HOURS]) {
+    const head = windowHeadline(h);
+    const chip = windowLabel(h);
+    assert.doesNotMatch(head, /today/i, `a ${h}-hour rolling window is headlined "${head}"`);
+    assert.ok(head.trim().length > 0, `a ${h}-hour window has no headline`);
+    if (h === ALL_TIME_HOURS) continue;
+    // the number in the name must be this window's own duration, in its own unit
+    const n = h % 24 === 0 && h >= 48 ? h / 24 : h;
+    assert.ok(
+      head.includes(String(n)) || h === 1,
+      `the headline for a ${h}-hour window is "${head}" and does not name ${n}`,
+    );
+    assert.ok(
+      chip.includes(String(n)),
+      `the chip for a ${h}-hour window is "${chip}" and does not name ${n}`,
+    );
+  }
+  // and no window may borrow another's name — the defaulting bug, as a property
+  const names = [1, 2, 6, 12, 24, 36, 48, 168].map((h) => windowLabel(h));
+  assert.equal(new Set(names).size, names.length, `two different windows share a chip label: ${names.join(', ')}`);
 });

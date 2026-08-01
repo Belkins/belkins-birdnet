@@ -166,3 +166,29 @@ export function fetchArtStatus(): Promise<Map<string, string>> {
   }
   return artStatusPromise;
 }
+
+/** CATALOGUE ORDER — earliest first_confident first, UNDATED LAST, ties broken
+ *  by common name.
+ *
+ *  The wall's heading says "in order of first appearance", and that sentence is
+ *  only true because of the three-branch null dance below. Collapse it to one
+ *  comparison — `(a.first_confident ?? '') < (b.first_confident ?? '')`, the
+ *  tidy it visibly invites — and an empty string sorts BEFORE every real date,
+ *  so a wall titled "in order of first appearance" opens with precisely the
+ *  birds whose first appearance is unknown. Nothing caught that, because the
+ *  comparator lived inside a .tsx and no test could reach it.
+ *
+ *  Undated last is not a preference. A bird with no first_confident has no
+ *  place in that order at all, and the end is the only honest place to put it. */
+export function catalogOrder(a: CatalogSpecies, b: CatalogSpecies): number {
+  const af = a.first_confident;
+  const bf = b.first_confident;
+  if (af && bf) {
+    if (af !== bf) return af < bf ? -1 : 1;
+  } else if (af) {
+    return -1;
+  } else if (bf) {
+    return 1;
+  }
+  return (a.com_name || a.sci_name).localeCompare(b.com_name || b.sci_name);
+}
