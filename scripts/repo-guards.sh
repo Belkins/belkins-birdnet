@@ -433,26 +433,93 @@ printf '%s\n' "$_play" | grep -qE '\\"\$(oldname|newname)\\"' \
   || fail "scripts/play.php: the mkdir path is unescaped again — \$dir comes from pathinfo(\$_GET['shiftfile']) with NO quotes, so even ; and | execute there"
 [ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.escapeshellarg\(')" = "2" ] \
   || fail "scripts/play.php: expected BOTH mkdir call sites (ffmpeg + sox) to escapeshellarg their path"
-#    The no-password branch of the Caddyfile generator must DENY the admin plane,
-#    never emit an open config.
-grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
-  || fail "scripts/update_caddyfile.sh no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal and adminer to the LAN"
-grep -q 'abort @badhost' scripts/update_caddyfile.sh \
-  || fail "scripts/update_caddyfile.sh lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
-#    Do NOT hand-enumerate a subset: an earlier version listed 5 of the 11 gated
-#    paths, so /stream, /Processed*, /phpsysinfo*, /stats*, /Charts* and
-#    /views.php?view=File* could all have been dropped with CI still green —
-#    a guard scoped to the paths I happened to remember. Pin the COUNT and the
-#    set that must always be present, both derived from the file itself.
-_gated=$(grep -oE 'basicauth [^[:space:]]+' scripts/update_caddyfile.sh | awk '{print $2}' | sort -u)
-_n=$(printf '%s\n' "$_gated" | grep -c .)
-[ "$_n" -ge 11 ] \
-  || fail "scripts/update_caddyfile.sh gates only $_n paths (expected >= 11) — a path was dropped from the auth variant; compare against the live Caddyfile before assuming it is intentional"
-for pth in '/play.php*' '/terminal*' '/scripts*' '/log*' '/stats*' '/stream' \
-           '/phpsysinfo*' '/Processed*' '/By_Date*' '/Charts*' '/views.php?view=File*'; do
-  printf '%s\n' "$_gated" | grep -qxF "$pth" \
-    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
+#    EVERY writer of /etc/caddy/Caddyfile must deny the admin plane when there is
+#    no password, and must Host-pin unconditionally.
+#
+#    There are THREE writers, and this guard used to know about one. Host pinning
+#    is a SEPARATE control from basic auth: auth does not stop DNS rebinding,
+#    because browsers replay cached credentials automatically.
+for _w in scripts/update_caddyfile.sh scripts/install_services.sh; do
+  grep -q 'respond @adminplane' "$_w" \
+    || fail "$_w no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal (a WRITABLE gotty login shell) to the LAN"
+  grep -q 'abort @badhost' "$_w" \
+    || fail "$_w lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
 done
+
+#    VALIDATE BEFORE INSTALL, asserted as an ORDERING, not as the presence of a
+#    word. update_caddyfile.sh used to `cat > /etc/caddy/Caddyfile` and validate
+#    afterwards: on a parse error it exited 1 without reloading (correct) but
+#    left an UNPARSEABLE config on disk. Caddy serves from memory, so nothing
+#    looks wrong until the next reboot — at which point the station has no web
+#    server at all and the cause is weeks behind it.
+_ucf=scripts/update_caddyfile.sh
+grep -qE '>[[:space:]]*/etc/caddy/Caddyfile' "$_ucf" \
+  && fail "$_ucf writes directly to /etc/caddy/Caddyfile again — render to a temp file and install it only after 'caddy validate' passes, or a rejected config replaces a working one on disk"
+_val_line=$(grep -n 'caddy validate' "$_ucf" | tail -1 | cut -d: -f1)
+_ins_line=$(grep -n 'install -m 644 .*\/etc\/caddy\/Caddyfile' "$_ucf" | tail -1 | cut -d: -f1)
+if [ -n "$_val_line" ] && [ -n "$_ins_line" ]; then
+  [ "$_val_line" -lt "$_ins_line" ] \
+    || fail "$_ucf installs the Caddyfile at line $_ins_line BEFORE validating it at line $_val_line — validation after the write cannot protect the live config"
+else
+  fail "$_ucf no longer has both a 'caddy validate' and an 'install -m 644 ... /etc/caddy/Caddyfile' step (validate=${_val_line:-none} install=${_ins_line:-none}) — the validate-then-install contract is gone"
+fi
+
+#    NOT ASSERTED ANY MORE: the 11-path `basicauth` set in update_caddyfile.sh.
+#    That pin was removed on 2026-08-01 because it described a file that cannot
+#    reach the box. update_caddyfile.sh exits 2 whenever STATION_OPEN=1 (the
+#    owner's deliberate 2026-07-30 choice), and it emits the pre-2.7 `basicauth`
+#    spelling Caddy 2.11 rejects, so the set it gated had not been live for
+#    days. The guard was green and protected nothing — the exact shape it was
+#    written to prevent, one level up. What IS live is asserted below.
+
+# 8e. THE FILE THAT IS ACTUALLY SERVING.
+#     avian/ops/Caddyfile.live is the tracked copy of the live config, committed
+#     because the generator provably cannot reproduce it (1b22280). Until now
+#     NOTHING read it: `grep -rn Caddyfile.live --include=*.sh --include=*.yml`
+#     returned nothing. A tracked config nobody compares is a comment.
+#
+#     Path indirection so every assertion below is negative-testable:
+#       CADDYFILE_LIVE=/tmp/broken.caddy bash scripts/repo-guards.sh   -> 1
+_clive="${CADDYFILE_LIVE:-avian/ops/Caddyfile.live}"
+if [ -f "$_clive" ]; then
+  # Comment-stripped: this file documents each directive at length, so a bare
+  # grep would pass on the prose describing a directive that had been deleted.
+  _cl=$(grep -vE '^[[:space:]]*#' "$_clive")
+
+  printf '%s\n' "$_cl" | grep -q 'abort @badhost' \
+    || fail "$_clive lost Host pinning. STATION_OPEN=1 stands down every password gate on this LAN by the owner's decision, which leaves the Host pin as the ONLY remaining control against a hostile page rebinding its name to this box."
+
+  # The SSE exclusion. text/event-stream IS in caddy's default encode list, so a
+  # bare `encode` buffers the live spine dead while every asset check still
+  # passes — the wall simply stops updating and nothing reports an error.
+  printf '%s\n' "$_cl" | grep -q '@nostream not path /events\*' \
+    || fail "$_clive no longer excludes /events from compression — encode buffers text/event-stream, which silently kills live wall updates with every other check green"
+  printf '%s\n' "$_cl" | grep -q 'encode @nostream' \
+    || fail "$_clive no longer compresses via @nostream — either compression was dropped (the 11.5x serving win) or it was re-applied WITHOUT the SSE exclusion"
+  printf '%s\n' "$_cl" | grep -qE 'reverse_proxy /events\*?[[:space:]]' \
+    || fail "$_clive no longer proxies /events — the SSE spine (birdcast on :8090) is how the wall paints a detection within 3s"
+  printf '%s\n' "$_cl" | grep -q 'flush_interval -1' \
+    || fail "$_clive lost 'flush_interval -1' on the /events proxy — caddy then buffers the stream and the wall goes still"
+
+  printf '%s\n' "$_cl" | grep -q 'redir / /collage/ 302' \
+    || fail "$_clive lost the front-door redirect — / falls back through try_files to the LEGACY apt.js collage (779KB, superseded) while the museum sits unvisited at /collage/"
+
+  # Immutable caching must cover hashed assets and must NOT cover the nightly
+  # data. species.json/derived.json are rebuilt every night by catalog.service;
+  # freezing them for a year would pin the museum to the day it was deployed.
+  printf '%s\n' "$_cl" | grep -q '/collage/assets/\*' \
+    || fail "$_clive no longer marks /collage/assets/* immutable — every reload re-downloads the hashed bundle"
+  printf '%s\n' "$_cl" | grep -E 'immutable' | grep -qE 'species\.json|derived\.json' \
+    && fail "$_clive puts species.json or derived.json under an immutable/long-max-age matcher — those are rebuilt nightly by catalog.service, so the wall would serve the day it shipped, forever"
+
+  # CREDENTIAL GATE. avian/ops/README.md:37 documents that this file must never
+  # carry a secret, and nothing enforced it. It is committed to a PUBLIC repo.
+  _creds=$(printf '%s\n' "$_cl" | grep -cEi 'basic_?auth|\$2[aby]\$' || true)
+  [ "$_creds" = "0" ] \
+    || fail "$_clive contains a basic_auth block or a bcrypt hash ($_creds line(s)). This file is committed to a PUBLIC repo — a station password must never be tracked. If the LAN gates are being restored, put them in /etc/caddy/Caddyfile on the box and keep the hash out of git."
+else
+  fail "$_clive is missing — the only tracked record of what the station actually serves is gone, and the generator cannot reproduce it (that is why it was committed in 1b22280)"
+fi
 [ -e scripts/adminer.php ] \
   && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
 

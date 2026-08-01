@@ -10,10 +10,28 @@ set -x
 FPM_SOCK=$(ls /run/php/php*-fpm.sock 2>/dev/null | head -n1)
 FPM_SOCK=${FPM_SOCK:-/run/php/php-fpm.sock}
 
-[ -d /etc/caddy ] || mkdir /etc/caddy
-if [ -f /etc/caddy/Caddyfile ];then
-  cp /etc/caddy/Caddyfile{,.original}
+[ -d /etc/caddy ] || sudo mkdir -p /etc/caddy
+# TIMESTAMPED, not a fixed name. `cp Caddyfile{,.original}` meant a SECOND run
+# overwrote the only good copy with the bad one the first run had just left --
+# so the backup taken to survive a mistake was destroyed by repeating it.
+if [ -f /etc/caddy/Caddyfile ]; then
+  sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%Y%m%d-%H%M%S)"
 fi
+
+# RENDER TO A TEMP FILE, VALIDATE THAT, THEN INSTALL.
+#
+# Both heredocs below used to write straight to /etc/caddy/Caddyfile, and the
+# `caddy validate` at the bottom ran AFTER the live file had already been
+# overwritten. On a validation failure the script exited 1 without reloading --
+# correct as far as it went -- but left an UNPARSEABLE config on disk. Caddy
+# keeps serving from memory, so nothing looks wrong until the next restart or
+# reboot, at which point the station has no web server at all: no museum, no
+# API, no /events, and the failure is hours or weeks detached from its cause.
+#
+# CADDYFILE is the write target for everything below; the live path is only
+# touched by the atomic install at the end.
+CADDYFILE="$(mktemp -t Caddyfile-XXXXXX)"
+trap 'rm -f "$CADDYFILE" 2>/dev/null' EXIT
 # STATION_OPEN="1" — the deliberate LAN-open opt-out (owner's choice, 2026-07-30).
 # REFUSE rather than regenerate. Every path below re-emits basic_auth, so running
 # this script would silently put the passwords back and undo that choice.
@@ -51,7 +69,7 @@ if [ "${STATION_OPEN}" = "1" ];then
 fi
 if ! [ -z ${CADDY_PWD} ];then
 HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
-cat << EOF > /etc/caddy/Caddyfile
+cat << EOF > "$CADDYFILE"
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   # The wall's front door. Without this, `/` resolves via try_files to
@@ -142,7 +160,7 @@ echo "update_caddyfile: WARNING - CADDY_PWD is empty." >&2
 echo "  Serving the gallery, but DENYING the admin plane (/scripts*, /terminal*," >&2
 echo "  /play.php, /log*, /stats*, /stream, /phpsysinfo*, /Processed*, archives)." >&2
 echo "  Set CADDY_PWD in /etc/birdnet/birdnet.conf and re-run to enable them." >&2
-  cat << EOF > /etc/caddy/Caddyfile
+  cat << EOF > "$CADDYFILE"
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   # The wall's front door. Without this, `/` resolves via try_files to
@@ -178,13 +196,25 @@ http:// ${BIRDNETPI_URL} {
 EOF
 fi
 
-sudo caddy fmt --overwrite /etc/caddy/Caddyfile
-# Fail loudly on a Caddyfile caddy can't parse rather than reloading a broken
-# config and reporting success.
-sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || {
-  echo "generated Caddyfile failed validation; not reloading caddy" >&2
+# Format and validate THE CANDIDATE, while the live config is still the last
+# known-good one. Fail loudly on a Caddyfile caddy can't parse rather than
+# reloading a broken config and reporting success.
+caddy fmt --overwrite "$CADDYFILE"
+caddy validate --config "$CADDYFILE" --adapter caddyfile || {
+  echo "generated Caddyfile failed validation; /etc/caddy/Caddyfile is UNCHANGED" >&2
+  echo "  (the candidate was rendered to $CADDYFILE and discarded — the box is" >&2
+  echo "   still serving the config it was serving before this ran)" >&2
   exit 1
 }
+
+# Only now does the live path change. `install` is a single rename-like
+# operation with the mode set, so there is no window in which /etc/caddy/Caddyfile
+# is half-written.
+sudo install -m 644 "$CADDYFILE" /etc/caddy/Caddyfile || {
+  echo "could not install the validated Caddyfile to /etc/caddy/Caddyfile" >&2
+  exit 1
+}
+
 # reload-or-restart so this also works at install time, when caddy may not be
 # running yet (a plain reload would fail there); tolerate a not-yet-ready unit.
 sudo systemctl reload-or-restart caddy 2>/dev/null || true
