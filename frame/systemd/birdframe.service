@@ -3,6 +3,11 @@ Description=Belkins BirdNET e-ink frame update
 Documentation=https://github.com/Belkins/belkins-birdnet
 Wants=network-online.target
 After=network-online.target
+# On the station Pi the handler exists (deploy-christina.sh installs it) and a
+# red unit shouts. On a standalone frame Pi it does not exist: systemd logs
+# "could not enqueue" once and moves on — accepted, because the alternative is
+# a frame unit that is the only unit in the repo allowed to die silently.
+OnFailure=christina-alert@%n.service
 
 [Service]
 # install.sh rewrites User= and the paths to match your install.
@@ -12,4 +17,11 @@ WorkingDirectory=/home/monalisa/belkins-birdnet/frame
 ExecStart=/home/monalisa/belkins-birdnet/frame/.venv/bin/python /home/monalisa/belkins-birdnet/frame/display.py --config /home/monalisa/.birdframe/config.toml
 Environment=PYTHONUNBUFFERED=1
 Nice=10
+IOSchedulingClass=idle
+# Co-tenant limits for the station Pi (990MB, no swap, live audio capture).
+# MemoryMax caps the transient Chromium shot; OOMScoreAdjust makes this unit
+# the kernel's preferred victim so the detector never is. An OOM-killed shot
+# is already a handled case: display.py keeps the last panel and exits 0.
+MemoryMax=512M
+OOMScoreAdjust=500
 TimeoutStartSec=180
