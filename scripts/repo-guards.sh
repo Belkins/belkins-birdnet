@@ -632,5 +632,32 @@ else
   fail "$_pwf is missing — nothing runs the guard suite or the python tests"
 fi
 
+# 13. NO .resolve() IN THE SYMLINKED SET.
+#     Guard 5 proves avian/scripts/* ARE symlinks. It cannot see the one thing
+#     that makes a symlink invocation behave differently from the canonical one:
+#     Path.resolve() collapses avian/scripts/x.py back to services/birdgen/x.py,
+#     so a default anchored on parents[] silently jumps trees.
+#
+#     Measured, 2026-08-01: verify.py carried it. --dir defaulted to a
+#     NONEXISTENT services/assets/illustrations, glob() yielded nothing, and the
+#     adversarial species-ID gate on the PAID art pipeline printed
+#     "verifying 0 illustrations", "0 mismatch(es)" and exited 0. pregen.py had
+#     already been fixed for exactly this (see its comment at the _here
+#     assignment) and its sibling never got the same treatment -- the instance
+#     was fixed, the class was not.
+#
+#     Derived from the symlinks themselves, never hand-listed, with a vacuity
+#     floor: a guard whose input set silently became empty is the shape that
+#     asserted 5 of 11 gated paths. Greps the TARGET FILES by path, never `-r`
+#     over the repo, so this block's own prose cannot match itself.
+_rsyms=$(find avian/scripts -maxdepth 1 -type l -name '*.py' | sort)
+_rn=$(printf '%s\n' "$_rsyms" | grep -c . || true)
+[ "$_rn" -ge 3 ] \
+  || fail "expected at least 3 symlinked .py files under avian/scripts (found $_rn) — either guard 5 is about to fire for a real reason, or this guard just quietly stopped checking anything"
+for _s in $_rsyms; do
+  grep -q '\.resolve()' "$_s" \
+    && fail "$_s uses .resolve() — invoked through the symlink it collapses into services/birdgen/ and every path default anchored on it jumps to the wrong tree. Use Path(os.path.abspath(__file__)) instead (pregen.py records why). This is how verify.py examined zero plates and exited 0."
+done
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
