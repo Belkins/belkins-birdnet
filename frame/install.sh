@@ -166,14 +166,25 @@ Description=Belkins BirdNET frame, BirdWeather mode (ZIP $ZIP)
 Documentation=https://github.com/Belkins/belkins-birdnet
 Wants=network-online.target
 After=network-online.target
+# Same alert path as the repo template (systemd/birdframe.service). This unit
+# is written by heredoc, not rendered from that template — guard 11e exists
+# because exactly this split once cost birdcast its OnFailure= line.
+OnFailure=christina-alert@%n.service
 
 [Service]
 Type=oneshot
 User=$USER
 WorkingDirectory=$FRAME
-ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature --force'
+# --no-signature already forces "changed" on every 6h tick; --force would ALSO
+# bypass quiet_start/quiet_end and the min-refresh floor, flashing the panel
+# at 3am against the operator's own config. Cadence gates stay honored.
+ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature'
 Environment=PYTHONUNBUFFERED=1
 Nice=10
+IOSchedulingClass=idle
+# Keep in lockstep with systemd/birdframe.service — guard 11e checks both.
+MemoryMax=512M
+OOMScoreAdjust=500
 TimeoutStartSec=300
 SERVICE
   # Remote ZIPs with no nearby station fall back to eBird, which needs a key.

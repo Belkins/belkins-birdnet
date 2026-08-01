@@ -590,6 +590,47 @@ if [ -f avian/NOT-INSTALLED ]; then
   done < <(grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED)
 fi
 
+# 11e. HEREDOC-WRITTEN UNITS ARE UNITS TOO. Guard 11 reads checked-in *.service
+#      files, but three installers write units with inline heredocs that guard
+#      11 can never see — and a heredoc unit losing its OnFailure= is the exact
+#      incident guard 11's header records (birdcast), re-shipped once already
+#      (the BirdWeather-mode birdframe unit, caught in review 2026-08-01).
+#      This detects unit definitions by CONTENT (a heredoc body containing
+#      [Service]) rather than by the tee path, because deploy-realtime tees to
+#      a $UNIT variable a path-based grep would silently miss. The block count
+#      is pinned so a broken extraction fails instead of passing vacuously.
+#      Also pins the co-tenant limits (MemoryMax/OOMScoreAdjust/idle I/O) on
+#      BOTH materializations of birdframe.service — template and heredoc —
+#      because a frame that can OOM the live audio recorder is worse than no
+#      frame at all, and those three lines have no other assertion.
+python3 - <<'PY' || fail "heredoc-written units: alert path or co-tenant limits missing (details above)"
+import re, sys
+FILES = ["deploy-christina.sh", "deploy-realtime.sh", "frame/install.sh"]
+bad = []
+unit_blocks = 0
+for path in FILES:
+    src = open(path).read()
+    for m in re.finditer(r"<<-?['\"]?(\w+)['\"]?\n(.*?)\n\1\n", src, re.S):
+        body = m.group(2)
+        if re.search(r"^\[Service\]", body, re.M) is None:
+            continue
+        unit_blocks += 1
+        if "OnFailure=christina-alert@%n.service" not in body:
+            bad.append(f"{path}: heredoc unit block (marker {m.group(1)}) has no OnFailure=christina-alert@%n.service")
+        if path == "frame/install.sh":
+            for d in ("MemoryMax=", "OOMScoreAdjust=", "IOSchedulingClass=idle"):
+                if d not in body:
+                    bad.append(f"{path}: birdframe heredoc unit lost co-tenant limit {d}")
+if unit_blocks < 3:
+    bad.append(f"only {unit_blocks} heredoc unit blocks extracted across {FILES} — extraction broke, guard would pass vacuously")
+for d in ("MemoryMax=", "OOMScoreAdjust=", "IOSchedulingClass=idle"):
+    if d not in open("frame/systemd/birdframe.service").read():
+        bad.append(f"frame/systemd/birdframe.service lost co-tenant limit {d}")
+for b in bad:
+    print("  " + b)
+sys.exit(1 if bad else 0)
+PY
+
 # 12. THE FRAME'S SHOT TARGET MUST KEEP ITS ANCHORS. display.py's default
 #     shoot_path is the legacy page (/index.html): at capture time shoot.py
 #     rewrites four apt.js tunables by regex, and display.py keeps the last
