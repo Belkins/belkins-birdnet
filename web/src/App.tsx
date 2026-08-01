@@ -312,6 +312,14 @@ export default function App() {
     void engine.start(s0.windowHours).then(() => {
       if (engineRef.current !== engine) return; // torn down / remounted (StrictMode)
       setBootDone(true); // roster is real → the ?bird= restore may resolve
+    }).catch((err) => {
+      // start() degrades internally, but a rejection escaping it must not
+      // strand bootDone=false forever — the ?bird=/?on= restores gate on it,
+      // and on the unattended frame surface nobody sees an unhandled
+      // rejection. Surface it and let the restores proceed on what loaded.
+      if (engineRef.current !== engine) return;
+      setStatus(`boot failed: ${String(err)}`);
+      setBootDone(true);
     });
 
     return () => {
