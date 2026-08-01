@@ -668,5 +668,84 @@ for _s in $_rsyms; do
     && fail "$_s uses .resolve() — invoked through the symlink it collapses into services/birdgen/ and every path default anchored on it jumps to the wrong tree. Use Path(os.path.abspath(__file__)) instead (pregen.py records why). This is how verify.py examined zero plates and exited 0."
 done
 
+# 14. THE MUSEUM'S SILHOUETTES MUST DESCRIBE THE ART THAT SHIPS.
+#     web/public/data/{masks,dims}.json are DERIVED from
+#     avian/assets/illustrations/*.png by avian/scripts/build_masks.py, and
+#     nothing ever checked that they still matched.
+#
+#     Measured 2026-08-01: they had not been regenerated since 2026-06-30 and
+#     described a SUPERSEDED illustration set. All 249 entries were wrong --
+#     accipiter-cooperii carried a 93x93 square silhouette for a plate that is
+#     442x849 (48x93) -- and a 250th, apus-apus (Common Swift, a real bird at
+#     this station), was absent entirely and packed as a rectangle. The collage
+#     had been laying out every bird against the shape of an older drawing for a
+#     month, with every test and every guard green.
+#
+#     A CONTENT cross-check, not an mtime one: mtime says when a file was
+#     touched, not whether it is true. PNG width/height are read straight out of
+#     the IHDR header (bytes 16..24 of any PNG), so this needs no Pillow and
+#     cannot be defeated by a dependency being absent in CI.
+if [ -f web/public/data/dims.json ] && [ -d avian/assets/illustrations ]; then
+  _mask_report=$(python3 - <<'PY'
+import json, struct, pathlib, re, sys
+
+DIM_MAX = 560  # must track build_masks.py
+ill = pathlib.Path("avian/assets/illustrations")
+data = pathlib.Path("web/public/data")
+
+def png_size(p):
+    with p.open("rb") as f:
+        head = f.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+valid = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+perched = {p.stem: p for p in ill.glob("*.png")
+           if valid.fullmatch(p.stem) and not p.stem.endswith("-2")}
+dims = json.loads((data / "dims.json").read_text())
+masks = json.loads((data / "masks.json").read_text())
+
+problems = []
+missing = sorted(set(perched) - set(dims))
+extra = sorted(set(dims) - set(perched))
+if missing:
+    problems.append(f"{len(missing)} illustration(s) have no dims entry: {missing[:5]}")
+if extra:
+    problems.append(f"{len(extra)} dims entr(ies) have no illustration: {extra[:5]}")
+if set(dims) != set(masks):
+    problems.append("dims.json and masks.json cover different slugs")
+
+wrong = []
+for slug, p in sorted(perched.items()):
+    if slug not in dims:
+        continue
+    wh = png_size(p)
+    if wh is None:
+        problems.append(f"{slug}.png is not a PNG")
+        continue
+    w, h = wh
+    s = DIM_MAX / max(w, h)
+    want = [round(w * s), round(h * s)]
+    if dims[slug] != want:
+        wrong.append(f"{slug} art={w}x{h} wants {want} but dims.json says {dims[slug]}")
+if wrong:
+    problems.append(f"{len(wrong)} silhouette(s) describe a DIFFERENT drawing than the one that ships: {wrong[:3]}")
+print(" | ".join(problems))
+PY
+)
+  [ -z "$_mask_report" ] \
+    || fail "web/public/data is stale against avian/assets/illustrations — $_mask_report
+     Run: python3 avian/scripts/build_masks.py   (then rebuild web/dist)"
+  # The committed bundle is what the wall actually serves, so the copy vite
+  # emitted must match the source it was built from. dist-fresh compares asset
+  # NAMES; it has never compared publicDir CONTENT.
+  if [ -f web/dist/data/dims.json ]; then
+    cmp -s web/public/data/dims.json  web/dist/data/dims.json \
+      && cmp -s web/public/data/masks.json web/dist/data/masks.json \
+      || fail "web/dist/data/ differs from web/public/data/ — the museum serves the bundled copy, so regenerating the masks without rebuilding dist changes nothing on the wall"
+  fi
+fi
+
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL
