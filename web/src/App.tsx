@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import './App.css';
 import { CollageEngine } from './collage';
-import { MOCK, SNAPSHOT_HOURS } from './config';
+import { MOCK } from './config';
 import { loadSettings, saveSettings } from './settings';
 import type { Settings } from './settings';
 import type { LiveState, RosterRow } from './types';
@@ -286,26 +286,31 @@ export default function App() {
     });
     ro.observe(wrap);
 
-    // NOT MINE, AND ONLY HALF LANDED. A concurrent session in this shared
-    // checkout changed this to `engine.start(s0.windowHours)` — a real
-    // improvement that removes a second full image sweep on boot — and my
-    // commit swept the App.tsx half of it in while its other half, the
-    // `start(hours = SNAPSHOT_HOURS)` signature in collage.ts, stayed
-    // uncommitted in the working tree. main therefore had a caller passing one
-    // argument to a zero-argument method: green locally, where the uncommitted
-    // file is present, and TS2554 in CI, where it is not.
+    // SEED ONCE, WITH THE WINDOW THE VISITOR ACTUALLY HAS.
     //
-    // Restored so main compiles against main. The change belongs to whoever is
-    // holding it and should land whole — both files, one commit.
-    void engine.start().then(async () => {
+    // This used to call start() bare and then re-seed:
+    //     if (engine.day === null && s0.windowHours !== SNAPSHOT_HOURS)
+    //       await engine.setWindow(s0.windowHours);
+    // so anyone who had ever tapped 1H / 12H / 7D / ALL paid TWO snapshot
+    // fetches and two full sweeps of every illustration on every single load —
+    // the persisted window is the common case, not the exception.
+    //
+    // It was written that way for a real reason and the reason is now gone: the
+    // change landed in two halves across two sessions, App.tsx first, so main
+    // briefly had a caller passing an argument to a zero-argument method (green
+    // locally where the uncommitted collage.ts sat, TS2554 in CI). The caller
+    // was reverted to make main compile against main. collage.ts:252 now
+    // carries `start(hours = SNAPSHOT_HOURS)` on main, so the halves are whole.
+    //
+    // The pinned-day guard goes with the re-seed rather than being carried over:
+    // it existed only to stop the SECOND seed replacing a scrubber-pinned day
+    // with live data. The first seed is already protected, and better — start()
+    // claims a seed sequence at collage.ts:258 and only paints
+    // `if (seq === this.seedSeq)` at :275, so a setDay landing mid-flight owns
+    // the label and the boot snapshot is dropped. That covers the race here for
+    // the same reason, and does not depend on when this .then() happens to run.
+    void engine.start(s0.windowHours).then(() => {
       if (engineRef.current !== engine) return; // torn down / remounted (StrictMode)
-      // Skip the persisted-window re-seed if the user already pinned an
-      // archive day (the scrubber renders before boot settles) — the re-seed
-      // would silently replace the pinned day with live data.
-      if (engine.day === null && s0.windowHours !== SNAPSHOT_HOURS) {
-        await engine.setWindow(s0.windowHours);
-      }
-      if (engineRef.current !== engine) return; // teardown can land mid-setWindow
       setBootDone(true); // roster is real → the ?bird= restore may resolve
     });
 

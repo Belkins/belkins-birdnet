@@ -119,6 +119,27 @@ export async function fetchCatalog(): Promise<CatalogSpecies[]> {
   return (await fetchCatalogOrNull()) ?? [];
 }
 
+/** TTL MEMO, NOT A SESSION MEMO — and the difference is the wall.
+ *
+ *  species.json was fetched fresh, with `cache: 'no-store'`, by every caller
+ *  that wanted it: App, StatsView, LibraryView, LibraryFrameView,
+ *  CollectionWallView, fetchArtStatus, and BirdPopup on EVERY popup open and
+ *  every change of bird. Browsing wall → library → stats and opening three
+ *  birds re-downloaded the same ~250-entry file six or more times, and
+ *  no-store means not even a 304 — the whole body, each time.
+ *
+ *  jardine.ts:968/998 memoize their fetches for the whole session, and copying
+ *  that here would be wrong: jardine.json is a static build artifact, while
+ *  species.json is rebuilt every night by catalog.service. The frame runs for
+ *  DAYS on one page load (?frame=1, kiosk), so a session memo would pin the
+ *  wall to the catalog it booted with and it would quietly stop learning new
+ *  species — trading six redundant fetches for a museum that stops growing.
+ *
+ *  60s collapses the boot storm and makes a popup open free, while a day-long
+ *  kiosk still picks up the nightly rebuild within a minute of asking. */
+const CATALOG_TTL_MS = 60_000;
+let catalogHit: { at: number; p: Promise<CatalogSpecies[] | null> } | null = null;
+
 /** THE SAME FETCH, BUT IT CAN SAY "I DON'T KNOW".
  *
  *  fetchCatalog() collapses a 404, a network error, a parse failure and a
@@ -132,19 +153,36 @@ export async function fetchCatalog(): Promise<CatalogSpecies[]> {
  *  a real state for a station on its first night. A caller that cannot tell them
  *  apart must not assert anything about the garden. */
 export async function fetchCatalogOrNull(): Promise<CatalogSpecies[] | null> {
+  const now = Date.now();
+  if (catalogHit && now - catalogHit.at < CATALOG_TTL_MS) return catalogHit.p;
+
   const url = MOCK && !import.meta.env.VITE_CATALOG_URL ? MOCK_CATALOG_URL : CATALOG_URL;
-  try {
-    const res = await fetch(url, { cache: 'no-store' });
-    if (!res.ok) return null;
-    // Caddy's php try_files answers 200 text/html for any missing path under
-    // /collage/, so an OK status proves nothing. A body that is not an array is
-    // not an empty catalog — it is a failure wearing a 200.
-    const raw = (await res.json()) as unknown;
-    if (!Array.isArray(raw)) return null;
-    return normalize(raw);
-  } catch {
-    return null;
-  }
+  const p = (async () => {
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return null;
+      // Caddy's php try_files answers 200 text/html for any missing path under
+      // /collage/, so an OK status proves nothing. A body that is not an array is
+      // not an empty catalog — it is a failure wearing a 200.
+      const raw = (await res.json()) as unknown;
+      if (!Array.isArray(raw)) return null;
+      return normalize(raw);
+    } catch {
+      return null;
+    }
+  })();
+
+  catalogHit = { at: now, p };
+  // NEVER CACHE A FAILURE. null means "the ledger could not be read", and
+  // holding that for a minute would turn one dropped request into a minute of
+  // a museum printing measured zeroes — exactly the confident-and-wrong state
+  // this function's whole docstring exists to prevent. Successes are cacheable
+  // because a species.json that parsed is true until the next nightly; a failure
+  // is not a fact about the catalog, it is a fact about one request.
+  void p.then((v) => {
+    if (v === null && catalogHit?.p === p) catalogHit = null;
+  });
+  return p;
 }
 
 /** Session-memoized slug → art_status map. Honesty contract: the map is used
