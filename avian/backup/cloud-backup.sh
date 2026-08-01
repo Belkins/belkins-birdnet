@@ -59,11 +59,6 @@ DB="${CHRISTINA_BIRDS_DB:-$REPO/scripts/birds.db}"
 MEDIA_SRC="${CHRISTINA_MEDIA_DIR:-$HOME/BirdSongs/Extracted/By_Date}"
 DRY="${DRY:-0}"
 
-<<<<<<< HEAD
-log()  { printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
-fail() { log "FAILED($2): $1"; exit "$2"; }
-
-=======
 # Indirection so a test can substitute a stub. This file is 300+ lines of shell
 # holding the ONLY off-site copy of 4,396 irreplaceable recordings, and until
 # 2026-08-01 it had zero tests -- every one of its six measured fail-opens was
@@ -80,7 +75,6 @@ fail() { log "FAILED($2): $1"; exit "$2"; }
 # this for $ROWS; the counts 120 lines below had the same hole.
 is_int() { case "${1:-}" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
 
->>>>>>> origin/main
 # --- config, fail-closed -----------------------------------------------------
 # Every refusal names what is missing and states plainly that nothing was
 # uploaded, so a half-configured install can never look like a working backup.
@@ -94,10 +88,6 @@ case "$CHRISTINA_CLOUD_REMOTE" in
   *REPLACE_ME*) fail "CHRISTINA_CLOUD_REMOTE is still the placeholder -- NOTHING WAS UPLOADED." 2 ;;
 esac
 
-<<<<<<< HEAD
-command -v rclone  >/dev/null || fail "rclone is not installed -- NOTHING WAS UPLOADED." 2
-command -v sqlite3 >/dev/null || fail "sqlite3 is not installed -- NOTHING WAS UPLOADED." 2
-=======
 # A remote with NO COLON is not a remote at all -- rclone treats `r2crypt` as a
 # LOCAL DIRECTORY, so one deleted character silently turns the off-site backup
 # into a second copy on the very SD card it exists to survive, while the crypt
@@ -120,17 +110,12 @@ command -v shuf      >/dev/null || fail "shuf is not installed -- the sampled re
      objects to verify, and a verifier that samples nothing must not run. NOTHING WAS UPLOADED." 2
 command -v sha256sum >/dev/null || fail "sha256sum is not installed -- the round-trip and sampled
      integrity checks both compare hashes and cannot run. NOTHING WAS UPLOADED." 2
->>>>>>> origin/main
 [ -f "$DB" ] || fail "birds.db not found at $DB -- NOTHING WAS UPLOADED." 2
 
 # Refuse a remote that is not the crypt layer. Writing to the bare S3 remote
 # would ship readable filenames and playable audio to the provider, silently
 # undoing the entire encryption decision.
-<<<<<<< HEAD
-if ! rclone config show "${CHRISTINA_CLOUD_REMOTE%%:*}" 2>/dev/null | grep -q '^type = crypt'; then
-=======
 if ! "$RCLONE" config show "${CHRISTINA_CLOUD_REMOTE%%:*}" 2>/dev/null | grep -q '^type = crypt'; then
->>>>>>> origin/main
   fail "$CHRISTINA_CLOUD_REMOTE is not a crypt remote. Refusing to upload UNENCRYPTED audio from a
      residential garden microphone. Point CHRISTINA_CLOUD_REMOTE at the crypt remote." 2
 fi
@@ -150,8 +135,6 @@ RCLONE_FLAGS=(
 [ -n "${CHRISTINA_CLOUD_BWLIMIT:-}" ] && RCLONE_FLAGS+=(--bwlimit "$CHRISTINA_CLOUD_BWLIMIT")
 [ "$DRY" = "1" ] && RCLONE_FLAGS+=(--dry-run)
 
-<<<<<<< HEAD
-=======
 # --- transfer helpers, defined BEFORE any use ---------------------------------
 # Hoisted here after a real fail-open on 2026-07-30: the media copy was moved
 # above these definitions, so `copy_one` did not exist yet, the call returned
@@ -187,7 +170,6 @@ copy_one() {  # $1=source DIRECTORY  $2=remote subpath  $3=label  [$4..]=extra f
 }
 
 
->>>>>>> origin/main
 log "=== cloud backup -> $CHRISTINA_CLOUD_REMOTE ==="
 
 # --- 1. a CONSISTENT birds.db snapshot ---------------------------------------
@@ -201,14 +183,6 @@ sqlite3 "$DB" ".backup '$SNAP'" || fail "sqlite .backup of birds.db" 4
 ROWS=$(sqlite3 "$SNAP" 'SELECT COUNT(*) FROM detections;')
 log "birds.db snapshot: integrity ok, $ROWS detections"
 
-<<<<<<< HEAD
-# --- 2. append-only invariant ------------------------------------------------
-# detections is append-only. FEWER rows than last time is evidence of damage
-# upstream, not a fresher backup, and uploading it would overwrite a good copy
-# with a worse one. Same check offbox_backup.py makes for the same reason.
-PREV=0
-[ -f "$STATE" ] && PREV=$(grep -oE '"detections":[0-9]+' "$STATE" 2>/dev/null | grep -oE '[0-9]+' || echo 0)
-=======
 # --- 2. THE RECORDINGS FIRST, and unconditionally --------------------------------
 # Deliberately ABOVE the append-only gate. The recordings are independent of the
 # database, and coupling them meant that on the one night birds.db was damaged --
@@ -235,30 +209,10 @@ case "$ROWS" in ''|*[!0-9]*) fail "SELECT COUNT(*) returned a non-integer ('$ROW
 PREV=0
 [ -f "$STATE" ] && PREV=$(grep -oE '"detections":[0-9]+' "$STATE" 2>/dev/null | grep -oE '[0-9]+' || echo 0)
 case "$PREV" in ''|*[!0-9]*) PREV=0 ;; esac
->>>>>>> origin/main
 if [ "$ROWS" -lt "$PREV" ]; then
   fail "birds.db has $ROWS detections but the last upload had $PREV. The table is append-only, so a
      DROP is damage. NOTHING WAS UPLOADED; the previous cloud copy is untouched and still good." 3
 fi
-<<<<<<< HEAD
-[ "$PREV" -gt 0 ] && log "append-only invariant holds ($PREV -> $ROWS)"
-
-# --- 3. upload. copy, never sync. --------------------------------------------
-copy_one() {  # $1=source  $2=remote subpath  $3=label  [$4..]=extra flags
-  local src="$1" dst="$2" label="$3"; shift 3
-  log "copying $label"
-  rclone copy "$src" "${CHRISTINA_CLOUD_REMOTE%/}/$dst" "${RCLONE_FLAGS[@]}" "$@" 2>&1 \
-    | sed 's/^/    /'
-  local rc=${PIPESTATUS[0]}
-  [ "$rc" -eq 0 ] || fail "rclone copy of $label exited $rc" 4
-}
-
-copy_one "$SNAP" "db/birds.db" "birds.db" --no-traverse
-for f in accessions.json phenology.json species.json derived.json; do
-  [ -f "$REPO/scripts/$f" ] && copy_one "$REPO/scripts/$f" "ledgers/$f" "ledger $f" --no-traverse
-done
-[ -d "$MEDIA_SRC" ] && copy_one "$MEDIA_SRC" "By_Date" "recordings + spectrograms"
-=======
 # Say so LOUDLY when the guard is inert. Silently skipping it meant a lost state
 # file disabled the one check standing between a damaged database and the cloud,
 # and printed nothing at all.
@@ -274,7 +228,6 @@ copyto_one "$SNAP" "db/birds.db" "birds.db" --no-traverse
 for f in accessions.json phenology.json species.json derived.json; do
   [ -f "$REPO/scripts/$f" ] && copyto_one "$REPO/scripts/$f" "ledgers/$f" "ledger $f" --no-traverse
 done
->>>>>>> origin/main
 
 # --- 4. prove it, rather than assume it --------------------------------------
 # An rclone exit of 0 proves bytes moved. It does not prove they are readable,
@@ -282,10 +235,6 @@ done
 # crypt layer and open it.
 if [ "$DRY" != "1" ]; then
   BACK="$(mktemp -t birds-verify-XXXXXX.db)"
-<<<<<<< HEAD
-  trap 'rm -f "$SNAP" "$BACK" 2>/dev/null' EXIT
-  if rclone cat "${CHRISTINA_CLOUD_REMOTE%/}/db/birds.db" > "$BACK" 2>/dev/null \
-=======
   _lsf_out="$(mktemp -t cloudlsf-XXXXXX)"
   _lsf_err="$(mktemp -t cloudlsferr-XXXXXX)"
   # A second `trap ... EXIT` REPLACES the first, it does not add to it. The
@@ -301,16 +250,12 @@ if [ "$DRY" != "1" ]; then
               "$BACK" "$BACK-journal" "$BACK-wal" "$BACK-shm" \
               "$_lsf_out" "$_lsf_err" 2>/dev/null' EXIT
   if "$RCLONE" cat "${CHRISTINA_CLOUD_REMOTE%/}/db/birds.db" > "$BACK" 2>/dev/null \
->>>>>>> origin/main
      && [ -s "$BACK" ]; then
     BACK_ROWS=$(sqlite3 "$BACK" 'SELECT COUNT(*) FROM detections;' 2>/dev/null || echo -1)
     if [ "$BACK_ROWS" != "$ROWS" ]; then
       fail "round-trip check FAILED: uploaded $ROWS detections, read back $BACK_ROWS.
      The upload reported success but the stored object is not the database we sent." 5
     fi
-<<<<<<< HEAD
-    log "round-trip verified: $BACK_ROWS detections read back through the crypt layer"
-=======
     # BYTE-EXACT, not just "sqlite could open it". SQLite ignores trailing bytes
     # beyond page_count, so a doubled or padded object passes integrity_check AND
     # the row count while being the wrong object. That exact failure happened on
@@ -321,14 +266,10 @@ if [ "$DRY" != "1" ]; then
      Local $(stat -c %s "$SNAP") bytes vs retrieved $(stat -c %s "$BACK") bytes." 5
     fi
     log "round-trip verified: $BACK_ROWS detections, byte-identical (sha256) through the crypt layer"
->>>>>>> origin/main
   else
     fail "could not read birds.db back from the remote -- the upload cannot be proven readable" 5
   fi
 
-<<<<<<< HEAD
-  printf '{"detections":%s,"at":"%s"}\n' "$ROWS" "$(date -Is)" > "$STATE"
-=======
   # --- SAMPLED READ-BACK OF THE RECORDINGS ---------------------------------
   # Until now the only thing ever verified was birds.db: 1.2 MB of a 1.56 GB
   # archive. The 4,396 recordings -- the part that genuinely cannot be
@@ -540,7 +481,6 @@ if [ "$DRY" != "1" ]; then
   printf '{"detections":%s,"remote_n":%s,"seeded":%s,"seed_epoch":%s,"at":"%s"}\n' \
     "$ROWS" "$REMOTE_N" "$([ "$SEEDED" = "1" ] && echo true || echo false)" \
     "$SEED_EPOCH" "$(date -Is 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%S%z)" > "$STATE"
->>>>>>> origin/main
 fi
 
 log "=== complete ==="
