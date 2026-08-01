@@ -536,33 +536,39 @@ class ContractTest(unittest.TestCase):
 
 
 class AuthHintTest(unittest.TestCase):
-    """WHY: a reverted STATION_OPEN freezes the wall identically to every other
+    """WHY: an auth wall in front of the frame (the forwarded-deploy gate --
+    on the LAN nothing the frame fetches is auth-gated, so STATION_OPEN is
+    deliberately NOT named) freezes the wall identically to every other
     silent failure for ~30h, and the generic alert sends the operator to
     journalctl instead of the config. display.py stamps auth_error into ITS
     state.json on each HTTP 401/403 (and drops it on the next successful
-    paint) precisely so the eventual alert can name re-gating. The hint must
+    paint) precisely so the eventual alert can name the cause. The hint must
     appear ONLY on that positive evidence -- a missing/clean state file adds
     nothing, because a false auth hint would send the operator to fix
     credentials on a box where the panel cable fell out."""
 
-    def test_alert_names_regating_only_when_auth_error_stamped(self):
+    def test_alert_names_auth_only_when_auth_error_stamped(self):
         with tempfile.TemporaryDirectory() as d:
             state = os.path.join(d, "state.json")
             cfg = dict(frame_watch.FRAME_DEFAULTS)
             cfg["state"] = state
             for reason in ("panel_stale", "capture_stale", "never_pushed"):
-                self.assertNotIn("re-gated", frame_watch.alert_text(reason, "x", cfg),
+                self.assertNotIn("401/403", frame_watch.alert_text(reason, "x", cfg),
                                  f"{reason}: hint appeared with no state file at all")
             with open(state, "w") as f:
                 json.dump({"signature": "s", "last_refresh": 1}, f)
-            self.assertNotIn("re-gated", frame_watch.alert_text("panel_stale", "x", cfg),
+            self.assertNotIn("401/403", frame_watch.alert_text("panel_stale", "x", cfg),
                              "hint appeared for a clean state (no auth_error key)")
             with open(state, "w") as f:
                 json.dump({"signature": "s", "last_refresh": 1, "auth_error": 2}, f)
             for reason in ("panel_stale", "capture_stale", "never_pushed"):
                 out = frame_watch.alert_text(reason, "x", cfg)
-                self.assertIn("re-gated", out, f"{reason}: hint missing despite auth_error")
+                self.assertIn("401/403", out, f"{reason}: hint missing despite auth_error")
                 self.assertIn("basic_user", out, f"{reason}: hint gives no next action")
+                self.assertNotIn("STATION_OPEN", out,
+                                 f"{reason}: the hint must not name STATION_OPEN -- on the LAN "
+                                 "nothing the frame fetches is gated by it, so that wording "
+                                 "sends the operator to revert the wrong flag")
 
     def test_unreadable_state_never_raises_into_the_alert_path(self):
         with tempfile.TemporaryDirectory() as d:

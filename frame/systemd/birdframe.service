@@ -25,8 +25,10 @@ IOSchedulingClass=idle
 MemoryMax=512M
 OOMScoreAdjust=500
 # Summed against the pipeline it supervises, not guessed: fetch_recent 45s +
-# shoot (goto 45s + selector wait 45s + soft img wait 45s) + panel busy-wait
-# up to 65s ≈ 245s worst case. 180 was under that sum — systemd would SIGKILL
-# the unit mid-panel-write on exactly the slow ticks the co-tenant limits
-# create. (The BirdWeather heredoc unit already carried 300.)
-TimeoutStartSec=300
+# shoot (goto/selector/img waits 3×45s + Playwright launch and screenshot
+# defaults 2×30s) + panel busy-wait ≤65s ≈ 310s with every stage at ceiling.
+# 180 was under even the common case — systemd would SIGTERM the unit
+# mid-panel-write on exactly the slow ticks the co-tenant limits create.
+# CAVEAT the sum inherits: the 45s legs come from config.toml `timeout`;
+# an operator raising it past ~60 must raise this budget too.
+TimeoutStartSec=360

@@ -338,16 +338,23 @@ def assess(cfg, conf_state, tstate, tdetail, now):
 
 
 def _auth_hint(cfg):
-    """One line naming re-gating as the likely cause — on POSITIVE evidence
+    """One line naming an auth wall as the likely cause — on POSITIVE evidence
     only: display.py stamps auth_error into ITS state.json on every HTTP
     401/403 (display.py note_auth_error) and drops the key on the next
-    successful paint. Everything here is best-effort: a missing or unreadable
-    state file returns the empty string, never a guess."""
+    successful paint. The named culprit is the FORWARDED-deploy gate
+    (avian/forwarding/caddy-auth.caddy), not STATION_OPEN: on the station's
+    own LAN neither birdnet-api.php nor /index.html sits behind _auth.php or
+    any Caddy matcher, so a reverted STATION_OPEN cannot produce this
+    evidence — a hint that named it would send the operator at the wrong
+    flag (adversarial review, 2026-08-01). Everything here is best-effort: a
+    missing or unreadable state file returns the empty string, never a
+    guess."""
     try:
         with open(os.path.expanduser(cfg.get("state") or "~/.birdframe/state.json")) as f:
             if json.load(f).get("auth_error"):
-                return (" LIKELY CAUSE: the station answered HTTP 401/403 — it has been re-gated "
-                        "(STATION_OPEN reverted?). Set basic_user/basic_pass in ~/.birdframe/config.toml.")
+                return (" LIKELY CAUSE: base_url answered HTTP 401/403 — a gated forwarded/public deploy "
+                        "(avian/forwarding/caddy-auth.caddy) is in front of this frame. Set "
+                        "basic_user/basic_pass in ~/.birdframe/config.toml.")
     except Exception:
         pass
     return ""

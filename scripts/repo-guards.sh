@@ -987,14 +987,27 @@ else:
 sels = re.findall(r'wait_for_selector\(\s*"([^"]+)"', src)
 if not sels:
     bad.append("no wait_for_selector calls extracted from frame/shoot.py — extraction broke, or the wait moved; update guard 17")
-import os
-legacy = open("avian/frontend/apt.js").read()
-if os.path.exists("avian/frontend/index.html"):
-    legacy += open("avian/frontend/index.html").read()
+# BOTH legacy files are REQUIRED — "deleting the legacy frontend" is the exact
+# case this guard names, so a missing file is a finding, not an option.
+legacy = ""
+for lf in ("avian/frontend/apt.js", "avian/frontend/index.html"):
+    try:
+        legacy += open(lf).read()
+    except OSError:
+        bad.append(f"{lf} is gone — the legacy shot target no longer exists; the wall will freeze silently")
 for group in sels:
     for tok in re.findall(r"\.([A-Za-z][\w-]*)", group):
-        if tok not in legacy:
-            bad.append(f"shoot.py waits on '.{tok}' but the legacy frontend no longer contains '{tok}' — the shot will time out and the wall will freeze silently")
+        # The class must appear inside a SHORT quoted class-shaped string —
+        # class="empty", className = 'gtile', a quoted '.gtile' selector —
+        # with hyphen-aware boundaries. Two prior versions failed their
+        # mutations: bare substring containment (rec-empty kept 'empty'
+        # alive), then a quote-to-quote span whose [^"']* crossed prose and
+        # comments and matched '(empty)' labels. The charset here is the
+        # class-list alphabet only (word chars, dot, space, hyphen), so a
+        # paren, newline or sentence breaks the match.
+        pat = r'["\'][.\w -]*(?<![\w-])' + re.escape(tok) + r'(?![\w-])[.\w -]*["\']'
+        if not re.search(pat, legacy):
+            bad.append(f"shoot.py waits on '.{tok}' but the legacy frontend no longer carries the class token '{tok}' — the shot will time out and the wall will freeze silently")
 for b in bad:
     print("  " + b)
 sys.exit(1 if bad else 0)
