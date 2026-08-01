@@ -3,5 +3,8 @@
 # I2C enabled. install.sh handles all of that, so prefer running install.sh on
 # a fresh Pi rather than installing this file by hand.
 Pillow>=10,<12
-inky>=2.1,<3
+# 2.4.0 floor: Inky Impressions built from April 2026 carry the "AC waveform"
+# Spectra 6 panel (EEPROM id 27), which only 2.4.0+ can drive. auto() on an
+# older lib meets that EEPROM and fails; a floor of 2.1 was a latent brick.
+inky>=2.4,<3
 tomli; python_version < "3.11"

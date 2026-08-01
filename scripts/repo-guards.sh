@@ -522,10 +522,13 @@ fi
 #          guard here came to assert 5 of 11 gated paths.
 #     So this DERIVES the set from find and pins a COUNT. A new unit without an
 #     alert path fails the build on the day it is added.
-_units=$(find avian -name '*.service' ! -name 'christina-alert@.service' | sort)
+#     frame/systemd is in the net since the frame moved onto the station Pi:
+#     its two units were invisible to this guard for a month — the same
+#     convenient-subset blindness this guard exists to kill, one directory up.
+_units=$(find avian frame/systemd -name '*.service' ! -name 'christina-alert@.service' | sort)
 _n_units=$(printf '%s\n' "$_units" | grep -c . || true)
-[ "$_n_units" -ge 7 ] \
-  || fail "only $_n_units units found under avian/ — the OnFailure guard is looking in the wrong place and would pass vacuously"
+[ "$_n_units" -ge 10 ] \
+  || fail "only $_n_units units found under avian/ + frame/systemd/ — the OnFailure guard is looking in the wrong place and would pass vacuously"
 for _u in $_units; do
   grep -q '^OnFailure=christina-alert@%n\.service' "$_u" \
     || fail "$_u carries no OnFailure=christina-alert@%n.service — when it dies, nothing will say so"
@@ -566,7 +569,7 @@ fi
 #      off-box backup absent from the box for days.
 for _u in $_units; do
   _base=$(basename "$_u")
-  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh avian/backup/install-backup.sh 2>/dev/null && continue
+  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh avian/backup/install-backup.sh frame/install.sh 2>/dev/null && continue
   grep -qE "^[[:space:]]*$_base[[:space:]]*$" avian/NOT-INSTALLED 2>/dev/null \
     || fail "$_base declares an alert path but NO installer mentions it, and it is not declared in avian/NOT-INSTALLED — it will never reach the Pi (this is how offbox-backup shipped and was never installed)"
 done
@@ -585,6 +588,33 @@ if [ -f avian/NOT-INSTALLED ]; then
     find avian -name "$_d" | grep -q . \
       || fail "avian/NOT-INSTALLED names $_d, which no longer exists — the exemption outlived the unit"
   done < <(grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED)
+fi
+
+# 12. THE FRAME'S SHOT TARGET MUST KEEP ITS ANCHORS. display.py's default
+#     shoot_path is the legacy page (/index.html): at capture time shoot.py
+#     rewrites four apt.js tunables by regex, and display.py keeps the last
+#     panel image on any failure — so deleting the legacy frontend or renaming
+#     one tunable freezes the wall SILENTLY until the ~31h watchdog budget
+#     runs out. The patterns are EXTRACTED from shoot.py's own source (the
+#     mechanism), never restated here, and the extraction count is pinned so a
+#     refactor that moves the tuple fails the guard instead of emptying it.
+#     Enforced only while display.py's default still points at the legacy page.
+if grep -q '"shoot_path": "/index.html"' frame/display.py 2>/dev/null; then
+  python3 - <<'PY' || fail "frame shot target: apt.js no longer matches shoot.py's rewrite anchors (details above)"
+import re, sys
+src = open("frame/shoot.py").read()
+m = re.search(r"for pat, repl in \((.*?)\):\n", src, re.S)
+if not m:
+    print("could not locate the apt.js rewrite tuple in frame/shoot.py"); sys.exit(1)
+pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
+if len(pats) != 4:
+    print(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously"); sys.exit(1)
+js = open("avian/frontend/apt.js").read()
+missing = [p for p in pats if not re.search(p, js)]
+for p in missing:
+    print("  no match in avian/frontend/apt.js for: " + p)
+sys.exit(1 if missing else 0)
+PY
 fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"

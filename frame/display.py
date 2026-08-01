@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Frame-Pi client: turn a collage screenshot into Inky panel pixels.
+"""Frame client: turn a collage screenshot into Inky panel pixels.
 
-Runs on the Pi Zero W on a systemd timer. Each run it decides whether a
+Runs on the box the panel is attached to (a dedicated frame Pi, or the
+station Pi itself) on a systemd timer. Each run it decides whether a
 refresh is worth it (the species set or call-count brackets changed, and it
 is not quiet hours), then crops the title and collage from the screenshot,
 centres and mats them, and pushes the result to the Inky Impression 13.3".

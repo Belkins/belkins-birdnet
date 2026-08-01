@@ -49,8 +49,9 @@ timestamps long before frame-watch.timer's OnBootSec=20min, and
 FAIL_THRESHOLD=2 adds another hour on top. Do not "fix" that by widening the
 budget.
 
-Runs on the FRAME Pi (birdpic/monalisa) beside display.py: the mic Pi cannot
-see ~/.birdframe/state.json, and the frame exposes no remote surface. Exit 0 =
+Runs on whichever box hosts the panel, beside display.py — a dedicated frame
+Pi, or the station Pi itself (the live install since 2026-08). Only this box
+can see ~/.birdframe/state.json, so the freshness check lives here. Exit 0 =
 healthy or unknowable, 1 = a fault (exactly one ntfy push once FAIL_THRESHOLD
 consecutive ticks agree, and one recovery notice when it comes back).
 
@@ -241,8 +242,9 @@ def last_refresh(state_path):
 
 
 def notify(msg, title, tag):
-    # railway_liveness.py:28-38 verbatim. No apprise leg: the frame Pi has no
-    # BirdNET-Pi install, so ~/BirdNET-Pi/apprise.txt never exists there.
+    # railway_liveness.py:28-38 verbatim. No apprise leg, deliberately: on a
+    # standalone frame Pi apprise does not exist, and on the station Pi that
+    # leg already belongs to mic_watch — one module, one push idiom.
     print(msg, flush=True)
     if not NOTIFY:
         return

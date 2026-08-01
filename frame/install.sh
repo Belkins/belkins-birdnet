@@ -9,6 +9,10 @@
 #                                           (e.g. a public Cloudflare Worker)
 #   ./install.sh --bird-weather --zip <ZIP> standalone from BirdWeather, no mic
 #                                           (add --ebird-key <KEY> for remote ZIPs)
+#
+# --no-reboot: print the reboot instruction instead of rebooting. REQUIRED
+# form on a box that does anything besides drive the panel (the station Pi
+# records audio around the clock; an installer must not bounce it unasked).
 set -euo pipefail
 cd "$(dirname "$0")"
 FRAME="$(pwd)"
@@ -17,8 +21,10 @@ MODE=local            # local | image | birdweather
 ZIP=""
 IMAGE_URL=""
 EBIRD_KEY=""
+NO_REBOOT=0
 while [ $# -gt 0 ]; do
   case "$1" in
+    --no-reboot) NO_REBOOT=1; shift ;;
     --bird-weather) MODE=birdweather; shift ;;
     --zip) [ $# -ge 2 ] || { echo "--zip needs a value, e.g. --zip 94107" >&2; exit 1; }
            ZIP="$2"; shift 2 ;;
@@ -95,6 +101,12 @@ python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements-frame.txt
 if [ "$NEEDS_BROWSER" = 1 ]; then
+  # Chromium + its apt deps cost roughly 450-650MB. Warn (not fail) below 2GB
+  # free: the operator may know better, but must not find out from a full SD.
+  _free_mb=$(df -Pm . | awk 'NR==2 {print $4}')
+  if [ "${_free_mb:-0}" -lt 2048 ]; then
+    echo "     WARNING: only ${_free_mb}MB free on this filesystem; Chromium needs ~650MB." >&2
+  fi
   echo "     Installing Playwright + Chromium so the Pi can render the collage (a few minutes)..."
   .venv/bin/pip install -q playwright
   sudo .venv/bin/playwright install-deps chromium
@@ -230,9 +242,13 @@ DONE
 esac
 
 # SPI only takes effect on a reboot, so do it for the user. Skip if SPI is
-# already up (e.g. a re-run) so we don't bounce a working frame.
+# already up (e.g. a re-run) so we don't bounce a working frame. --no-reboot
+# hands the moment back to the operator: on a co-tenant box (the station Pi
+# records audio continuously) the reboot must be a decision, not a side effect.
 if [ -e /dev/spidev0.0 ]; then
   echo "SPI already active, no reboot needed."
+elif [ "$NO_REBOOT" = 1 ]; then
+  echo "SPI is enabled but not yet live (--no-reboot). Reboot when ready:  sudo reboot"
 else
   echo "Rebooting to bring SPI up (back on its own in ~1 min)..."
   sleep 4
