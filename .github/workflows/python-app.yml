@@ -3,11 +3,20 @@
 
 name: Python application
 
+# WHY THERE IS NO BRANCH FILTER HERE. Until 2026-08-01 this workflow was scoped
+# to `push: [main, test_me]` / `pull_request: [main]`. The measured cost: branch
+# `design/library-recompose` carried 25 commits — the ENTIRE cloud backup, the
+# off-box dead-man's switch, the mic-flatline watchdog fix, Caddyfile.live and
+# the 11.5x perf work — and scripts/repo-guards.sh (20 guards) plus ~200 tests
+# never ran on a single one of them. web-ci.yml has no branch filter and was
+# green throughout, so the ABSENCE of a python verdict looked like a pass.
+#
+# A guard you cannot run on the branch you are working on is not a guard. Do not
+# re-add a branch scope: guard 12 in scripts/repo-guards.sh fails the build if
+# a `branches:` key reappears under `push:`.
 on:
   push:
-    branches: [ "main", "test_me" ]
   pull_request:
-    branches: [ "main" ]
 
 permissions:
   contents: read
@@ -20,9 +29,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python 3.11
-      uses: actions/setup-python@v3
+      # v5, not v3: the `cache` input landed in setup-python v4 and is a no-op
+      # (silently ignored, no warning that fails anything) on v3. Now that this
+      # workflow runs on EVERY branch push, an uncached run re-downloads the
+      # ~600 MB tensorflow wheel (requirements.txt:1) every time. Cache keys off
+      # BOTH requirements files — the birdgen suite installs its own below, and
+      # a key derived from only the root file would go stale without noticing.
+      uses: actions/setup-python@v5
       with:
         python-version: "3.11"
+        cache: 'pip'
+        cache-dependency-path: |
+          requirements.txt
+          services/birdgen/requirements.txt
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip

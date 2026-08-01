@@ -171,6 +171,18 @@ export interface JardineErratum {
   headline: string;
   quote: JardinePassage | null;
   closing: string | null;
+  /** THE NAME THAT COLLIDED — set only on kind 'collision', and the whole
+   *  subject of that slip.
+   *
+   *  It has to be recorded because it is NOT derivable from the subjects. The
+   *  collision slip used to take `subjects[].jardine_binomial` and print the
+   *  first one it found, which gave `Merula musica` — a name Jardine set over
+   *  the Song Thrush alone, that belongs to no bird today, under a rule reading
+   *  "one binomial, two entirely different birds". The name that actually
+   *  equivocates is `Turdus musicus`: Jardine cites it as the Song Thrush's
+   *  synonym and it is the Redwing's now. It lives in the quote's prose, not in
+   *  any field, so nothing could have computed it. */
+  collision_name: string | null;
   /** What the closing SENTENCE depends on to stay true, or null when it is a
    *  timeless remark about the book. Two of the five make live claims about the
    *  garden — "Agreed." concedes that a bird is absent, and one asserts which
@@ -406,6 +418,7 @@ function asErrata(v: unknown): JardineErratum[] {
       headline,
       quote: asPassage(item.quote),
       closing: asNullableString(item.closing),
+      collision_name: asNullableString(item.collision_name),
       closing_requires: asEnum(item.closing_requires, REQUIRES),
       subjects: asSubjects(item.subjects),
     });
@@ -715,7 +728,17 @@ function orth(word: string): string {
     .replace(/æ|ae|oe/g, 'e');
 }
 function binomialWords(b: string): [string, string] {
-  const p = b.trim().split(/\s+/);
+  // A SUBGENUS IS NOT THE SPECIES. Zoological names may be written
+  // `Genus (Subgenus) species`, and the corpus has one: the Long-tailed
+  // Titmouse stands as `Parus (Mecistura) Caudatus`. Splitting on whitespace
+  // put `(Mecistura)` in the epithet slot, so its comparison against
+  // `Aegithalos caudatus` said BOTH halves had moved — and the Roll filed the
+  // bird under "both halves of the name changed", on a wall, above a row whose
+  // epithet had not changed at all since 1838.
+  //
+  // The parenthesis is an interpolation into the name, never one of its two
+  // words. Dropping it makes the Tit exactly what it is: a genus move.
+  const p = b.trim().split(/\s+/).filter((w) => !w.startsWith('('));
   return [p[0] ?? '', p[1] ?? ''];
 }
 /** How many of the two words differ once Victorian spelling is normalised. */
@@ -735,18 +758,81 @@ export const DRIFT_BANDS: Record<string, JardineDriftBand> = {
     holds: (j, s) => wordsMoved(j, s) <= 1,
   },
   genus: {
+    // was `j !== s`, which is satisfied by a bare accent — `Palæornis` vs
+    // `Palaeornis` differs as a string and has moved no word at all. This tier
+    // claims a name MOVED, so it must count a moved word.
     label: 'the name has moved further — a different genus, or a different species within it',
-    holds: (j, s) => j !== s,
+    holds: (j, s) => wordsMoved(j, s) >= 1,
   },
   family: {
     label: 'both halves of the name changed — the bird was refiled entirely',
     holds: (j, s) => wordsMoved(j, s) === 2,
   },
   collision: {
+    // The ONLY band whose claim is not about the shape of the string: it says
+    // the name belongs to another bird NOW, which no comparison of these two
+    // names can establish. `holds` is therefore the weakest necessary
+    // condition, and the real proof is E9 — the name is recorded, checked
+    // verbatim against the 1838 page, and required not to be either bird's
+    // heading. Do not read this predicate as the tier's evidence.
     label: 'the 1838 name now belongs to a DIFFERENT bird',
     holds: (j, s) => j !== s,
   },
 };
+
+/** ── WHAT A BAND HEADING IS ALLOWED TO SAY ───────────────────────────────────
+ *
+ *  Pairing each band with a `holds` predicate was supposed to stop a heading
+ *  drifting from its rows. It did not, and seven independent reviewers found
+ *  the same hole: `holds` is CODE and `label` is a free string, and nothing
+ *  connected them. T1 called the predicate and never read the sentence, so the
+ *  precise heading the bands were built to retire —
+ *
+ *      "the same name, spelled the way 1838 spelled it"
+ *
+ *  — could be pasted back over fourteen rows with no identical binomial among
+ *  them and the suite stayed green. The lesson written after that incident was
+ *  "store the caption WITH the predicate that makes it true". Storing them in
+ *  one object was not the same as BINDING them.
+ *
+ *  This is the binding. A band heading may only make a factual claim in words
+ *  registered here, each with the test that makes the claim true of a row. T1
+ *  requires every label to contain at least one registered phrase — so prose
+ *  with no checkable claim in it is itself a failure, not a gap — and then
+ *  proves that claim against every row filed under it.
+ *
+ *  Editorial voice is untouched: the phrase is a substring, the rest of the
+ *  sentence is free. What is no longer possible is a heading that asserts
+ *  something about its rows in words nothing can check. */
+export interface JardineLabelClaim {
+  /** the exact words that carry the claim, verbatim as they appear in a label */
+  phrase: string;
+  /** true of any row the claim may cover — or null when the claim is not about
+   *  the shape of the two names, in which case `provenBy` must name the test
+   *  that does prove it. A null with no `provenBy` is a claim nothing checks. */
+  holds: ((jardineBinomial: string, sciName: string) => boolean) | null;
+  /** the test id that carries the proof, for claims `holds` cannot reach */
+  provenBy?: string;
+}
+
+export const LABEL_CLAIMS: readonly JardineLabelClaim[] = [
+  { phrase: 'letter for letter', holds: (j, s) => j === s },
+  { phrase: 'one word away', holds: (j, s) => wordsMoved(j, s) <= 1 },
+  {
+    // a disjunction, and it must be registered WHOLE — 'a different genus'
+    // alone is false of Anser ferus → Anser anser, which never left Anser.
+    phrase: 'a different genus, or a different species within it',
+    holds: (j, s) => wordsMoved(j, s) >= 1,
+  },
+  { phrase: 'both halves of the name changed', holds: (j, s) => wordsMoved(j, s) === 2 },
+  {
+    // Nothing in these two strings can show who owns a name today. E9 does it
+    // from the 1838 page and the recorded collision_name.
+    phrase: 'now belongs to a DIFFERENT bird',
+    holds: null,
+    provenBy: 'E9',
+  },
+];
 
 /** ── TWO DECISIONS LIFTED OUT OF JSX, SO A TEST CAN CALL THEM ────────────────
  *
@@ -768,6 +854,174 @@ export const DRIFT_BANDS: Record<string, JardineDriftBand> = {
  *  two independent walls between the claim and a picture that cannot support it. */
 export function stationClaimAllowed(phase: string, src: string | null): src is string {
   return phase === 'ready' && !!src;
+}
+
+/** Does this bird HANG a plate — a full engraving the museum actually holds?
+ *
+ *  Both halves are load-bearing and both were learned the hard way. A
+ *  `plate_ref` with no file behind it is a plate we do not have, so the count
+ *  must test the image. And Erratum III's argument is that a VIGNETTE is not a
+ *  plate, so the ledger that contradicts it would contradict the slip two
+ *  sections above.
+ *
+ *  It is a function because the guard on it was a substring test — it asked
+ *  whether the predicate's source text CONTAINED `s.image` and
+ *  `!s.plate_is_vignette`, and `s.image || !s.plate_is_vignette` contains both
+ *  while meaning the opposite. An operator is not a substring. */
+export function hangsAPlate(s: JardineSpecies): boolean {
+  return s.image !== null && !s.plate_is_vignette;
+}
+
+/** What this garden can honestly say about one bird on an errata slip.
+ *
+ *  THREE STATES, and the third is the whole point. fetchCatalog() collapses
+ *  every failure — 404, offline, malformed — to `[]`, never null, so an empty
+ *  map cannot be read as an empty garden. With no catalog the slip must say
+ *  nothing rather than assert a silence nobody measured.
+ *
+ *  The order of the two checks IS the guarantee. A sweep reordered them — look
+ *  the bird up first, and `unknown` becomes unreachable while every branch that
+ *  reads it still compiles and every test stays green. That is why this lives
+ *  here now and not inside the view: a test can only prove the flag still fires
+ *  by CALLING it with an empty catalog. */
+export interface GardenFact {
+  present: boolean;
+  count: number;
+  pct: string;
+  com: string;
+  /** the ledger could not be read — claim nothing about this bird */
+  unknown?: boolean;
+}
+
+export function gardenFact(
+  sciName: string,
+  byCatalog: Map<string, CatalogSpecies>,
+  totalCalls: number,
+): GardenFact {
+  if (byCatalog.size === 0) return { present: false, count: 0, pct: '0', com: '', unknown: true };
+  const c = byCatalog.get(sciName);
+  if (!c) return { present: false, count: 0, pct: '0', com: '' };
+  const pct = totalCalls > 0 ? (c.detection_count / totalCalls) * 100 : 0;
+  return {
+    present: true,
+    count: c.detection_count,
+    pct: `${pct.toFixed(2)}%`,
+    com: c.com_name || c.sci_name,
+  };
+}
+
+/** The species that have BOTH a page in Jardine and a record in this garden.
+ *
+ *  The masthead says "N species heard in this garden have a page", and N was a
+ *  filter written inline. Drop it and the sentence reads "52 of the 47 species
+ *  heard in this garden have a page" — more pages than birds, in the ledger
+ *  that states the collection's own size. O3 pinned the plate half of that line
+ *  and not this one. */
+export function heardPages(
+  species: JardineSpecies[],
+  byCatalog: Map<string, CatalogSpecies>,
+): JardineSpecies[] {
+  return species.filter((s) => byCatalog.has(s.sci_name));
+}
+
+/** ── THE AMBER LAW, AS CODE ──────────────────────────────────────────────────
+ *
+ *  Amber marks exactly two things in this museum: a number the Pi measured, and
+ *  an 1838 binomial that has not moved a letter in 188 years. That is the whole
+ *  reason the colour carries any weight — it is rare, and it always means the
+ *  same thing.
+ *
+ *  In the Roll it was a ternary on the drift LABEL:
+ *
+ *      j.drift === 'unchanged' ? 'lib-roll-o lib-roll-un' : 'lib-roll-o'
+ *
+ *  with nothing checking it. Widening that test by one band paints fourteen
+ *  CHANGED binomials amber — `Alcedo ispida` → `Alcedo atthis` among them —
+ *  and every one of them then asserts, in the museum's own vocabulary, that
+ *  the name never moved.
+ *
+ *  So the decision reads the STRINGS, not the label. A row earns amber when the
+ *  two names are identical, which is the claim amber makes; a drift field that
+ *  disagrees with its own row cannot mint it. */
+export function ambersBinomial(s: JardineSpecies): boolean {
+  return s.drift === 'unchanged' && !!s.jardine_binomial && s.jardine_binomial === s.sci_name;
+}
+
+/** ── WHAT THE CAPTION UNDER A COLOURED BIRD IS ALLOWED TO SAY ────────────────
+ *
+ *  A sweep verified by sha256 against the live station that three of these
+ *  birds — Apus apus, Passer domesticus, Anas platyrhynchos — serve bytes
+ *  IDENTICAL to git-tracked files under avian/assets/illustrations/. They ship
+ *  with a fresh clone. This station never painted them, and cutout.php serves
+ *  them with X-Av-Real:1 exactly as it serves generated art, so no header can
+ *  tell them apart. The caption said "AI visualized by THIS STATION" over all
+ *  of them. Two of that sentence's three clauses were true — bundled art IS
+ *  AI-generated and is neither engraving nor photograph — so only the agency
+ *  changes.
+ *
+ *  THE TABLE USED TO LIVE IN THE VIEW, and E6 asserted its ENTRIES. Six
+ *  independent reviewers found the same hole: pinning the entries says nothing
+ *  about which entry is SELECTED. `TABLE[artSource || 'autogen']` restores the
+ *  agency claim for every bird whose source cannot be read, with every
+ *  assertion green — and on the live station, before the catalog began emitting
+ *  art_source, that fallback was the ONLY branch any bird ever took.
+ *
+ *  So the SELECTION is the exported decision, and the tests call it. Only the
+ *  exact string 'autogen' may reach the claim with agency in it; everything
+ *  else — 'bundled', '', 'unknown', a typo, a future source name — falls to the
+ *  caption that claims nothing about who painted the bird. */
+const STATION_CAPTION: Record<string, string> = {
+  autogen: 'AI visualized by this station · not an engraving, not a photograph',
+  bundled: 'AI illustration, shipped with this museum · not painted here, not a photograph',
+};
+const STATION_CAPTION_UNKNOWN = 'AI illustration · not an engraving, not a photograph';
+
+export function stationCaption(artSource: string): string {
+  return STATION_CAPTION[artSource] ?? STATION_CAPTION_UNKNOWN;
+}
+
+/** ── WHO PAINTED THE COLOURED BIRDS ──────────────────────────────────────────
+ *
+ *  The colophon read: "the birds in colour are AI visualized by this station
+ *  from the species name". One sentence, no qualifier, over every coloured bird
+ *  on the page — and it was FALSE for eight of them, whose art ships inside the
+ *  repo and was never painted here. This tab's entire argument is provenance,
+ *  and its own honesty label was the thing overstating a claim.
+ *
+ *  It also could not be corrected by editing the sentence, because the per-bird
+ *  caption that was supposed to carry the truth was inert in production: the
+ *  station's species.json carried no `art_source` at all, so every bird fell to
+ *  the same "AI illustration" fallback and the bundled/painted-here split
+ *  existed only in a test. Both halves are fixed — the station emits the field
+ *  now, and this counts it.
+ *
+ *  The sentence is COMPOSED from these numbers rather than written beside them,
+ *  which is the only form of that claim that cannot go stale. `unattributed` is
+ *  never folded into either side: a bird whose source this station cannot name
+ *  is said aloud, not quietly assigned to whichever number looks better. */
+export interface JardineArtProvenance {
+  /** ready, and this station painted it */
+  station: number;
+  /** ready, and the art shipped with the museum */
+  shipped: number;
+  /** ready, but the catalog records no source — claim nothing about these */
+  unattributed: number;
+}
+
+export function artProvenance(
+  rows: ReadonlyArray<{ art_status: string; art_source: string }>,
+): JardineArtProvenance {
+  const out: JardineArtProvenance = { station: 0, shipped: 0, unattributed: 0 };
+  for (const r of rows) {
+    // 'none' and 'unknown' have no picture to attribute. 'unknown' especially:
+    // it means the manifest went unanswered, which is the one state that must
+    // never be reported as fact.
+    if (r.art_status !== 'ready') continue;
+    if (r.art_source === 'autogen') out.station++;
+    else if (r.art_source === 'bundled') out.shipped++;
+    else out.unattributed++;
+  }
+  return out;
 }
 
 /** Everything a plate's caption is REQUIRED to say about this bird. */

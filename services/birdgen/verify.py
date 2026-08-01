@@ -223,7 +223,18 @@ def csv_row(slug: str, pose: int, sci: str, v: dict) -> str:
 
 
 def main() -> int:  # noqa: C901  (complexity 17; pre-existing debt, see .flake8)
-    here = Path(__file__).resolve().parents[1]
+    # abspath, NOT resolve() -- the same symlink invariant pregen.py:614 records,
+    # which this file (its sibling in the same symlinked set) never received.
+    # resolve() follows avian/scripts/verify.py back to services/birdgen/, so
+    # parents[1] became services/ and --dir defaulted to a NONEXISTENT
+    # services/assets/illustrations. glob() on a missing directory raises
+    # nothing and yields nothing, so the documented command in
+    # avian/scripts/README.md:85 printed "verifying 0 illustrations",
+    # "0 mismatch(es)" and exited 0 -- an adversarial QA gate that had never
+    # examined a single plate, reporting a clean bill of health. Anchoring on
+    # the INVOKED path keeps avian/ -> avian/assets/illustrations.
+    _here = Path(os.path.abspath(__file__)).parent
+    here = _here.parent
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("slugs", nargs="*", help="Slugs to verify. Default: all in --dir.")
@@ -251,6 +262,7 @@ def main() -> int:  # noqa: C901  (complexity 17; pre-existing debt, see .flake8
 
     print(f"verifying {len(pngs)} illustrations against {len(labels)} labels\n")
     mismatches = 0
+    checked = 0  # plates that actually came back with a verdict, not skips
     for png in pngs:
         if not png.exists():
             print(f"  [skip] missing {png.name}")
@@ -270,6 +282,7 @@ def main() -> int:  # noqa: C901  (complexity 17; pre-existing debt, see .flake8
             print(f"  [fail] {png.name}: could not parse response", file=sys.stderr)
             continue
 
+        checked += 1
         match = v.get("matches_target", False)
         tag = "[ok]   " if match else "[MISS] "
         print(f"  {tag}{png.name}: reads as {v.get('guessed_species_com', '?')} "
@@ -292,7 +305,27 @@ def main() -> int:  # noqa: C901  (complexity 17; pre-existing debt, see .flake8
         with args.out.open("a") as f:
             f.write(csv_row(slug, pose, sci, v))
 
-    print(f"\ndone. {mismatches} mismatch(es). results -> {args.out}")
+    print(f"\ndone. checked {checked} of {len(pngs)} plate(s), "
+          f"{mismatches} mismatch(es). results -> {args.out}")
+
+    # EXIT CODES. This returned a bare 0 for its whole life: a caller could not
+    # tell "every plate reads as the right bird" from "I looked at nothing" or
+    # from "12 plates are the wrong species". Both halves of that are the
+    # fail-open class this project keeps re-finding -- a check that cannot fail,
+    # reporting success -- and this one guards the PAID art pipeline.
+    #
+    # 4 before 1 deliberately: examining nothing is a worse answer than finding
+    # faults, because it is the one an operator is most likely to read as clean.
+    if checked == 0:
+        print("REFUSING to report success: not one plate was examined. "
+              f"--dir was {args.dir} (exists={args.dir.is_dir()}). "
+              "An empty or wrong directory is a broken invocation, not a pass.",
+              file=sys.stderr)
+        return 4
+    if mismatches:
+        print(f"{mismatches} plate(s) do not read as the target species.",
+              file=sys.stderr)
+        return 1
     return 0
 
 

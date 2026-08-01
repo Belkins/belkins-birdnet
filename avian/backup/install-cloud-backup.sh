@@ -121,13 +121,25 @@ if [ "$DRY" = "1" ]; then
 fi
 
 render() { sed -e "s|/home/belkins|$HOME|g" -e "s|^User=belkins$|User=$USER_NAME|" "$1"; }
+<<<<<<< HEAD
 for u in cloud-backup.service cloud-backup.timer; do
+=======
+# continuity-r2 rides this installer because it writes through the SAME crypt
+# remote every check above just validated — a separate installer would re-prove
+# the same five facts or, worse, skip them.
+for u in cloud-backup.service cloud-backup.timer continuity-r2.service continuity-r2.timer; do
+>>>>>>> origin/main
   render "$HERE/$u" | sudo tee "$UNIT_DIR/$u" >/dev/null || refuse 2 "could not write $UNIT_DIR/$u"
   ok "installed $u"
 done
 sudo systemctl daemon-reload
 sudo systemctl enable --now cloud-backup.timer >/dev/null 2>&1 || refuse 2 "could not enable cloud-backup.timer"
 ok "cloud-backup.timer enabled"
+<<<<<<< HEAD
+=======
+sudo systemctl enable --now continuity-r2.timer >/dev/null 2>&1 || refuse 2 "could not enable continuity-r2.timer"
+ok "continuity-r2.timer enabled (weekly: station identity + volume plates)"
+>>>>>>> origin/main
 
 echo
 echo "Next, in this order:"

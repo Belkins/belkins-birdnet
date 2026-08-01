@@ -158,6 +158,23 @@ def newest_chunks(recs_dir, rec_len):
         return None, None
     ages.sort()
     settled = next((p for age, p in ages if age > rec_len + 5), None)
+    if settled is None and ages:
+        # FALL BACK TO THE IN-FLIGHT CHUNK. Measured 2026-07-30: birdnet_analysis
+        # consumes and DELETES each chunk as soon as it has analysed it, so
+        # StreamData holds exactly ONE wav -- the one being written. A chunk older
+        # than rec_len+5 therefore never exists, `settled` was permanently None,
+        # and the flatline scan below NEVER RAN. Proof: zero "live noise floor"
+        # lines in seven days of journal. The one guard that can catch a mic that
+        # is present but recording pure silence was structurally unreachable --
+        # a card-present, chunks-fresh, totally-silent mic passed every check.
+        #
+        # Reading the in-flight chunk is safe: arecord writes a complete RIFF
+        # header up front (verified: nframes=720000 on a 15s/48kHz chunk while
+        # still being written) and we only read frames already on disk, which do
+        # not change under us. flatline() additionally refuses to judge on too
+        # few samples, so a chunk caught microseconds after creation is skipped
+        # rather than reported as flat.
+        settled = ages[0][1]
     return ages[0][0], settled
 
 
@@ -168,9 +185,16 @@ def flatline(path):
         with wave.open(path, "rb") as w:
             if w.getsampwidth() != 2:
                 return None  # chunks are pcm_s16le (birdnet_recording.sh)
-            frames = w.readframes(min(w.getnframes(), 5 * w.getframerate()))
+            w_rate = w.getframerate()
+            frames = w.readframes(min(w.getnframes(), 5 * w_rate))
         samples = array.array("h", frames[:(len(frames) // 2) * 2])
         if not samples:
+            return None
+        # Never judge on a sliver. Since the scan may now run against a chunk that
+        # is still being written, a file caught immediately after creation could
+        # hold a few milliseconds of near-silence and read as "flat" -- a false
+        # alarm on a healthy mic. Require a full second before rendering a verdict.
+        if len(samples) < w_rate:
             return None
         # Constant-DC dead ADC -> max == min -> caught; a quiet night's noise
         # floor is tens-to-hundreds of LSB peak-to-peak -> passes.

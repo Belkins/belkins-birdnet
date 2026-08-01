@@ -1,0 +1,18 @@
+[Unit]
+Description=Weekly continuity refresh — station identity + volume plates into R2
+
+[Timer]
+# Saturday 05:30: after the nightly cloud-backup (04:45) and catalog (03:30)
+# have finished, so the uplink is quiet and the ledgers are the night's.
+# WEEKLY is a cost decision too — cloud-backup.timer's note on R2 Class B
+# operations applies; config files are tiny but the plates pass lists and
+# re-uploads a fresh ~70 MB archive each run. Weekly tracks every plausible
+# config/plate change rate on this station without turning R2 list ops into
+# a bill. Do not shorten this casually.
+OnCalendar=Sat *-*-* 05:30:00
+# A Pi that was off on Saturday runs the missed pass on next boot — without
+# this a skipped week is silent, which is the failure this timer exists to end.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

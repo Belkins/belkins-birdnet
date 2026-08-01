@@ -1,36 +1,34 @@
 // INDEX — the Broadsheet ledger: a ranked species index with the big number.
 import type { RosterRow } from '../types';
 import { formatDay } from '../days';
+import { windowHeadline } from '../window';
 
-/** The rolling window, in words. NOT a day: every one of these is a window
- *  ending now, so "Today" is false for all of them — at 02:00 a 24-hour window
- *  is mostly yesterday, and at ALL it is four weeks of history headlined as one
- *  morning. The comment below already forbade headlining ARCHIVE counts as
- *  "Heard Today" and the same sentence was hardcoded over every live window. */
-export const WINDOW_HEADLINE: Record<number, string> = {
-  1: 'This Hour',
-  12: 'These 12 Hours',
-  24: 'These 24 Hours',
-  168: 'These 7 Days',
-  1_000_000: 'All Time',
-};
+// The window's name comes from ./window.ts, which derives it from the hours it
+// describes. This file used to hold a hand-written map keyed by preset, and the
+// guard on it proved every preset HAD an entry, never that the entry described
+// that preset — so 'Heard Today' could be typed back over a rolling window with
+// the suite green. It also fell back to the chip label for any window not in
+// the map, and that label itself defaulted to 24H.
 
 export function IndexView({
   rows,
   archiveDay = null,
-  windowHours = 24,
-  windowLabel = '24H',
+  windowHours,
 }: {
   rows: RosterRow[];
   /** Pinned past day the roster reflects, or null = live window — the ledger
    *  must never headline archive counts as "Heard Today". */
   archiveDay?: string | null;
-  /** The window `rows` was actually counted over. The headline is a CLAIM about
-   *  these numbers, so it has to come from the same place they do. */
-  windowHours?: number;
-  windowLabel?: string;
+  /** The window `rows` was actually counted over, and REQUIRED — that is the
+   *  guard. The `label` prop that used to sit beside it is gone: passing a NAME
+   *  alongside the hours is how the two came apart, because only one was true. A sweep dropped this prop at the call
+   *  site and the suite stayed green, because the default silently named a
+   *  window nobody had selected. A window's name is a claim about the numbers
+   *  under it; there is no honest default for it, so the compiler refuses the
+   *  omission instead of a test having to notice it. */
+  windowHours: number;
 }) {
-  const headline = WINDOW_HEADLINE[windowHours] ?? windowLabel;
+  const headline = windowHeadline(windowHours);
   const total = rows.reduce((a, r) => a + r.n, 0);
   const top = rows.slice(0, 12);
   const max = top.length ? top[0].n : 1;

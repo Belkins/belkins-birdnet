@@ -20,9 +20,17 @@ avian-mqtt.service
 #   listener. Install it the day a broker exists — the unit is ready and now
 #   carries the alert path.
 
-weekly_digest.service
-#   Pushes a weekly summary to the shared ntfy topic. It is complete and tested,
-#   and turning it on is a PRODUCT decision (does the operator want a weekly
-#   push?) rather than an engineering one, so it stays off until asked for.
-#   Note its own guard: weekly_digest.py refuses to push when derived.json is
-#   older than 72h, so it cannot broadcast a stale museum.
+offbox-backup.service
+#   The nightly volume-plate archive to an off-box MOUNT. deploy-realtime.sh
+#   renders it, but no such mount hardware exists — the env carries the
+#   REPLACE_ME placeholder, so the unit refuses to arm (that refusal is
+#   correct; do not silence it). The plates AND the station's config identity
+#   are covered weekly by continuity-r2.timer (config-to-r2.sh +
+#   plates-to-r2.sh through the crypt remote; installed + enabled by
+#   install-cloud-backup.sh; DEGRADED runs upload first, then alert). This
+#   unit stays for the day real mount hardware exists — a second medium, not
+#   a second copy of the same R2 basket.
+#
+# weekly_digest.service was listed here until 2026-08-01: the operator asked for
+# it and the timer was armed 2026-07-30 (first fire Sun 18:00), so the entry had
+# become a lie — the exact rot guard 11d exists to catch in the other direction.

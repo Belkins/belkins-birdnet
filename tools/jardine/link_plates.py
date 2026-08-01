@@ -213,6 +213,18 @@ def main():
             if len(shared.get((vol, ref), [])) > 1 and name not in ADJUDICATED:
                 unadjudicated.append((s["sci_name"], name, []))
                 continue
+            # THE SAME MEMBERSHIP CHECK THE SPECIES PATH MAKES. Being IN the
+            # ledger is not clearance for any bird that asks: the ledger says
+            # WHICH birds are on the sheet. Without this, "24-3.jpg is
+            # adjudicated" was read as "24-3.jpg may be mounted under whoever
+            # names it", and an errata subject could hang a two-bird engraving
+            # that does not contain it -- exit 0, caption confident, wrong bird.
+            adj = ADJUDICATED.get(name)
+            if adj and not any(f["sci_name"] == s["sci_name"] for f in adj["figures"]):
+                unadjudicated.append(
+                    (s["sci_name"], name, [f["sci_name"] for f in adj["figures"]])
+                )
+                continue
             w, h = dims(path)
             s["image"], s["image_w"], s["image_h"] = REL + name, w, h
             filled.append(f"slip {e['no']} · {s['sci_name']}")

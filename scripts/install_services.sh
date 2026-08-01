@@ -173,6 +173,28 @@ EOF
 }
 
 install_Caddyfile() {
+  # THE AUTH DIRECTIVE IS DETECTED, NEVER ASSUMED — same rule and same fallback
+  # as update_caddyfile.sh, kept in sync by repo-guards.sh guard 16.
+  #
+  # Caddy renamed `basicauth` -> `basic_auth` in v2.7, and this repo carried BOTH
+  # spellings as documented fact while contradicting itself: version.md:49 says
+  # "Ships with Caddy 2.4.5" (pre-2.7), update_caddyfile.sh's header claimed 2.11
+  # rejects the old name. Neither is a fact about this box — line 17 above
+  # installs `caddy` from the caddy/stable apt repo, i.e. whatever is current on
+  # the day of the install. Hardcoding either spelling is a coin flip decided on
+  # the disaster-recovery path, which nobody exercises until the card is dead.
+  local _v _major _minor
+  _v=$(caddy version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
+  _major=${_v%%.*}; _minor=${_v##*.}
+  AUTHDIR=basicauth   # widest acceptance: a pre-2.7 caddy CANNOT read basic_auth
+  case "$_major$_minor" in
+    ''|*[!0-9]*) ;;
+    *) if [ "$_major" -gt 2 ] || { [ "$_major" -eq 2 ] && [ "$_minor" -ge 7 ]; }; then
+         AUTHDIR=basic_auth
+       fi ;;
+  esac
+  echo "install_services: caddy $(caddy version 2>/dev/null | head -1) -> using '$AUTHDIR'" >&2
+
   [ -d /etc/caddy ] || mkdir /etc/caddy
   if [ -f /etc/caddy/Caddyfile ];then
     cp /etc/caddy/Caddyfile{,.original}
@@ -189,24 +211,33 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
-  basicauth /views.php?view=File* {
+  ${AUTHDIR} /views.php?view=File* {
     birdnet ${HASHWORD}
   }
-  basicauth /Processed* {
+  ${AUTHDIR} /Processed* {
     birdnet ${HASHWORD}
   }
-  basicauth /scripts* {
+  ${AUTHDIR} /scripts* {
     birdnet ${HASHWORD}
   }
-  basicauth /stream {
+  ${AUTHDIR} /stream {
     birdnet ${HASHWORD}
   }
-  basicauth /phpsysinfo* {
+  ${AUTHDIR} /phpsysinfo* {
     birdnet ${HASHWORD}
   }
-  basicauth /terminal* {
+  ${AUTHDIR} /terminal* {
     birdnet ${HASHWORD}
   }
+  # DNS-rebinding defence. basic_auth does NOT stop rebinding — browsers replay
+  # cached credentials automatically — so the Host pin is a separate control and
+  # both writers of this file must carry it. update_caddyfile.sh has had it
+  # since it was written; this function did not, in either branch, and this is
+  # the file that runs on a FRESH INSTALL: the disaster-recovery path, taken
+  # after the SD card dies, which is exactly the scenario the off-site backup
+  # exists to serve. Keep in sync with update_caddyfile.sh:112.
+  @badhost not host ${BIRDNETPI_URL} birdnet.local birdnet localhost 127.0.0.1
+  abort @badhost
   reverse_proxy /stream localhost:8000
   php_fastcgi unix//run/php/php-fpm.sock
   reverse_proxy /log* localhost:8080
@@ -218,6 +249,16 @@ EOF
     cat << EOF > /etc/caddy/Caddyfile
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
+  # FAIL CLOSED. With no CADDY_PWD this branch used to emit a fully open config
+  # — no auth of any kind — while still reverse-proxying /terminal* to gotty,
+  # which install_gotty_logs starts as a WRITABLE login shell (-w, su --pty).
+  # An unauthenticated interactive shell on the LAN is not a degraded install,
+  # it is a different product. update_caddyfile.sh:154 already refused this;
+  # this branch is where a fresh install actually lands.
+  @adminplane path /scripts* /play.php* /terminal* /log* /stats* /stream /phpsysinfo* /Processed* /By_Date* /Charts*
+  respond @adminplane "Admin surfaces are disabled because CADDY_PWD is not set. Set it in birdnet.conf and re-run scripts/update_caddyfile.sh." 403
+  @badhost not host ${BIRDNETPI_URL} birdnet.local birdnet localhost 127.0.0.1
+  abort @badhost
   file_server browse
   handle /By_Date/* {
     file_server browse
@@ -244,7 +285,25 @@ EOF
   # index.html try_files override); re-apply both through update_caddyfile.sh,
   # the single source of truth, so / serves index.html not index.php. Run it
   # last so it wins.
-  "$HOME/BirdNET-Pi/scripts/update_caddyfile.sh"
+  #
+  # ITS EXIT STATUS IS CHECKED. This script has no `set -e`, so an unchecked
+  # call here meant a REFUSAL was indistinguishable from success: with
+  # STATION_OPEN=1 in birdnet.conf update_caddyfile.sh exits 2 without writing,
+  # and installation simply continued on the stock config emitted above. The
+  # config that "wins" is then whichever one happened to survive, decided
+  # silently. Say so instead — the operator is standing at the box on a fresh
+  # install and can act.
+  if ! "$HOME/BirdNET-Pi/scripts/update_caddyfile.sh"; then
+    _uc_rc=$?
+    echo "install_services: update_caddyfile.sh exited $_uc_rc — the collage front" >&2
+    echo "  door was NOT applied and /etc/caddy/Caddyfile is the stock config" >&2
+    echo "  written above. It is Host-pinned and (without CADDY_PWD) refuses the" >&2
+    echo "  admin plane, so this is safe to leave running, but / will serve the" >&2
+    echo "  BirdNET-Pi UI rather than the museum until you resolve this." >&2
+    echo "  Most likely cause: STATION_OPEN=1 in birdnet.conf, which makes" >&2
+    echo "  update_caddyfile.sh refuse by design (it would re-gate the LAN)." >&2
+    return "$_uc_rc"
+  fi
 }
 
 install_avahi_aliases() {

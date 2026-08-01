@@ -4,9 +4,30 @@
 Step 3 of the illustration pipeline (after pregen.py and cutout.py).
 
 The collage packs birds by their actual silhouette, not bounding boxes,
-so the frontend ships a tiny 1-bit mask per illustration inlined in
-apt.js. This reads every cutout in avian/assets/illustrations/ and
-rewrites the DIMS and MASKS tables in avian/frontend/apt.js:
+so the frontend ships a tiny 1-bit mask per illustration. This reads every
+cutout in avian/assets/illustrations/ and writes BOTH front ends:
+
+  * avian/frontend/apt.js       -- the legacy collage, tables inlined
+  * web/public/data/{masks,dims}.json -- the React museum, fetched at boot
+
+WHY BOTH. Until 2026-08-01 this script wrote apt.js ONLY, while
+deploy-christina.sh ran it on every deploy. The museum's masks.json had
+therefore not been regenerated since it was first created (mtime 2026-06-30)
+and had drifted to 249 entries against 250 perched illustrations. The one it
+lacked was `apus-apus` -- Common Swift, a real bird at this London station --
+so the Swift packed against a RECTANGLE while the legacy UI packed it
+correctly. A deploy step that maintains only the surface being retired is
+worse than no deploy step: it keeps the old thing accurate and lets the new
+one rot.
+
+PERCHED ONLY, DELIBERATELY, for the museum. web/src/data.ts calls
+`loadMask(slug, ar)` with the BASE slug -- never `slug + '-2'` -- so a flight
+tile looks up the perched mask and sizes its box by FLIGHT_ASPECT instead
+(collage.ts:74). Emitting the 250 `-2` masks would therefore add ~276 KB to a
+file on the first-paint path that NOTHING reads, against the measured 11.5x
+first-load reduction in 6451993. If the renderer ever keys flight masks by
+`-2`, pass --include-flight; the capability exists, the cost does not.
+apt.js is unaffected by that choice: it has always carried both poses.
 
     DIMS[slug]  = [w, h]  aspect, scaled so the long side is 560
     MASKS[slug] = {w, h, bits}  silhouette downscaled to <=93px, 1-bit
@@ -79,8 +100,15 @@ def main() -> int:
                     help="Cutout directory (default: avian/assets/illustrations/)")
     ap.add_argument("--apt", type=Path, default=here / "frontend" / "apt.js",
                     help="Frontend file to patch (default: avian/frontend/apt.js)")
+    ap.add_argument("--web-data", type=Path,
+                    default=here.parent / "web" / "public" / "data",
+                    help="React museum data dir (default: web/public/data/)")
+    ap.add_argument("--include-flight", action="store_true",
+                    help="Also emit -2 flight masks to the museum JSON. Off by "
+                         "default: nothing reads them and they cost ~276KB on "
+                         "the first-paint path (see module docstring).")
     ap.add_argument("--check", action="store_true",
-                    help="Report counts and don't write apt.js")
+                    help="Report counts and don't write anything")
     args = ap.parse_args()
 
     dims, masks = build_tables(args.illustrations)
@@ -113,6 +141,23 @@ def main() -> int:
     src = replace_decl(src, "MASKS", masks_json)
     args.apt.write_text(src)
     print(f"patched {args.apt}\nremember to bump SKETCH_VERSION + IMG_VERSION in apt.js")
+
+    # The museum. Perched-only unless asked otherwise -- see the module
+    # docstring for why emitting -2 here would be 276KB nothing reads.
+    web_dims, web_masks = dims, masks
+    if not args.include_flight:
+        web_dims = {k: v for k, v in dims.items() if not k.endswith("-2")}
+        web_masks = {k: v for k, v in masks.items() if not k.endswith("-2")}
+
+    args.web_data.mkdir(parents=True, exist_ok=True)
+    for name, table in (("dims.json", web_dims), ("masks.json", web_masks)):
+        dest = args.web_data / name
+        # Atomic: a half-written masks.json is a museum that packs every bird
+        # as a rectangle, and it would be served the moment it appeared.
+        tmp = dest.with_suffix(dest.suffix + ".tmp")
+        tmp.write_text(json.dumps(table, separators=(",", ":"), sort_keys=True))
+        tmp.replace(dest)
+        print(f"wrote {dest} ({len(table)} entries, {dest.stat().st_size} bytes)")
     return 0
 
 

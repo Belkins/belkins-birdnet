@@ -1,0 +1,35 @@
+[Unit]
+Description=Christina — weekly continuity refresh: station identity (config/) + volume-plate archive (plates-oneshot/) into R2
+After=network-online.target
+Wants=network-online.target
+# Catches what the scripts cannot push themselves: a bash that will not start,
+# an unreadable EnvironmentFile, a SIGKILL from TimeoutStartSec. The scripts'
+# own refusals (2) and faults (3/4) exit non-zero, so they land here too —
+# a DEGRADED plates run alerts WITH the copy already uploaded and verified.
+OnFailure=christina-alert@%n.service
+
+[Service]
+Type=oneshot
+# install-cloud-backup.sh rewrites User= and the /home/belkins paths at install
+# time, matching deploy-realtime.sh's render_unit().
+User=belkins
+# Same reasoning as cloud-backup.service: the detector and the museum always
+# win; this fills the gaps at idle priority, and under memory pressure it is
+# the designated OOM victim — a killed continuity pass costs one retry, a
+# killed detector costs birdsong no retry can recover.
+Nice=19
+IOSchedulingClass=idle
+OOMScoreAdjust=1000
+
+EnvironmentFile=-/home/belkins/.christina/forwarder.env
+EnvironmentFile=-/home/belkins/.christina/cloud-backup.env
+
+# Bounded, not generous-to-infinity: config files are KBs; the plates archive
+# is ~70 MB, ~6 min at the measured throttled 200 KB/s. 2h covers a bad night
+# without the hangs-in-activating-forever trap the sibling units document.
+TimeoutStartSec=7200
+
+ExecStart=/bin/bash /home/belkins/BirdNET-Pi/avian/backup/continuity-r2.sh
+
+# No [Install] section on purpose — only the .timer is enableable, matching
+# cloud-backup.service and offbox-backup.service.

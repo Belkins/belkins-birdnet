@@ -10,32 +10,101 @@ set -x
 FPM_SOCK=$(ls /run/php/php*-fpm.sock 2>/dev/null | head -n1)
 FPM_SOCK=${FPM_SOCK:-/run/php/php-fpm.sock}
 
-[ -d /etc/caddy ] || mkdir /etc/caddy
-if [ -f /etc/caddy/Caddyfile ];then
-  cp /etc/caddy/Caddyfile{,.original}
+# THE AUTH DIRECTIVE IS DETECTED, NEVER ASSUMED.
+#
+# Caddy renamed `basicauth` -> `basic_auth` in v2.7. Both spellings appear in
+# this repo's own documentation as fact, and they contradict each other:
+#   version.md:49            "Ships with Caddy 2.4.5"   (pre-2.7 => basicauth)
+#   this file, until now     "the pre-2.7 `basicauth` spelling that Caddy 2.11
+#                             rejects outright"          (=> basic_auth)
+# and install_services.sh installs from the `caddy/stable` apt repo, i.e.
+# whatever is current on the day of the install -- so NEITHER note is a fact
+# about this box. Hardcoding either spelling is a coin-flip that breaks the
+# station's auth on a rebuild, and the rebuild is the one path nobody exercises
+# until the SD card is already dead.
+#
+# Ask the binary instead. Unknown/unparseable version falls back to `basicauth`,
+# the older name, because a pre-2.7 caddy CANNOT understand `basic_auth` while a
+# 2.7+ caddy has at worst deprecated the old one -- the fallback should be the
+# spelling with the wider acceptance, not the newer one.
+caddy_auth_directive() {
+  local v major minor
+  v=$(caddy version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+' | head -1 | tr -d 'v')
+  major=${v%%.*}; minor=${v##*.}
+  case "$major$minor" in ''|*[!0-9]*) printf 'basicauth\n'; return ;; esac
+  if [ "$major" -gt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -ge 7 ]; }; then
+    printf 'basic_auth\n'
+  else
+    printf 'basicauth\n'
+  fi
+}
+AUTHDIR=$(caddy_auth_directive)
+echo "update_caddyfile: caddy $(caddy version 2>/dev/null | head -1) -> using '$AUTHDIR'" >&2
+
+[ -d /etc/caddy ] || sudo mkdir -p /etc/caddy
+# TIMESTAMPED, not a fixed name. `cp Caddyfile{,.original}` meant a SECOND run
+# overwrote the only good copy with the bad one the first run had just left --
+# so the backup taken to survive a mistake was destroyed by repeating it.
+if [ -f /etc/caddy/Caddyfile ]; then
+  sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%Y%m%d-%H%M%S)"
 fi
+
+# RENDER TO A TEMP FILE, VALIDATE THAT, THEN INSTALL.
+#
+# Both heredocs below used to write straight to /etc/caddy/Caddyfile, and the
+# `caddy validate` at the bottom ran AFTER the live file had already been
+# overwritten. On a validation failure the script exited 1 without reloading --
+# correct as far as it went -- but left an UNPARSEABLE config on disk. Caddy
+# keeps serving from memory, so nothing looks wrong until the next restart or
+# reboot, at which point the station has no web server at all: no museum, no
+# API, no /events, and the failure is hours or weeks detached from its cause.
+#
+# CADDYFILE is the write target for everything below; the live path is only
+# touched by the atomic install at the end.
+CADDYFILE="$(mktemp -t Caddyfile-XXXXXX)"
+trap 'rm -f "$CADDYFILE" 2>/dev/null' EXIT
 # STATION_OPEN="1" — the deliberate LAN-open opt-out (owner's choice, 2026-07-30).
 # REFUSE rather than regenerate. Every path below re-emits basic_auth, so running
 # this script would silently put the passwords back and undo that choice.
 #
 # This is a refusal, not a TODO. The script already could not reproduce the live
-# /etc/caddy/Caddyfile — it emits the pre-2.7 `basicauth` spelling that Caddy
-# 2.11 rejects outright, and it knows nothing about the hand-added /events SSE
-# route or the extra Host pins. Teaching it a third branch would make it look
-# safe to run while it still is not. Edit the live file surgically instead.
+# /etc/caddy/Caddyfile — it knows nothing about the hand-added /events SSE route
+# or the extra Host pins. Teaching it a third branch would make it look safe to
+# run while it still is not. Edit the live file surgically instead.
+#
+# (This paragraph used to lead with "it emits the pre-2.7 `basicauth` spelling
+# that Caddy 2.11 rejects outright". That claim was never verified, contradicts
+# version.md:49, and is now MOOT either way — the directive is detected from the
+# installed binary above. The remaining reasons stand on their own.)
+#
+# ADDED 2026-07-30, and this is now the bigger loss: the live file also carries
+# the SERVING WORK that made the museum 11.5x lighter, none of which this script
+# knows how to emit --
+#   @nostream / encode @nostream zstd gzip   first-load text 690,437 -> 182,160 B.
+#     The exclusion is load-bearing: SSE is text/event-stream, which matches
+#     encode's default text/* list, so a bare `encode` BUFFERS the realtime
+#     spine dead while every asset check still passes.
+#   @immutable path /collage/assets/*        immutable caching on content-hashed
+#     assets, scoped so species.json and derived.json (nightly-rebuilt symlinks)
+#     never get it.
+# Regenerating silently reverts both. Nothing would look broken: the wall would
+# just quietly serve 3.8x more bytes again, and the only symptom is slowness
+# nobody attributes to a config rewrite weeks earlier.
 if [ "${STATION_OPEN}" = "1" ];then
   echo "update_caddyfile: REFUSING to run — STATION_OPEN=1 in birdnet.conf." >&2
   echo "  This script re-emits basic_auth on 11 paths and would restore every" >&2
   echo "  password gate the owner deliberately removed on 2026-07-30." >&2
-  echo "  It also cannot reproduce the live file (old 'basicauth' spelling," >&2
-  echo "  no /events route, no extra Host pins), so it must not be used to" >&2
+  echo "  It also cannot reproduce the live file (no /events route, no extra" >&2
+  echo "  Host pins, and NO encode/@immutable --" >&2
+  echo "  regenerating would silently undo the 11.5x serving win), so it must" >&2
+  echo "  not be used to" >&2
   echo "  re-gate either. To restore the gates: edit /etc/caddy/Caddyfile by" >&2
   echo "  hand, or unset STATION_OPEN first and diff before applying." >&2
   exit 2
 fi
 if ! [ -z ${CADDY_PWD} ];then
 HASHWORD=$(caddy hash-password --plaintext ${CADDY_PWD})
-cat << EOF > /etc/caddy/Caddyfile
+cat << EOF > "$CADDYFILE"
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   # The wall's front door. Without this, `/` resolves via try_files to
@@ -51,43 +120,43 @@ http:// ${BIRDNETPI_URL} {
   handle /Charts/* {
     file_server browse
   }
-  basicauth /views.php?view=File* {
+  ${AUTHDIR} /views.php?view=File* {
     birdnet ${HASHWORD}
   }
-  basicauth /Processed* {
+  ${AUTHDIR} /Processed* {
     birdnet ${HASHWORD}
   }
-  basicauth /scripts* {
+  ${AUTHDIR} /scripts* {
     birdnet ${HASHWORD}
   }
-  basicauth /stream {
+  ${AUTHDIR} /stream {
     birdnet ${HASHWORD}
   }
-  basicauth /phpsysinfo* {
+  ${AUTHDIR} /phpsysinfo* {
     birdnet ${HASHWORD}
   }
-  basicauth /terminal* {
+  ${AUTHDIR} /terminal* {
     birdnet ${HASHWORD}
   }
   # play.php is symlinked to the WEB ROOT by install_services.sh, so /scripts*
   # does not cover it -- and it holds an exec("sudo rm ...") of a GET parameter.
-  basicauth /play.php* {
+  ${AUTHDIR} /play.php* {
     birdnet ${HASHWORD}
   }
-  basicauth /log* {
+  ${AUTHDIR} /log* {
     birdnet ${HASHWORD}
   }
-  basicauth /stats* {
+  ${AUTHDIR} /stats* {
     birdnet ${HASHWORD}
   }
   # The recordings/charts archives are browsable indexes of what is audible at
   # the operator's home, with timestamps. The museum never fetches these
   # directly (it goes through /avian/api/recording.php + spectrogram.php), so
   # gating them costs nothing and removes an occupancy-inference leak.
-  basicauth /By_Date* {
+  ${AUTHDIR} /By_Date* {
     birdnet ${HASHWORD}
   }
-  basicauth /Charts* {
+  ${AUTHDIR} /Charts* {
     birdnet ${HASHWORD}
   }
   # DNS-rebinding defence: a hostile page cannot rebind its own hostname to this
@@ -126,7 +195,7 @@ echo "update_caddyfile: WARNING - CADDY_PWD is empty." >&2
 echo "  Serving the gallery, but DENYING the admin plane (/scripts*, /terminal*," >&2
 echo "  /play.php, /log*, /stats*, /stream, /phpsysinfo*, /Processed*, archives)." >&2
 echo "  Set CADDY_PWD in /etc/birdnet/birdnet.conf and re-run to enable them." >&2
-  cat << EOF > /etc/caddy/Caddyfile
+  cat << EOF > "$CADDYFILE"
 http:// ${BIRDNETPI_URL} {
   root * ${EXTRACTED}
   # The wall's front door. Without this, `/` resolves via try_files to
@@ -162,13 +231,25 @@ http:// ${BIRDNETPI_URL} {
 EOF
 fi
 
-sudo caddy fmt --overwrite /etc/caddy/Caddyfile
-# Fail loudly on a Caddyfile caddy can't parse rather than reloading a broken
-# config and reporting success.
-sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || {
-  echo "generated Caddyfile failed validation; not reloading caddy" >&2
+# Format and validate THE CANDIDATE, while the live config is still the last
+# known-good one. Fail loudly on a Caddyfile caddy can't parse rather than
+# reloading a broken config and reporting success.
+caddy fmt --overwrite "$CADDYFILE"
+caddy validate --config "$CADDYFILE" --adapter caddyfile || {
+  echo "generated Caddyfile failed validation; /etc/caddy/Caddyfile is UNCHANGED" >&2
+  echo "  (the candidate was rendered to $CADDYFILE and discarded — the box is" >&2
+  echo "   still serving the config it was serving before this ran)" >&2
   exit 1
 }
+
+# Only now does the live path change. `install` is a single rename-like
+# operation with the mode set, so there is no window in which /etc/caddy/Caddyfile
+# is half-written.
+sudo install -m 644 "$CADDYFILE" /etc/caddy/Caddyfile || {
+  echo "could not install the validated Caddyfile to /etc/caddy/Caddyfile" >&2
+  exit 1
+}
+
 # reload-or-restart so this also works at install time, when caddy may not be
 # running yet (a plain reload would fail there); tolerate a not-yet-ready unit.
 sudo systemctl reload-or-restart caddy 2>/dev/null || true

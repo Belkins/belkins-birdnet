@@ -202,6 +202,14 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    workflow hardcodes the suite list. A NEW tests/ dir that isn't enumerated
 #    silently never runs while the badge stays green. This guard turns that
 #    silent skip into a red build with instructions.
+#
+#    ./.claude is pruned for the same reason as ./node_modules and ./.venv, and
+#    it is not cosmetic: `git worktree add .claude/worktrees/<name>` puts a FULL
+#    SECOND CHECKOUT inside the repo, so this find discovered all five suites
+#    again under it and the ENTIRE guard suite exited 1 on a clean tree. CI never
+#    saw it (a fresh checkout has no worktrees) — it broke the guards only for
+#    the person actually working, i.e. exactly when they are needed. .claude is
+#    gitignored (.gitignore:55); find does not read .gitignore.
 ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
@@ -213,6 +221,7 @@ done < <(find . \
   -path ./.git -prune -o \
   -path ./node_modules -prune -o -path '*/node_modules' -prune -o \
   -path ./_design-plan -prune -o -path ./_plan -prune -o \
+  -path ./.claude -prune -o \
   -name venv -prune -o -name .venv -prune -o -name .tox -prune -o \
   -path '*/site-packages/*' -prune -o \
   -type d -name tests -print | while IFS= read -r t; do
@@ -424,26 +433,97 @@ printf '%s\n' "$_play" | grep -qE '\\"\$(oldname|newname)\\"' \
   || fail "scripts/play.php: the mkdir path is unescaped again — \$dir comes from pathinfo(\$_GET['shiftfile']) with NO quotes, so even ; and | execute there"
 [ "$(printf '%s\n' "$_play" | grep -cE 'shell_exec\("sudo mkdir -p "\.escapeshellarg\(')" = "2" ] \
   || fail "scripts/play.php: expected BOTH mkdir call sites (ffmpeg + sox) to escapeshellarg their path"
-#    The no-password branch of the Caddyfile generator must DENY the admin plane,
-#    never emit an open config.
-grep -q 'respond @adminplane' scripts/update_caddyfile.sh \
-  || fail "scripts/update_caddyfile.sh no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal and adminer to the LAN"
-grep -q 'abort @badhost' scripts/update_caddyfile.sh \
-  || fail "scripts/update_caddyfile.sh lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
-#    Do NOT hand-enumerate a subset: an earlier version listed 5 of the 11 gated
-#    paths, so /stream, /Processed*, /phpsysinfo*, /stats*, /Charts* and
-#    /views.php?view=File* could all have been dropped with CI still green —
-#    a guard scoped to the paths I happened to remember. Pin the COUNT and the
-#    set that must always be present, both derived from the file itself.
-_gated=$(grep -oE 'basicauth [^[:space:]]+' scripts/update_caddyfile.sh | awk '{print $2}' | sort -u)
-_n=$(printf '%s\n' "$_gated" | grep -c .)
-[ "$_n" -ge 11 ] \
-  || fail "scripts/update_caddyfile.sh gates only $_n paths (expected >= 11) — a path was dropped from the auth variant; compare against the live Caddyfile before assuming it is intentional"
-for pth in '/play.php*' '/terminal*' '/scripts*' '/log*' '/stats*' '/stream' \
-           '/phpsysinfo*' '/Processed*' '/By_Date*' '/Charts*' '/views.php?view=File*'; do
-  printf '%s\n' "$_gated" | grep -qxF "$pth" \
-    || fail "scripts/update_caddyfile.sh no longer gates $pth — note /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
+#    EVERY writer of /etc/caddy/Caddyfile must deny the admin plane when there is
+#    no password, and must Host-pin unconditionally.
+#
+#    There are THREE writers, and this guard used to know about one. Host pinning
+#    is a SEPARATE control from basic auth: auth does not stop DNS rebinding,
+#    because browsers replay cached credentials automatically.
+for _w in scripts/update_caddyfile.sh scripts/install_services.sh; do
+  grep -q 'respond @adminplane' "$_w" \
+    || fail "$_w no longer denies the admin plane when CADDY_PWD is unset — that branch is what published /terminal (a WRITABLE gotty login shell) to the LAN"
+  grep -q 'abort @badhost' "$_w" \
+    || fail "$_w lost Host pinning — basic auth does not stop DNS rebinding, because browsers replay cached credentials automatically"
 done
+
+#    VALIDATE BEFORE INSTALL, asserted as an ORDERING, not as the presence of a
+#    word. update_caddyfile.sh used to `cat > /etc/caddy/Caddyfile` and validate
+#    afterwards: on a parse error it exited 1 without reloading (correct) but
+#    left an UNPARSEABLE config on disk. Caddy serves from memory, so nothing
+#    looks wrong until the next reboot — at which point the station has no web
+#    server at all and the cause is weeks behind it.
+_ucf=scripts/update_caddyfile.sh
+grep -qE '>[[:space:]]*/etc/caddy/Caddyfile' "$_ucf" \
+  && fail "$_ucf writes directly to /etc/caddy/Caddyfile again — render to a temp file and install it only after 'caddy validate' passes, or a rejected config replaces a working one on disk"
+_val_line=$(grep -n 'caddy validate' "$_ucf" | tail -1 | cut -d: -f1)
+_ins_line=$(grep -n 'install -m 644 .*\/etc\/caddy\/Caddyfile' "$_ucf" | tail -1 | cut -d: -f1)
+if [ -n "$_val_line" ] && [ -n "$_ins_line" ]; then
+  [ "$_val_line" -lt "$_ins_line" ] \
+    || fail "$_ucf installs the Caddyfile at line $_ins_line BEFORE validating it at line $_val_line — validation after the write cannot protect the live config"
+else
+  fail "$_ucf no longer has both a 'caddy validate' and an 'install -m 644 ... /etc/caddy/Caddyfile' step (validate=${_val_line:-none} install=${_ins_line:-none}) — the validate-then-install contract is gone"
+fi
+
+#    NOT ASSERTED ANY MORE: the 11-path `basicauth` set in update_caddyfile.sh.
+#    That pin was removed on 2026-08-01 because it described a file that cannot
+#    reach the box. update_caddyfile.sh exits 2 whenever STATION_OPEN=1 (the
+#    owner's deliberate 2026-07-30 choice), so the set it gated had not been
+#    live for days. The guard was green and protected nothing — the exact shape
+#    it was written to prevent, one level up. What IS live is asserted below.
+#    (An earlier version of this comment also cited "the pre-2.7 `basicauth`
+#    spelling Caddy 2.11 rejects". That was an unverified claim inherited from
+#    update_caddyfile.sh's own header, contradicted by version.md:49, and I
+#    repeated it here as fact. Both writers now DETECT the directive from the
+#    installed binary, so the spelling is no longer anybody's assumption.)
+
+# 8e. THE FILE THAT IS ACTUALLY SERVING.
+#     avian/ops/Caddyfile.live is the tracked copy of the live config, committed
+#     because the generator provably cannot reproduce it (1b22280). Until now
+#     NOTHING read it: `grep -rn Caddyfile.live --include=*.sh --include=*.yml`
+#     returned nothing. A tracked config nobody compares is a comment.
+#
+#     Path indirection so every assertion below is negative-testable:
+#       CADDYFILE_LIVE=/tmp/broken.caddy bash scripts/repo-guards.sh   -> 1
+_clive="${CADDYFILE_LIVE:-avian/ops/Caddyfile.live}"
+if [ -f "$_clive" ]; then
+  # Comment-stripped: this file documents each directive at length, so a bare
+  # grep would pass on the prose describing a directive that had been deleted.
+  _cl=$(grep -vE '^[[:space:]]*#' "$_clive")
+
+  printf '%s\n' "$_cl" | grep -q 'abort @badhost' \
+    || fail "$_clive lost Host pinning. STATION_OPEN=1 stands down every password gate on this LAN by the owner's decision, which leaves the Host pin as the ONLY remaining control against a hostile page rebinding its name to this box."
+
+  # The SSE exclusion. text/event-stream IS in caddy's default encode list, so a
+  # bare `encode` buffers the live spine dead while every asset check still
+  # passes — the wall simply stops updating and nothing reports an error.
+  printf '%s\n' "$_cl" | grep -q '@nostream not path /events\*' \
+    || fail "$_clive no longer excludes /events from compression — encode buffers text/event-stream, which silently kills live wall updates with every other check green"
+  printf '%s\n' "$_cl" | grep -q 'encode @nostream' \
+    || fail "$_clive no longer compresses via @nostream — either compression was dropped (the 11.5x serving win) or it was re-applied WITHOUT the SSE exclusion"
+  printf '%s\n' "$_cl" | grep -qE 'reverse_proxy /events\*?[[:space:]]' \
+    || fail "$_clive no longer proxies /events — the SSE spine (birdcast on :8090) is how the wall paints a detection within 3s"
+  printf '%s\n' "$_cl" | grep -q 'flush_interval -1' \
+    || fail "$_clive lost 'flush_interval -1' on the /events proxy — caddy then buffers the stream and the wall goes still"
+
+  printf '%s\n' "$_cl" | grep -q 'redir / /collage/ 302' \
+    || fail "$_clive lost the front-door redirect — / falls back through try_files to the LEGACY apt.js collage (779KB, superseded) while the museum sits unvisited at /collage/"
+
+  # Immutable caching must cover hashed assets and must NOT cover the nightly
+  # data. species.json/derived.json are rebuilt every night by catalog.service;
+  # freezing them for a year would pin the museum to the day it was deployed.
+  printf '%s\n' "$_cl" | grep -q '/collage/assets/\*' \
+    || fail "$_clive no longer marks /collage/assets/* immutable — every reload re-downloads the hashed bundle"
+  printf '%s\n' "$_cl" | grep -E 'immutable' | grep -qE 'species\.json|derived\.json' \
+    && fail "$_clive puts species.json or derived.json under an immutable/long-max-age matcher — those are rebuilt nightly by catalog.service, so the wall would serve the day it shipped, forever"
+
+  # CREDENTIAL GATE. avian/ops/README.md:37 documents that this file must never
+  # carry a secret, and nothing enforced it. It is committed to a PUBLIC repo.
+  _creds=$(printf '%s\n' "$_cl" | grep -cEi 'basic_?auth|\$2[aby]\$' || true)
+  [ "$_creds" = "0" ] \
+    || fail "$_clive contains a basic_auth block or a bcrypt hash ($_creds line(s)). This file is committed to a PUBLIC repo — a station password must never be tracked. If the LAN gates are being restored, put them in /etc/caddy/Caddyfile on the box and keep the hash out of git."
+else
+  fail "$_clive is missing — the only tracked record of what the station actually serves is gone, and the generator cannot reproduce it (that is why it was committed in 1b22280)"
+fi
 [ -e scripts/adminer.php ] \
   && fail "scripts/adminer.php is back — a full DB-admin UI with a history of RCE advisories, removed 2026-07-27"
 
@@ -522,10 +602,13 @@ fi
 #          guard here came to assert 5 of 11 gated paths.
 #     So this DERIVES the set from find and pins a COUNT. A new unit without an
 #     alert path fails the build on the day it is added.
-_units=$(find avian -name '*.service' ! -name 'christina-alert@.service' | sort)
+#     frame/systemd is in the net since the frame moved onto the station Pi:
+#     its two units were invisible to this guard for a month — the same
+#     convenient-subset blindness this guard exists to kill, one directory up.
+_units=$(find avian frame/systemd -name '*.service' ! -name 'christina-alert@.service' | sort)
 _n_units=$(printf '%s\n' "$_units" | grep -c . || true)
-[ "$_n_units" -ge 7 ] \
-  || fail "only $_n_units units found under avian/ — the OnFailure guard is looking in the wrong place and would pass vacuously"
+[ "$_n_units" -ge 10 ] \
+  || fail "only $_n_units units found under avian/ + frame/systemd/ — the OnFailure guard is looking in the wrong place and would pass vacuously"
 for _u in $_units; do
   grep -q '^OnFailure=christina-alert@%n\.service' "$_u" \
     || fail "$_u carries no OnFailure=christina-alert@%n.service — when it dies, nothing will say so"
@@ -566,7 +649,14 @@ fi
 #      off-box backup absent from the box for days.
 for _u in $_units; do
   _base=$(basename "$_u")
-  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh avian/backup/install-backup.sh 2>/dev/null && continue
+  # NOTE 2026-07-30: install-cloud-backup.sh added when the encrypted R2 backup
+  # shipped; frame/install.sh 2026-08-01 with the e-ink co-tenant landing. This
+  # list is the guard's ENTIRE notion of "an installer exists". A new installer
+  # that is not named here makes the guard fire on a unit that IS installed,
+  # which trains people to silence it with a NOT-INSTALLED exemption (a lie)
+  # rather than by writing an installer. Add new installers HERE.
+  grep -rqF "$_base" deploy-christina.sh deploy-realtime.sh \
+    avian/backup/install-backup.sh avian/backup/install-cloud-backup.sh frame/install.sh 2>/dev/null && continue
   grep -qE "^[[:space:]]*$_base[[:space:]]*$" avian/NOT-INSTALLED 2>/dev/null \
     || fail "$_base declares an alert path but NO installer mentions it, and it is not declared in avian/NOT-INSTALLED — it will never reach the Pi (this is how offbox-backup shipped and was never installed)"
 done
@@ -585,6 +675,309 @@ if [ -f avian/NOT-INSTALLED ]; then
     find avian -name "$_d" | grep -q . \
       || fail "avian/NOT-INSTALLED names $_d, which no longer exists — the exemption outlived the unit"
   done < <(grep -vE '^[[:space:]]*(#.*)?$' avian/NOT-INSTALLED)
+fi
+
+# 11e. HEREDOC-WRITTEN UNITS ARE UNITS TOO. Guard 11 reads checked-in *.service
+#      files, but three installers write units with inline heredocs that guard
+#      11 can never see — and a heredoc unit losing its OnFailure= is the exact
+#      incident guard 11's header records (birdcast), re-shipped once already
+#      (the BirdWeather-mode birdframe unit, caught in review 2026-08-01).
+#      This detects unit definitions by CONTENT rather than by the tee path,
+#      because deploy-realtime tees to a $UNIT variable a path-based grep
+#      would silently miss. Its own adversarial review (2026-08-01) then
+#      refuted the first cut in both directions — substring checks passed on
+#      commented-out directives, [Service]-placed OnFailure, and a renamed
+#      IOSchedulingClass value; three legal heredoc spellings were invisible;
+#      a >=3 floor could hide a vanished block behind a new one; and prose
+#      quoting [Service] false-fired. So this PARSES: sections, ACTIVE lines
+#      only, exact values, a unit = [Unit]+[Service]+ExecStart, an EQUALITY
+#      pin on the block count, and the 11b handler exemption. Co-tenant
+#      limits (MemoryMax/OOMScoreAdjust/idle I/O) are pinned on the TEMPLATE
+#      unit only — the BirdWeather heredoc deliberately omits them (a
+#      standalone 512MB box, and its pre-&& shoot process would turn an OOM
+#      kill into a hard failure that re-alerts every 6h).
+#      Known limits, on purpose: units built by printf/echo are not heredocs
+#      and stay unseen; .timer units are out of scope for 11 AND 11e
+#      (class-wide, pre-existing); scripts/install_zram_service.sh writes a
+#      unit outside these three installers — flagged as follow-up, not
+#      silently annexed here.
+python3 - <<'PY' || fail "heredoc-written units: alert path / sections / co-tenant limits violated (details above)"
+import re, sys
+FILES = ["deploy-christina.sh", "deploy-realtime.sh", "frame/install.sh"]
+EXPECTED_UNIT_HEREDOCS = 3  # birdcast in each deploy script + birdframe birdweather
+HEREDOC = re.compile(
+    r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(.*?)\n[ \t]*\2[ \t]*\n", re.S)
+
+def sections(text):
+    """{'Unit': [active stripped lines], ...} — comments and blanks dropped,
+    so a commented-out directive is ABSENT, exactly as systemd sees it."""
+    out, cur = {}, None
+    for ln in text.splitlines():
+        s = ln.strip()
+        m = re.match(r"^\[(\w+)\]$", s)
+        if m:
+            cur = m.group(1); out.setdefault(cur, []); continue
+        if cur is not None and s and not s.startswith("#"):
+            out[cur].append(s)
+    return out
+
+bad, unit_blocks = [], 0
+for path in FILES:
+    src = open(path).read()
+    for m in HEREDOC.finditer(src):
+        sec = sections(m.group(3))
+        if not ("Unit" in sec and "Service" in sec
+                and any(l.startswith("ExecStart=") for l in sec["Service"])):
+            continue  # prose/config/env heredocs quote fragments; a unit has all three
+        unit_blocks += 1
+        where = f"{path} heredoc unit (marker {m.group(2)})"
+        if any(l.startswith("Description=") and "christina-alert@" in l for l in sec["Unit"]):
+            if any(l.startswith("OnFailure=") for ls in sec.values() for l in ls):
+                bad.append(f"{where}: the alert handler declares OnFailure= — infinite enqueue loop (guard 11b's law)")
+            continue
+        if "OnFailure=christina-alert@%n.service" not in sec["Unit"]:
+            bad.append(f"{where}: no ACTIVE OnFailure=christina-alert@%n.service line in [Unit]")
+        if path == "frame/install.sh" and "Install" in sec:
+            bad.append(f"{where}: grew an [Install] section — the EBIRD_API_KEY tee -a append relies on the file ENDING inside [Service]")
+if unit_blocks != EXPECTED_UNIT_HEREDOCS:
+    bad.append(f"{unit_blocks} heredoc unit blocks found, expected exactly {EXPECTED_UNIT_HEREDOCS} — a new/removed unit must be classified HERE, or the extraction broke")
+tmpl = sections(open("frame/systemd/birdframe.service").read())
+for d in ("MemoryMax=512M", "OOMScoreAdjust=500", "IOSchedulingClass=idle"):
+    if d not in tmpl.get("Service", []):
+        bad.append(f"frame/systemd/birdframe.service: {d} is not an ACTIVE [Service] line — the co-tenant cap is off")
+for b in bad:
+    print("  " + b)
+sys.exit(1 if bad else 0)
+PY
+
+# 12. THE GUARD RUNNER MUST RUN ON EVERY BRANCH.
+#     Until 2026-08-01 python-app.yml was scoped to `push: [main, test_me]`, so
+#     on design/library-recompose — 25 commits carrying the ENTIRE cloud backup,
+#     the off-box dead-man's switch, the mic-flatline watchdog fix and
+#     Caddyfile.live — this script and ~200 tests never ran once. web-ci.yml has
+#     no branch filter and was green throughout, which made the absence of a
+#     python verdict look like a pass. Every other guard in this file is worth
+#     exactly as much as this one: a guard that does not run is not a guard.
+#
+#     COMMENT-STRIPPED, and that is load-bearing here: python-app.yml's own
+#     docblock explains the ban and therefore CONTAINS the string `branches:`.
+#     A bare grep would match the prose forbidding the thing and pass on a file
+#     that does the thing — the self-matching-grep sin recorded at guards 6, 7,
+#     10 and in scripts/repo-guards.sh's own history.
+#     PATH INDIRECTION so this guard is negative-testable without editing the
+#     real workflow: PYTHON_WF=/tmp/broken.yml bash scripts/repo-guards.sh must
+#     exit 1. CI never sets it. A guard nobody can point at a broken input is a
+#     guard nobody has ever seen fail.
+_pwf="${PYTHON_WF:-.github/workflows/python-app.yml}"
+if [ -f "$_pwf" ]; then
+  _pci=$(grep -vE '^[[:space:]]*#' "$_pwf")
+  # (a) the push trigger still exists — deleting it disarms this as thoroughly
+  #     as scoping it, and leaves no `branches:` for (b) to catch.
+  printf '%s\n' "$_pci" | grep -qE '^[[:space:]]*push:' \
+    || fail "$_pwf no longer triggers on push — the guard suite and ~200 tests would run on nothing. This is the disarm that hid the entire DR arc for 25 commits."
+  # (b) assert the PROPERTY (no branch scoping anywhere in this workflow), not
+  #     the spelling of one key. There is no other legitimate `branches:` in
+  #     this file, so any occurrence is a re-scope.
+  _br=$(printf '%s\n' "$_pci" | grep -cE '^[[:space:]]*branches(-ignore)?:' || true)
+  [ "$_br" = "0" ] \
+    || fail "$_pwf has re-acquired a branch filter ($_br occurrence(s)) — feature branches would stop running the guard suite, which is exactly the state that let the cloud backup, the dead-man's switch and the watchdog fix land across 25 commits with zero python CI"
+  # (c) the disarm one level down: a workflow that still runs but no longer
+  #     calls this script leaves 20 guards dark with a green checkmark.
+  printf '%s\n' "$_pci" | grep -qF 'bash scripts/repo-guards.sh' \
+    || fail "$_pwf no longer invokes 'bash scripts/repo-guards.sh' — every guard in this file is dark, and CI is green"
+else
+  fail "$_pwf is missing — nothing runs the guard suite or the python tests"
+fi
+
+# 13. NO .resolve() IN THE SYMLINKED SET.
+#     Guard 5 proves avian/scripts/* ARE symlinks. It cannot see the one thing
+#     that makes a symlink invocation behave differently from the canonical one:
+#     Path.resolve() collapses avian/scripts/x.py back to services/birdgen/x.py,
+#     so a default anchored on parents[] silently jumps trees.
+#
+#     Measured, 2026-08-01: verify.py carried it. --dir defaulted to a
+#     NONEXISTENT services/assets/illustrations, glob() yielded nothing, and the
+#     adversarial species-ID gate on the PAID art pipeline printed
+#     "verifying 0 illustrations", "0 mismatch(es)" and exited 0. pregen.py had
+#     already been fixed for exactly this (see its comment at the _here
+#     assignment) and its sibling never got the same treatment -- the instance
+#     was fixed, the class was not.
+#
+#     Derived from the symlinks themselves, never hand-listed, with a vacuity
+#     floor: a guard whose input set silently became empty is the shape that
+#     asserted 5 of 11 gated paths. Greps the TARGET FILES by path, never `-r`
+#     over the repo, so this block's own prose cannot match itself.
+_rsyms=$(find avian/scripts -maxdepth 1 -type l -name '*.py' | sort)
+_rn=$(printf '%s\n' "$_rsyms" | grep -c . || true)
+[ "$_rn" -ge 3 ] \
+  || fail "expected at least 3 symlinked .py files under avian/scripts (found $_rn) — either guard 5 is about to fire for a real reason, or this guard just quietly stopped checking anything"
+for _s in $_rsyms; do
+  grep -q '\.resolve()' "$_s" \
+    && fail "$_s uses .resolve() — invoked through the symlink it collapses into services/birdgen/ and every path default anchored on it jumps to the wrong tree. Use Path(os.path.abspath(__file__)) instead (pregen.py records why). This is how verify.py examined zero plates and exited 0."
+done
+
+# 14. THE MUSEUM'S SILHOUETTES MUST DESCRIBE THE ART THAT SHIPS.
+#     web/public/data/{masks,dims}.json are DERIVED from
+#     avian/assets/illustrations/*.png by avian/scripts/build_masks.py, and
+#     nothing ever checked that they still matched.
+#
+#     Measured 2026-08-01: they had not been regenerated since 2026-06-30 and
+#     described a SUPERSEDED illustration set. All 249 entries were wrong --
+#     accipiter-cooperii carried a 93x93 square silhouette for a plate that is
+#     442x849 (48x93) -- and a 250th, apus-apus (Common Swift, a real bird at
+#     this station), was absent entirely and packed as a rectangle. The collage
+#     had been laying out every bird against the shape of an older drawing for a
+#     month, with every test and every guard green.
+#
+#     A CONTENT cross-check, not an mtime one: mtime says when a file was
+#     touched, not whether it is true. PNG width/height are read straight out of
+#     the IHDR header (bytes 16..24 of any PNG), so this needs no Pillow and
+#     cannot be defeated by a dependency being absent in CI.
+if [ -f web/public/data/dims.json ] && [ -d avian/assets/illustrations ]; then
+  _mask_report=$(python3 - <<'PY'
+import json, struct, pathlib, re, sys
+
+DIM_MAX = 560  # must track build_masks.py
+ill = pathlib.Path("avian/assets/illustrations")
+data = pathlib.Path("web/public/data")
+
+def png_size(p):
+    with p.open("rb") as f:
+        head = f.read(24)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return struct.unpack(">II", head[16:24])
+
+valid = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+perched = {p.stem: p for p in ill.glob("*.png")
+           if valid.fullmatch(p.stem) and not p.stem.endswith("-2")}
+dims = json.loads((data / "dims.json").read_text())
+masks = json.loads((data / "masks.json").read_text())
+
+problems = []
+missing = sorted(set(perched) - set(dims))
+extra = sorted(set(dims) - set(perched))
+if missing:
+    problems.append(f"{len(missing)} illustration(s) have no dims entry: {missing[:5]}")
+if extra:
+    problems.append(f"{len(extra)} dims entr(ies) have no illustration: {extra[:5]}")
+if set(dims) != set(masks):
+    problems.append("dims.json and masks.json cover different slugs")
+
+wrong = []
+for slug, p in sorted(perched.items()):
+    if slug not in dims:
+        continue
+    wh = png_size(p)
+    if wh is None:
+        problems.append(f"{slug}.png is not a PNG")
+        continue
+    w, h = wh
+    s = DIM_MAX / max(w, h)
+    want = [round(w * s), round(h * s)]
+    if dims[slug] != want:
+        wrong.append(f"{slug} art={w}x{h} wants {want} but dims.json says {dims[slug]}")
+if wrong:
+    problems.append(f"{len(wrong)} silhouette(s) describe a DIFFERENT drawing than the one that ships: {wrong[:3]}")
+print(" | ".join(problems))
+PY
+)
+  [ -z "$_mask_report" ] \
+    || fail "web/public/data is stale against avian/assets/illustrations — $_mask_report
+     Run: python3 avian/scripts/build_masks.py   (then rebuild web/dist)"
+  # The committed bundle is what the wall actually serves, so the copy vite
+  # emitted must match the source it was built from. dist-fresh compares asset
+  # NAMES; it has never compared publicDir CONTENT.
+  if [ -f web/dist/data/dims.json ]; then
+    cmp -s web/public/data/dims.json  web/dist/data/dims.json \
+      && cmp -s web/public/data/masks.json web/dist/data/masks.json \
+      || fail "web/dist/data/ differs from web/public/data/ — the museum serves the bundled copy, so regenerating the masks without rebuilding dist changes nothing on the wall"
+  fi
+fi
+
+# 15. THE DEPLOY MUST FAIL WHEN THE WALL IS WRONG.
+#     deploy-christina.sh does `rm -rf $EXTRACTED/collage && cp -r web/dist ...`,
+#     which drops the bundled 8-species Nearctic DEV FIXTURE (American Robin,
+#     Cardinal, Blue Jay — none ever heard at this London station) into the
+#     serving directory with a brand-new mtime. Only the species.json/derived.json
+#     symlinks put the real catalog back.
+#
+#     Those links were written as `[ -d X ] && ln -sf A B && ok "..."`. Under
+#     `set -euo pipefail` that is NOT protected: in `A && B && C` only C's status
+#     reaches set -e. Reproduced 2026-08-01 — with the target dir read-only the
+#     pre-fix form printed "ln: Permission denied", then "...deploy continues...
+#     Christina deployed." and exited 0, with the fixture still on the wall.
+_dep_c=$(grep -vE '^[[:space:]]*#' deploy-christina.sh)
+printf '%s\n' "$_dep_c" | grep -qE '&&[[:space:]]*ln -sf' \
+  && fail "deploy-christina.sh links catalog data with an '&& ln -sf' chain again — set -e does not check a non-final command in an && list, so a failed link leaves the 8-species dev FIXTURE on the wall and the deploy still reports success"
+printf '%s\n' "$_dep_c" | grep -q 'link_catalog_data()' \
+  || fail "deploy-christina.sh lost link_catalog_data() — the species.json/derived.json symlinks are what stand between the wall and the bundled Nearctic fixture, and they must be asserted, not attempted"
+_lc=$(printf '%s\n' "$_dep_c" | grep -cE '^link_catalog_data (species|derived)\.json' || true)
+[ "$_lc" = "2" ] \
+  || fail "deploy-christina.sh calls link_catalog_data for $_lc of the 2 catalog files (species.json, derived.json) — the unlinked one serves whatever web/dist bundled"
+# The assertion inside it is the load-bearing part: `ln -sf` succeeds even when
+# it silently did nothing useful, so the link must be READ BACK.
+printf '%s\n' "$_dep_c" | grep -q 'readlink "\$dst"' \
+  || fail "link_catalog_data no longer reads the symlink back — 'ln -sf' returning 0 does not prove \$dst points at scripts/<file>, and that difference is exactly the fixture-on-the-wall bug"
+
+# 16. THE CADDY AUTH DIRECTIVE IS DETECTED, NEVER HARDCODED.
+#     Caddy renamed `basicauth` -> `basic_auth` in v2.7. This repo asserted BOTH
+#     spellings as fact and contradicted itself: version.md:49 says "Ships with
+#     Caddy 2.4.5" (pre-2.7), while update_caddyfile.sh's header claimed 2.11
+#     "rejects outright" the old name — a claim nobody verified, which I then
+#     repeated in guard 8's own comment as though it were established.
+#
+#     Neither note describes this box: install_services.sh installs `caddy` from
+#     the caddy/stable apt repo, i.e. whatever is current on install day. So the
+#     spelling was a coin flip resolved on the DISASTER-RECOVERY path, which
+#     nobody exercises until the SD card is already dead — and getting it wrong
+#     means the station's auth config does not parse.
+#
+#     Both writers now ask the binary. This guard stops either regressing to a
+#     literal, and pins the path COUNTS so a silently shrinking auth set fails
+#     too (the lesson of the 5-of-11 enumeration recorded at guard 8).
+for _cw in scripts/update_caddyfile.sh scripts/install_services.sh; do
+  _cwb=$(grep -vE '^[[:space:]]*#' "$_cw")
+  printf '%s\n' "$_cwb" | grep -qE '^[[:space:]]*basic_?auth ' \
+    && fail "$_cw emits a HARDCODED caddy auth directive again. Caddy renamed basicauth -> basic_auth at v2.7 and this repo does not know which version the box runs (version.md says 2.4.5, a comment claimed 2.11, the installer pulls caddy/stable). Render \${AUTHDIR} and detect it from \`caddy version\`."
+  printf '%s\n' "$_cwb" | grep -q 'caddy version' \
+    || fail "$_cw no longer detects the caddy version — the auth directive is back to being an assumption, decided on the disaster-recovery path"
+  printf '%s\n' "$_cwb" | grep -qE '\-ge 7' \
+    || fail "$_cw lost the v2.7 boundary test that chooses basic_auth over basicauth"
+done
+# Counts, derived from each file, so a dropped auth path is loud. update_caddyfile
+# gates 11; install_services' password branch gates 6.
+_n_uc=$(grep -cE '^[[:space:]]*\$\{AUTHDIR\} ' scripts/update_caddyfile.sh || true)
+_n_is=$(grep -cE '^[[:space:]]*\$\{AUTHDIR\} ' scripts/install_services.sh || true)
+[ "$_n_uc" -ge 11 ] \
+  || fail "scripts/update_caddyfile.sh gates only $_n_uc paths (expected >= 11) — a path was dropped from the auth variant; /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
+[ "$_n_is" -ge 6 ] \
+  || fail "scripts/install_services.sh gates only $_n_is paths (expected >= 6) — the disaster-recovery installer lost an auth gate"
+# 16. THE FRAME'S SHOT TARGET MUST KEEP ITS ANCHORS. display.py's default
+#     shoot_path is the legacy page (/index.html): at capture time shoot.py
+#     rewrites four apt.js tunables by regex, and display.py keeps the last
+#     panel image on any failure — so deleting the legacy frontend or renaming
+#     one tunable freezes the wall SILENTLY until the ~31h watchdog budget
+#     runs out. The patterns are EXTRACTED from shoot.py's own source (the
+#     mechanism), never restated here, and the extraction count is pinned so a
+#     refactor that moves the tuple fails the guard instead of emptying it.
+#     Enforced only while display.py's default still points at the legacy page.
+if grep -q '"shoot_path": "/index.html"' frame/display.py 2>/dev/null; then
+  python3 - <<'PY' || fail "frame shot target: apt.js no longer matches shoot.py's rewrite anchors (details above)"
+import re, sys
+src = open("frame/shoot.py").read()
+m = re.search(r"for pat, repl in \((.*?)\):\n", src, re.S)
+if not m:
+    print("could not locate the apt.js rewrite tuple in frame/shoot.py"); sys.exit(1)
+pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
+if len(pats) != 4:
+    print(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously"); sys.exit(1)
+js = open("avian/frontend/apt.js").read()
+missing = [p for p in pats if not re.search(p, js)]
+for p in missing:
+    print("  no match in avian/frontend/apt.js for: " + p)
+sys.exit(1 if missing else 0)
+PY
 fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
