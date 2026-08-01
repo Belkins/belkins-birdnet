@@ -153,7 +153,12 @@ elif [ "$MODE" = image ]; then
     printf '%s\n' 'saturation = 0.6'
   } > "$CONFIG"
 else
-  { printf '%s\n' '# birdframe-mode: birdweather'; cat config.example.toml; } > "$CONFIG"
+  # shoot=false is the load-bearing line: the example ships shoot=true (right
+  # for local mode), and display.py checks `shoot` BEFORE image_url — verbatim,
+  # this mode rendered frame.png, discarded it, and screenshotted a
+  # birdnet.local that a standalone box does not have. Green unit, blank wall.
+  { printf '%s\n' '# birdframe-mode: birdweather'
+    sed 's/^shoot = true$/shoot = false/' config.example.toml; } > "$CONFIG"
 fi
 
 echo "5/5  Installing systemd service + timer..."
@@ -181,10 +186,12 @@ WorkingDirectory=$FRAME
 ExecStart=/bin/sh -c '$PY $FRAME/shoot.py --bird-weather --zip "$ZIP" --out $PNG && $PY $FRAME/display.py --config $HOME/.birdframe/config.toml --image-url $PNG --no-signature'
 Environment=PYTHONUNBUFFERED=1
 Nice=10
-IOSchedulingClass=idle
-# Keep in lockstep with systemd/birdframe.service — guard 11e checks both.
-MemoryMax=512M
-OOMScoreAdjust=500
+# Deliberately NO MemoryMax/OOMScoreAdjust here, unlike the station template:
+# BirdWeather mode is by definition the standalone no-mic box (often a 512MB
+# Zero 2 W with nothing to protect), and shoot.py runs pre-&& as its own
+# process — a cgroup OOM kill of it would exit non-zero and turn the
+# template's documented silent keep-last-panel case into a hard unit failure
+# that re-alerts every 6h. Guard 11e pins the limits on the template only.
 TimeoutStartSec=300
 SERVICE
   # Remote ZIPs with no nearby station fall back to eBird, which needs a key.

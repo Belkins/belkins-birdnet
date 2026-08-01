@@ -138,11 +138,14 @@ def capture_path(cfg, mode=""):
     when there is nothing local to stat.
 
     Derived from what install.sh ACTUALLY produces, not from config.toml alone:
-    BirdWeather mode ships config.example.toml verbatim (shoot = true) while
-    writing ~/.birdframe/frame.png, so trusting `shoot` would stat a shot.png
-    nothing ever creates. Whichever candidate EXISTS wins; when none exists the
-    leg is skipped, because a missing capture file is unknowable (image mode
-    has none by design) and only state.json may declare the frame dead."""
+    BirdWeather installs before 2026-08 shipped config.example.toml verbatim
+    (shoot = true — the trap that made the mode screenshot a nonexistent
+    birdnet.local; fixed installs write shoot = false) while writing
+    ~/.birdframe/frame.png, so trusting `shoot` would stat a shot.png nothing
+    ever creates on those boxes. Whichever candidate EXISTS wins — that covers
+    both config generations; when none exists the leg is skipped, because a
+    missing capture file is unknowable (image mode has none by design) and
+    only state.json may declare the frame dead."""
     src = cfg.get("image_url") or cfg.get("image")
     if src and re.match(r"^https?://", src):
         return None  # image mode: this box fetches, it never writes a capture

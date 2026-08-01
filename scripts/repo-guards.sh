@@ -600,9 +600,11 @@ fi
 #      a $UNIT variable a path-based grep would silently miss. The block count
 #      is pinned so a broken extraction fails instead of passing vacuously.
 #      Also pins the co-tenant limits (MemoryMax/OOMScoreAdjust/idle I/O) on
-#      BOTH materializations of birdframe.service — template and heredoc —
-#      because a frame that can OOM the live audio recorder is worse than no
-#      frame at all, and those three lines have no other assertion.
+#      the TEMPLATE unit only — the station materialization. The BirdWeather
+#      heredoc unit deliberately omits them: that mode is the standalone box
+#      (often 512MB total, no co-tenant), and its pre-&& shoot process would
+#      turn a cgroup OOM kill into a hard failure that re-alerts every 6h,
+#      the opposite of the template's documented keep-last-panel behavior.
 python3 - <<'PY' || fail "heredoc-written units: alert path or co-tenant limits missing (details above)"
 import re, sys
 FILES = ["deploy-christina.sh", "deploy-realtime.sh", "frame/install.sh"]
@@ -617,10 +619,6 @@ for path in FILES:
         unit_blocks += 1
         if "OnFailure=christina-alert@%n.service" not in body:
             bad.append(f"{path}: heredoc unit block (marker {m.group(1)}) has no OnFailure=christina-alert@%n.service")
-        if path == "frame/install.sh":
-            for d in ("MemoryMax=", "OOMScoreAdjust=", "IOSchedulingClass=idle"):
-                if d not in body:
-                    bad.append(f"{path}: birdframe heredoc unit lost co-tenant limit {d}")
 if unit_blocks < 3:
     bad.append(f"only {unit_blocks} heredoc unit blocks extracted across {FILES} — extraction broke, guard would pass vacuously")
 for d in ("MemoryMax=", "OOMScoreAdjust=", "IOSchedulingClass=idle"):

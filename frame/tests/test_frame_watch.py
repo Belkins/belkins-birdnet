@@ -63,11 +63,14 @@ saturation = 0.6
 
 
 def _install_birdweather():
-    """frame/install.sh:144 verbatim: the mode marker, then config.example.toml
-    itself. Read from the real file so a change to the shipped example (which
-    sets shoot = true, the trap this mode springs) reaches this test."""
+    """What install.sh's birdweather branch writes: the mode marker, then
+    config.example.toml with `shoot = true` flipped to false — the same sed
+    install.sh applies, because the verbatim copy made display.py take the
+    shoot branch and discard the PNG the unit had just rendered. Read from the
+    real file so a change to the shipped example reaches this test."""
     with open(os.path.join(_FRAME_DIR, "config.example.toml")) as f:
-        return "# birdframe-mode: birdweather\n" + f.read()
+        return "# birdframe-mode: birdweather\n" + re.sub(
+            r"(?m)^shoot = true$", "shoot = false", f.read())
 
 
 def _redirect(text, cache, state):
@@ -438,8 +441,23 @@ class CapturePathTest(unittest.TestCase):
     def test_birdweather_mode_watches_frame_png(self):
         cfg, mode = self._load(_install_birdweather())
         self.assertEqual(mode, "birdweather")
-        self.assertTrue(cfg["shoot"], "config.example.toml sets shoot = true -- that is the trap")
+        self.assertFalse(cfg["shoot"], "install.sh flips shoot = false for this mode -- verbatim "
+                         "shoot = true made display.py discard the frame.png the unit had just "
+                         "rendered and screenshot a birdnet.local a standalone box does not have")
         self.assertIsNone(frame_watch.capture_path(cfg, mode))
+        want = self._touch("frame.png")
+        self.assertEqual(frame_watch.capture_path(cfg, mode), want)
+
+    def test_birdweather_pre_fix_verbatim_config_still_watched(self):
+        """WHY: installs made before the shoot=false fix (2026-08) shipped
+        config.example.toml verbatim, shoot = true and all. capture_path picks
+        by which file EXISTS, never by the flag, so those boxes keep their
+        capture leg when frame_watch alone is upgraded."""
+        with open(os.path.join(_FRAME_DIR, "config.example.toml")) as f:
+            verbatim = "# birdframe-mode: birdweather\n" + f.read()
+        cfg, mode = self._load(verbatim)
+        self.assertEqual(mode, "birdweather")
+        self.assertTrue(cfg["shoot"], "the example itself must keep shoot = true (local mode needs it)")
         want = self._touch("frame.png")
         self.assertEqual(frame_watch.capture_path(cfg, mode), want)
 
