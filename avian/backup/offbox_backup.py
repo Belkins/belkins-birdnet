@@ -53,6 +53,7 @@ import hashlib
 import json
 import os
 import shutil
+import socket
 import sqlite3
 import sys
 import tarfile
@@ -74,6 +75,7 @@ BASE = os.environ.get("AV_RAILWAY_BASE", "").rstrip("/")
 NOTIFY = os.environ.get("NOTIFY_URL", "").strip()
 STATE = os.path.expanduser(os.environ.get("BACKUP_STATE", "~/.christina/backup.state"))
 TIMEOUT = float(os.environ.get("CHRISTINA_BACKUP_TIMEOUT", "20"))
+RETRY_PAUSE = float(os.environ.get("CHRISTINA_BACKUP_RETRY_PAUSE", "3"))
 BUDGET = float(os.environ.get("CHRISTINA_BACKUP_BUDGET", "1200"))
 REALERT = int(os.environ.get("CHRISTINA_BACKUP_REALERT", "7"))
 # nightly.sh rewrites phenology.json at 03:30; this job runs at 04:30. 72h is
@@ -425,16 +427,35 @@ def fetch_plate(base, name, out, timeout):
     perched render into the flight tab permanently, with no error anywhere.
     The <why> is carried because a 500, a cold-start timeout and a genuine 404
     demand different reactions and must not collapse into one word.
+
+    ONE retry, for the timeout family only. 2026-08-01: the first two
+    continuity-r2 runs both degraded on scattered read timeouts -- DIFFERENT
+    plates each run, and the "failing" plate served its 1.3 MB in 0.5 s when
+    probed alone. A weekly timer that cries wolf on a transient spike teaches
+    the operator to ignore the alert that matters. An HTTPError is an ANSWER
+    (404/500 do not improve on a second ask) and is never retried; a timeout
+    gets one more attempt after a pause, with a doubled budget. socket.timeout
+    is spelled separately because it only became TimeoutError in Python 3.10.
     """
-    try:
-        resp = urllib.request.urlopen(base + "/asset/" + name, timeout=timeout)
-        if resp.headers.get("X-Av-Pose-Fallback") == "1":
-            return "fallback"
-        data = resp.read()
-    except urllib.error.HTTPError as e:
-        return "missing (HTTP %s)" % e.code
-    except Exception as e:
-        return "missing (%s: %s)" % (type(e).__name__, e)
+    def _is_timeout(exc):
+        return isinstance(exc, (TimeoutError, socket.timeout)) \
+            or isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout))
+
+    data = None
+    for attempt in (1, 2):
+        try:
+            resp = urllib.request.urlopen(base + "/asset/" + name, timeout=timeout * attempt)
+            if resp.headers.get("X-Av-Pose-Fallback") == "1":
+                return "fallback"
+            data = resp.read()
+            break
+        except urllib.error.HTTPError as e:
+            return "missing (HTTP %s)" % e.code
+        except Exception as e:
+            if attempt == 1 and _is_timeout(e):
+                time.sleep(RETRY_PAUSE)
+                continue
+            return "missing (%s: %s)" % (type(e).__name__, e)
     if len(data) < MIN_PLATE_BYTES:
         return "missing (%d bytes, below cutout.php:179's %d-byte real-art floor)" % (len(data), MIN_PLATE_BYTES)
     out.write_bytes(data)
