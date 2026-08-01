@@ -210,7 +210,7 @@ grep -qF "\$cc = \$real ? 'no-cache'" avian/api/cutout.php \
 #    saw it (a fresh checkout has no worktrees) — it broke the guards only for
 #    the person actually working, i.e. exactly when they are needed. .claude is
 #    gitignored (.gitignore:55); find does not read .gitignore.
-ENUMERATED="tests avian/catalog/tests avian/backup/tests frame/tests services/birdgen/tests"
+ENUMERATED="tests avian/catalog/tests avian/backup/tests avian/realtime/tests frame/tests services/birdgen/tests"
 while IFS= read -r d; do
   d="${d#./}"
   case " $ENUMERATED " in
@@ -953,32 +953,69 @@ _n_is=$(grep -cE '^[[:space:]]*\$\{AUTHDIR\} ' scripts/install_services.sh || tr
   || fail "scripts/update_caddyfile.sh gates only $_n_uc paths (expected >= 11) — a path was dropped from the auth variant; /scripts* does NOT cover the root-symlinked /play.php, and /terminal* fronts a gotty shell"
 [ "$_n_is" -ge 6 ] \
   || fail "scripts/install_services.sh gates only $_n_is paths (expected >= 6) — the disaster-recovery installer lost an auth gate"
-# 16. THE FRAME'S SHOT TARGET MUST KEEP ITS ANCHORS. display.py's default
-#     shoot_path is the legacy page (/index.html): at capture time shoot.py
-#     rewrites four apt.js tunables by regex, and display.py keeps the last
-#     panel image on any failure — so deleting the legacy frontend or renaming
-#     one tunable freezes the wall SILENTLY until the ~31h watchdog budget
-#     runs out. The patterns are EXTRACTED from shoot.py's own source (the
-#     mechanism), never restated here, and the extraction count is pinned so a
-#     refactor that moves the tuple fails the guard instead of emptying it.
-#     Enforced only while display.py's default still points at the legacy page.
-if grep -q '"shoot_path": "/index.html"' frame/display.py 2>/dev/null; then
-  python3 - <<'PY' || fail "frame shot target: apt.js no longer matches shoot.py's rewrite anchors (details above)"
+# 17. THE FRAME'S SHOT TARGET MUST KEEP ITS ANCHORS. shoot.py drives the
+#     legacy page: it rewrites four apt.js tunables by regex AND waits on CSS
+#     selectors the page must keep producing — and display.py keeps the last
+#     panel image on any failure, so deleting the legacy frontend or renaming
+#     one anchor freezes the wall SILENTLY until the ~31h watchdog budget runs
+#     out. Both anchor sets are EXTRACTED from shoot.py's own source (the
+#     mechanism), never restated here, with counts pinned so a refactor that
+#     moves them fails the guard instead of emptying it.
+#     UNCONDITIONAL, deliberately: the first version gated itself on
+#     display.py's default shoot_path LINE, which meant any rewording of that
+#     line switched the whole guard off silently (arsenal, 2026-08-01). As
+#     long as shoot.py still contains the legacy machinery, the machinery's
+#     anchors must hold; removing the machinery makes the extraction pins fail
+#     loud, which is the conscious-update moment.
+#     (Was guard 12 pre-reconciliation; 17 here because the union already
+#     spent 16 on the Caddy auth directive.)
+python3 - <<'PY' || fail "frame shot target: legacy page no longer matches shoot.py's anchors (details above)"
 import re, sys
 src = open("frame/shoot.py").read()
+bad = []
+# BOTH legacy files are REQUIRED — "deleting the legacy frontend" is the exact
+# case this guard names, so a missing file is a FINDING with a message, never
+# an unhandled traceback (the first version crashed on exactly its own named
+# case: apt.js deleted → FileNotFoundError — right exit code, wrong diagnostic).
+legacy_files = {}
+for lf in ("avian/frontend/apt.js", "avian/frontend/index.html"):
+    try:
+        legacy_files[lf] = open(lf).read()
+    except OSError:
+        bad.append(f"{lf} is gone — the legacy shot target no longer exists; the wall will freeze silently")
 m = re.search(r"for pat, repl in \((.*?)\):\n", src, re.S)
 if not m:
-    print("could not locate the apt.js rewrite tuple in frame/shoot.py"); sys.exit(1)
-pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
-if len(pats) != 4:
-    print(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously"); sys.exit(1)
-js = open("avian/frontend/apt.js").read()
-missing = [p for p in pats if not re.search(p, js)]
-for p in missing:
-    print("  no match in avian/frontend/apt.js for: " + p)
-sys.exit(1 if missing else 0)
+    bad.append("could not locate the apt.js rewrite tuple in frame/shoot.py — if the legacy shot path was removed on purpose, update guard 17")
+else:
+    pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
+    if len(pats) != 4:
+        bad.append(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously")
+    js = legacy_files.get("avian/frontend/apt.js")
+    for p in pats:
+        # js None = apt.js missing, already a finding above; don't stack noise.
+        if js is not None and not re.search(p, js):
+            bad.append("no match in avian/frontend/apt.js for rewrite pattern: " + p)
+sels = re.findall(r'wait_for_selector\(\s*"([^"]+)"', src)
+if not sels:
+    bad.append("no wait_for_selector calls extracted from frame/shoot.py — extraction broke, or the wait moved; update guard 17")
+legacy = "".join(legacy_files.values())
+for group in sels:
+    for tok in re.findall(r"\.([A-Za-z][\w-]*)", group):
+        # The class must appear inside a SHORT quoted class-shaped string —
+        # class="empty", className = 'gtile', a quoted '.gtile' selector —
+        # with hyphen-aware boundaries. Two prior versions failed their
+        # mutations: bare substring containment (rec-empty kept 'empty'
+        # alive), then a quote-to-quote span whose [^"']* crossed prose and
+        # comments and matched '(empty)' labels. The charset here is the
+        # class-list alphabet only (word chars, dot, space, hyphen), so a
+        # paren, newline or sentence breaks the match.
+        pat = r'["\'][.\w -]*(?<![\w-])' + re.escape(tok) + r'(?![\w-])[.\w -]*["\']'
+        if not re.search(pat, legacy):
+            bad.append(f"shoot.py waits on '.{tok}' but the legacy frontend no longer carries the class token '{tok}' — the shot will time out and the wall will freeze silently")
+for b in bad:
+    print("  " + b)
+sys.exit(1 if bad else 0)
 PY
-fi
 
 [ "$FAIL" = "0" ] && echo "repo-guards: all green"
 exit $FAIL

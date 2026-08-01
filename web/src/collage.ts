@@ -257,11 +257,20 @@ export class CollageEngine {
     // seq is claimed with the fetch it guards, exactly as before.
     const seq = ++this.seedSeq;
     const snapP = fetchSnapshot(hours);
-    // A masks failure rejects start() at the await below; without this marker
-    // the already-in-flight snapshot would surface as an unhandled rejection.
-    // snapP itself still rejects and is caught by the try/catch further down.
+    // Keeps a rejected snapshot from surfacing as an unhandled rejection if
+    // this method returns before the try/catch below awaits it (the disposed
+    // early-returns). snapP's real rejection handling stays down there.
     void snapP.catch(() => undefined);
-    await masksP;
+    try {
+      await masksP;
+    } catch (err) {
+      // The ONE await here that used to reject out of start() and strand the
+      // boot on 'loading masks' forever (unhandled rejection, no console on
+      // the kiosk/e-ink surface). Degrade like every other fetch in this
+      // class: report, keep going — aspect() falls back per-species and the
+      // snapshot + live feed below still come up.
+      this.cb.onStatus?.(`mask data failed: ${String(err)}`);
+    }
     if (this.disposed) return;
     this.syncTiles();
     this.renderer.resize(this.W, this.H);
