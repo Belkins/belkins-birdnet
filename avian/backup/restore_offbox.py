@@ -165,6 +165,11 @@ the Railway proxy -- the wall works with Railway dead. They are NOT tracked by
 git: `git clean -fdx` WILL delete them, exactly like scripts/accessions.json
 (.gitignore:76-79). Then:
     sudo systemctl start catalog.service
+
+NOT in this archive: the e-ink frame's operating config (~/.birdframe/) -- on a
+rebuilt station Pi redo frame/README.md's one-box section, especially the
+base_url = "http://127.0.0.1" line (its absence resurrects the mDNS flakiness
+that override exists to kill).
 """)
     return 0
 

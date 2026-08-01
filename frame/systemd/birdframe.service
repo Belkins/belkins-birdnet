@@ -24,4 +24,9 @@ IOSchedulingClass=idle
 # is already a handled case: display.py keeps the last panel and exits 0.
 MemoryMax=512M
 OOMScoreAdjust=500
-TimeoutStartSec=180
+# Summed against the pipeline it supervises, not guessed: fetch_recent 45s +
+# shoot (goto 45s + selector wait 45s + soft img wait 45s) + panel busy-wait
+# up to 65s ≈ 245s worst case. 180 was under that sum — systemd would SIGKILL
+# the unit mid-panel-write on exactly the slow ticks the co-tenant limits
+# create. (The BirdWeather heredoc unit already carried 300.)
+TimeoutStartSec=300

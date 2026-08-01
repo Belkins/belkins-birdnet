@@ -337,16 +337,32 @@ def assess(cfg, conf_state, tstate, tdetail, now):
     return freshness(cfg, now, checked)
 
 
+def _auth_hint(cfg):
+    """One line naming re-gating as the likely cause — on POSITIVE evidence
+    only: display.py stamps auth_error into ITS state.json on every HTTP
+    401/403 (display.py note_auth_error) and drops the key on the next
+    successful paint. Everything here is best-effort: a missing or unreadable
+    state file returns the empty string, never a guess."""
+    try:
+        with open(os.path.expanduser(cfg.get("state") or "~/.birdframe/state.json")) as f:
+            if json.load(f).get("auth_error"):
+                return (" LIKELY CAUSE: the station answered HTTP 401/403 — it has been re-gated "
+                        "(STATION_OPEN reverted?). Set basic_user/basic_pass in ~/.birdframe/config.toml.")
+    except Exception:
+        pass
+    return ""
+
+
 def alert_text(reason, detail, cfg):
     """What broke, what it means for the wall, and the exact next command
     (railway_liveness.py:78-80's shape)."""
     if reason == "capture_stale":
         return (f"FRAME CAPTURE DEAD: {detail}. The shooter is no longer producing an image, so the wall is "
                 "frozen on the last collage. display.py keeps the last panel image and exits 0 on purpose, so "
-                "nothing else can see this. Check: journalctl -u birdframe -n 50")
+                "nothing else can see this. Check: journalctl -u birdframe -n 50" + _auth_hint(cfg))
     if reason == "never_pushed":
         return (f"FRAME NEVER PAINTED: {detail}, while birdframe.timer is enabled. The frame has never "
-                "successfully pushed to the panel. Check: systemctl status birdframe.service")
+                "successfully pushed to the panel. Check: systemctl status birdframe.service" + _auth_hint(cfg))
     if reason == "config_missing":
         return (f"FRAME CONFIG GONE: {detail}. birdframe.service runs display.py --config against that path, so "
                 "every run now fails and the wall is frozen. Restore it or re-run frame/install.sh. "
@@ -362,7 +378,8 @@ def alert_text(reason, detail, cfg):
         return (f"FRAME TIMER STOPPED: {detail}. It will never fire again until it is started, so the wall is "
                 "frozen. Check: systemctl status birdframe.timer")
     return (f"FRAME FROZEN: {detail}. display.py forces a heal repaint every {_hours(cfg, 'heal_hours')}h, so the "
-            "wall is showing a stale collage -- the panel push is failing. Check: journalctl -u birdframe -n 50")
+            "wall is showing a stale collage -- the panel push is failing. Check: journalctl -u birdframe -n 50"
+            + _auth_hint(cfg))
 
 
 def main():
