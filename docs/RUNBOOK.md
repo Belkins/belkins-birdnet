@@ -27,3 +27,7 @@ measured docs, not yet exercised end-to-end.*
    a stale prefix means the timer stopped and the alert net missed it.
 7. Verify, never assume: `bash scripts/verify.sh`, the `art_status` histogram over
    `species.json`, `repo-guards.sh dist-served`, and a real bird rendering on the wall.
+
+*Dead-man's switch: deployed + fire-tested 2026-08-02 via `deadman-worker/arm.sh`
+(threshold lowered → alarm fired to the phone → restored to 30h → healthy verdict:
+9,313 objects, newest 7.9h). Re-arm after any Cloudflare account change: `arm.sh`.*

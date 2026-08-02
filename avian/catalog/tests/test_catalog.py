@@ -432,10 +432,13 @@ class CatalogTestCase(_CatalogFixture):
     def test_species_json_row_shape_and_values(self):
         """species.json must carry EXACTLY the CANON fields with the right
         values -- no is_bird/genus/confident_count leakage, no wrong-field
-        aliasing (e.g. last_detected written into first_confident). The two
+        aliasing (e.g. last_detected written into first_confident). The
         additive fields land together: `accession` (Robin is the earliest
-        confident bird -> No. 1) and `weeks` (Date-derived ISO week — both
-        fixture dates are week 22, whatever the Week column claims)."""
+        confident bird -> No. 1), `weeks` (Date-derived ISO week — both
+        fixture dates are week 22, whatever the Week column claims), and
+        `ebird_code` (read from the repo's scripts/ebird.php; this test does NOT
+        set CHRISTINA_EBIRD_CODES, so `amerob` here is the shipped table
+        answering for real -- see tests/test_ebird_codes.py)."""
         self._build()
         robin = next(r for r in self._species_json()
                      if r["sci_name"] == "Turdus migratorius")
@@ -448,13 +451,14 @@ class CatalogTestCase(_CatalogFixture):
             "detection_count": 3,
             "art_status": "ready",
             "art_source": "bundled",
+            "ebird_code": "amerob",
             "accession": 1,
             "weeks": [[22, 3]],
         })
         self.assertEqual(set(robin.keys()), {
             "sci_name", "com_name", "slug", "first_confident",
             "last_detected", "detection_count", "art_status", "art_source",
-            "accession", "weeks",
+            "ebird_code", "accession", "weeks",
         })
 
     # -- 4c-bis. art_source reaches the frontend, and says WHO MADE IT -----

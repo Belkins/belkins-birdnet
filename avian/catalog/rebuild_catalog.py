@@ -475,6 +475,69 @@ def resolve_exclude_path():
     return os.path.abspath(os.path.expanduser(_DISK_EXCLUDE_DEFAULT))
 
 
+# ---- eBird taxon codes -----------------------------------------------------
+
+# The museum's outbound catalogue link needs eBird's taxon CODE, never the
+# binomial: eBird retired the name-search parameter, so the old
+# media.ebird.org/catalog?q=<name> link 301s to a bare /catalog and every plate
+# on the wall pointed at the unfiltered global archive. See web/src/ebird.ts.
+#
+# scripts/ebird.php is the right table and not eBird's live taxonomy API,
+# because it is keyed on EXACTLY the label set BirdNET emits. Measured
+# 2026-08-02: the live API covers 47 of this station's 49 species, missing
+# Corvus monedula and Charadrius dubius -- eBird has since renamed both genera
+# (Coloeus, Thinornis) while BirdNET still emits the older binomials. The
+# bundled table covers 49/49 for the same reason.
+_EBIRD_PHP_DEFAULT = os.path.join("scripts", "ebird.php")
+
+# One entry per line: `  "Genus species" => "code",`. Values are always plain
+# double-quoted strings with no escapes (verified across all 6522 entries), so a
+# non-greedy "[^"]+" pair is a complete parse and not an approximation.
+_EBIRD_RE = re.compile(r'"([^"]+)"\s*=>\s*"([^"]*)"')
+
+# "This class has no eBird taxon" is spelled as the four-character STRING
+# "null", not PHP null -- 103 of the 6522 entries. Ninety are frogs, insects and
+# mammals, but three ARE birds whose genus eBird renamed, so this is not the
+# same predicate as "not a bird" and must be dropped on its own terms.
+_EBIRD_NULL = "null"
+
+
+def resolve_ebird_table(repo):
+    """Path to the eBird taxon-code table: ``$CHRISTINA_EBIRD_CODES`` first,
+    else ``<repo>/scripts/ebird.php``, else the BirdNET-Pi checkout. Mirrors the
+    birds.db resolution above, and the env override is what lets a test point
+    this at a fixture."""
+    env = os.environ.get("CHRISTINA_EBIRD_CODES")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+    here = os.path.join(repo, _EBIRD_PHP_DEFAULT)
+    if os.path.isfile(here):
+        return here
+    return os.path.abspath(os.path.expanduser("~/BirdNET-Pi/" + _EBIRD_PHP_DEFAULT))
+
+
+def load_ebird_codes(path):
+    """``{sci_name: taxon_code}`` from the PHP table, dropping the "null"
+    sentinel and any blank.
+
+    DEGRADES TO SILENCE, never raises: an absent or unreadable table yields
+    ``{}``, every species gets ``ebird_code: null``, and the wall renders no
+    eBird chip. That is the correct failure -- the link this replaced was always
+    present and always wrong, which is strictly worse than absent."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return {}
+    codes = {}
+    for sci, code in _EBIRD_RE.findall(text):
+        code = code.strip()
+        if not code or code == _EBIRD_NULL:
+            continue
+        codes[sci] = code
+    return codes
+
+
 def _pin_lines(clips):
     """The two lines that protect one clip: the recording and its ``.png``
     spectrogram sibling. The spectrogram is its own ``*/*/*`` glob entry for
@@ -815,6 +878,13 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
     for s in weeks_by_sci:
         weeks_by_sci[s].sort(key=lambda t: t[0])
 
+    # sci_name -> eBird taxon code for the outbound catalogue link. {} when the
+    # table is missing, which costs the link and nothing else.
+    _here = os.path.dirname(os.path.abspath(__file__))
+    ebird_codes = load_ebird_codes(
+        resolve_ebird_table(os.path.abspath(os.path.join(_here, "..", "..")))
+    )
+
     out = sqlite3.connect(tmp_path)
     try:
         out.executescript(SCHEMA_SQL)
@@ -859,6 +929,13 @@ def build_catalog(birds_path, out_path, assets_dir, manifest_url=None,
                     # with X-Av-Real:1, exactly like Railway-generated art, so
                     # the header can never answer this question. This field can.
                     "art_source": art_source,
+                    # eBird taxon code, or null when the table has none for this
+                    # class. The frontend renders NO eBird link on null rather
+                    # than guessing one from the binomial -- a guessed code does
+                    # not 404, it silently serves the generic archive (`bluti`
+                    # is not the Blue Tit; `blutit` is), or worse, resolves to a
+                    # different bird entirely (`rerpar1` is a Red-rumped Parrot).
+                    "ebird_code": ebird_codes.get(sci),
                     # Pinned permanent accession No. (int) once confident, else
                     # null (heard but never confidently detected -> not accessioned).
                     "accession": accession_by_sci.get(sci),

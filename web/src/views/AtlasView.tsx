@@ -6,16 +6,13 @@
 // the row to the parent, which opens the shared BirdPopup detail modal.
 import { useEffect, useState } from 'react';
 import type { RosterRow } from '../types';
-import { fetchArtStatus } from '../catalog';
+import { fetchArtStatus, fetchEbirdCodes } from '../catalog';
 import { BirdThumb } from '../components/BirdThumb';
 import { Listen } from '../components/Listen';
 import { formatDay } from '../days';
 import { fetchJardine, speciesBySci, type JardineSpecies } from '../jardine';
 import { JardineName } from '../components/JardineName';
-
-// eBird / Macaulay media catalogue search, keyed on the binomial (no per-species
-// code needed) — always resolves, unlike the auth-gated /species/<code> pages.
-const EBIRD_SEARCH = 'https://media.ebird.org/catalog?q=';
+import { ebirdMediaUrl } from '../ebird';
 
 // Header: the catalogue number (life-list order) over the call count. The Lifer
 // pill shows only for a genuine first (isNew) — never an always-true "Heard"
@@ -34,11 +31,16 @@ function CardHead({ cat, n, isNew }: { cat: string; n: number; isNew: boolean })
   );
 }
 
-// Footer chip row: the real Listen control + the two external links (wiki,
-// eBird), shared by the grid card and the feature plate. Every interactive
-// child stops the click from bubbling into the card's open handler — Listen
-// does this itself; the anchor links do it inline.
-function CardFooter({ sci }: { sci: string }) {
+// Footer chip row: the real Listen control + the external links (wiki, and eBird
+// when we hold a taxon code), shared by the grid card and the feature plate.
+// Every interactive child stops the click from bubbling into the card's open
+// handler — Listen does this itself; the anchor links do it inline.
+//
+// `ebird` arrives from the nightly catalog and is undefined until it resolves,
+// so the chip appears a beat after the plate. That is deliberate: the museum
+// would rather show one link late than two links where one goes nowhere.
+function CardFooter({ sci, ebird }: { sci: string; ebird?: string }) {
+  const ebirdHref = ebirdMediaUrl(ebird);
   return (
     <div className="acard-f">
       <Listen sci={sci} />
@@ -52,15 +54,17 @@ function CardFooter({ sci }: { sci: string }) {
         >
           wiki ↗
         </a>
-        <a
-          className="acard-lnk"
-          href={`${EBIRD_SEARCH}${encodeURIComponent(sci)}`}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-        >
-          ebird ↗
-        </a>
+        {ebirdHref && (
+          <a
+            className="acard-lnk"
+            href={ebirdHref}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
+            ebird ↗
+          </a>
+        )}
       </span>
     </div>
   );
@@ -111,6 +115,21 @@ export function AtlasView({
     };
   }, []);
 
+  // sci_name → eBird taxon code, for the catalogue link in each plate's footer.
+  // Shares the catalog's 60s TTL memo with the art-status map above, so this
+  // costs no extra network read. A failure leaves the map empty and the plates
+  // simply carry no eBird chip.
+  const [ebird, setEbird] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    void fetchEbirdCodes().then((m) => {
+      if (alive) setEbird(m);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // N≤2: a single centered "first specimen" feature plate instead of a lonely
   // grid cell. The grid engages at N≥3.
   if (rows.length >= 1 && rows.length <= 2) {
@@ -139,7 +158,7 @@ export function AtlasView({
                 </div>
               );
             })()}
-            <CardFooter sci={r.sci} />
+            <CardFooter sci={r.sci} ebird={ebird.get(r.sci)} />
           </div>
         </div>
       </div>
@@ -172,7 +191,7 @@ export function AtlasView({
             <BirdThumb slug={r.slug} sci={r.sci} com={r.com} art={art?.get(r.slug)} />
             <div className="acard-cn">{r.com || r.sci}</div>
             <div className="acard-ln">{r.sci}</div>
-            <CardFooter sci={r.sci} />
+            <CardFooter sci={r.sci} ebird={ebird.get(r.sci)} />
           </div>
         ))}
       </div>
