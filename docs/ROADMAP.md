@@ -17,11 +17,12 @@ silent-failure channels and less operator-memory dependence, not more ceremony.
   first annotated tags (`pi-2026-08-01`, `.1`); wall live-verified by content marker.
 - ✅ `docs/DECISIONS.md` (17 rulings) · `docs/RUNBOOK.md` · `scripts/predeploy-gate.sh`.
 - ✅ Timeout-retry in the plate fetcher (the weekly alert must not cry wolf).
-- ⏳ Dead-man's switch deploy + fire-test (one interactive `wrangler login` away).
-- ⏳ Owner items: password-manager escrow entry · **AudioMoth flash** (BatNET's
-  season ends ~November).
-- ⏳ The Accession Moment — the quiet first-detection card (this first autumn's
-  lifer wave is unrepeatable).
+- ✅ Dead-man's switch deployed + alarm watched firing (2026-08-02, `arm.sh`).
+- ✅ Escrow entry in the owner's password manager (2026-08-02) — the October
+  restore rehearsal is the end-to-end proof that closes the loop.
+- ✅ The Accession Moment — shipped, review-hardened (the robin test), live.
+- ⏳ **AudioMoth flash** (BatNET's season ends ~November) · Inky Impression
+  13.3" hardware day (software fully landed; `frame/README.md` one-box section).
 
 ## Sprint 2–3 (Aug 16 – Sep 12) — make the guards true
 
