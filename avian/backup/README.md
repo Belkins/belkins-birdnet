@@ -240,13 +240,15 @@ never once have fired. The trade-off is explicit: after 20 crashes in 10 minutes
 the unit stays down until `systemctl reset-failed`. A frame that is visibly dead
 beats a frame that is invisibly dying.
 
-**Caveat, and it is a real one:** the units *declare* `OnFailure=`, but the
-handler only exists on the box once `christina-alert@.service` has been
-installed. `install-backup.sh` installs it. `deploy-realtime.sh` and
-`deploy-christina.sh` do not yet — so **re-run `install-backup.sh` after any
-deploy**, or the declaration is inert. A unit whose `OnFailure=` target is
-missing still fails normally; systemd just logs that it could not enqueue the
-handler. Nothing breaks — but nothing shouts either.
+**Caveat, now retired (was real until 2026-08-01):** the units *declare*
+`OnFailure=`, and the handler must exist on the box for that to mean anything.
+All three installers now install `christina-alert@.service` —
+`install-backup.sh`, `deploy-christina.sh` (lines 57-64) and
+`deploy-realtime.sh` (lines 65-68) — so any normal deploy leaves the handler
+present. The failure mode it described is still worth knowing: a unit whose
+`OnFailure=` target is missing fails normally and systemd merely logs that it
+could not enqueue the handler — nothing breaks, but nothing shouts. If in any
+doubt, `systemctl cat christina-alert@.service` answers it.
 
 ---
 
