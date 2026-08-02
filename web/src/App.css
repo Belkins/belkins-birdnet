@@ -978,6 +978,7 @@
 @media (max-width: 420px) {
   .filter,
   .archive-cap,
+  .accession-cap,
   .live-counter {
     left: 14px;
   }
@@ -1033,6 +1034,58 @@
    Gate the Atlas red "new" tag off unless the user enables the lifer tick. */
 .stage[data-lifer='false'] .tg.l {
   display: none;
+}
+
+/* ── the Accession Moment (bottom-left, ABOVE the LiveCounter) — a label hung
+   while the paint dries: accession line over the bird's name over "first
+   heard HH:MM". Same tombstone vocabulary; held to the top of the hour by
+   App state, no animation loop of its own. Entry fade only under
+   no-preference; reduced motion renders the final state (brand rule). */
+.accession-cap {
+  position: absolute;
+  bottom: calc(5% + 132px);
+  left: 26px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  pointer-events: none;
+}
+.acc-lab {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.acc-name {
+  font-family: var(--display);
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--ink);
+}
+.acc-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--ink-2);
+  font-variant-numeric: lining-nums tabular-nums;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acc-in {
+    animation: acc-in 600ms ease-out both;
+  }
+  @keyframes acc-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
 }
 
 /* ── archive caption (bottom-left; stands in for the LiveCounter while a past

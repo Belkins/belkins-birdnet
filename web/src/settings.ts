@@ -21,6 +21,11 @@ export interface Settings {
   autoFrameIdleSec: 0 | 60 | 300;
   showColophon: boolean;
   liferTick: boolean;
+  /** The Accession Moment — the quiet first-detection card in the tombstone
+   *  register. Default ON, unlike liferTick: the lifer tick is a PERSISTENT
+   *  badge (the "pure world" doctrine keeps those opt-in), while this is an
+   *  EVENT that holds until the top of the hour and leaves no mark. */
+  accessionCard: boolean;
   /** Golden Hour: solar-tracking ink warmth. Inert without a configured location (profile.ts lat/lon). */
   solarLight: boolean;
   /** The dossier's `repaint ↺` action. The Pi's pool env is the real arming
@@ -40,6 +45,7 @@ export const SETTINGS_DEFAULTS: Settings = {
   autoFrameIdleSec: 60,
   showColophon: true,
   liferTick: false,
+  accessionCard: true,
   // Default ON: configuring lat/lon is the real opt-in gesture — with no
   // location the feature is structurally silent, and a kiosk boots warm.
   solarLight: true,
@@ -61,6 +67,7 @@ function pickKnown(o: Record<string, unknown>): Partial<Settings> {
   if (o.autoFrameIdleSec === 0 || o.autoFrameIdleSec === 60 || o.autoFrameIdleSec === 300) out.autoFrameIdleSec = o.autoFrameIdleSec;
   if (typeof o.showColophon === 'boolean') out.showColophon = o.showColophon;
   if (typeof o.liferTick === 'boolean') out.liferTick = o.liferTick;
+  if (typeof o.accessionCard === 'boolean') out.accessionCard = o.accessionCard;
   if (typeof o.solarLight === 'boolean') out.solarLight = o.solarLight;
   if (typeof o.repaintPlate === 'boolean') out.repaintPlate = o.repaintPlate;
   return out;
