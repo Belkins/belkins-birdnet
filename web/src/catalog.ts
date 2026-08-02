@@ -20,6 +20,11 @@ export interface CatalogSpecies {
    *  here. cutout.php serves both with X-Av-Real:1, so no header can tell them
    *  apart and the Library's provenance caption has nothing else to go on. */
   art_source: string;
+  /** eBird taxon code for the outbound catalogue link, or null when the source
+   *  table has none for this class. NEVER derived from the name — see ebird.ts
+   *  for why a guessed code fails silently instead of loudly. null (or a build
+   *  predating the field) means the link is not rendered at all. */
+  ebird_code: string | null;
   // Pinned permanent accession No. from the nightly build (int), or null when a
   // bird has been heard but never confidently detected. `undefined` = the build
   // predates the pin (old deployment) → the wall falls back to client derivation.
@@ -90,6 +95,10 @@ function normalize(raw: unknown): CatalogSpecies[] {
       // Unknown degrades to '' so the caption falls back to the WEAKER claim —
       // never assert 'this station painted it' on a field we could not read.
       art_source: asString(item.art_source),
+      // Absent on any build older than the field, and the literal string "null"
+      // in the source table for classes with no eBird taxon. Both collapse to
+      // null here so the view renders no link rather than a dead one.
+      ebird_code: asNullableString(item.ebird_code),
       accession,
       weeks: asWeeks(item.weeks),
     });
@@ -183,6 +192,28 @@ export async function fetchCatalogOrNull(): Promise<CatalogSpecies[] | null> {
     if (v === null && catalogHit?.p === p) catalogHit = null;
   });
   return p;
+}
+
+/** Session-memoized sci_name → eBird taxon code map, for the outbound catalogue
+ *  link on the atlas plates. Keyed on sci_name and not slug because that is what
+ *  both call sites already hold, and it is the key the source table itself uses.
+ *
+ *  Same degrade-to-silence contract as fetchArtStatus: an unreachable catalog
+ *  yields an empty map, every species misses, and the plates render no eBird
+ *  link at all. That is the correct failure — the link this replaced was
+ *  ALWAYS present and ALWAYS wrong, which is the worse of the two states. */
+let ebirdCodesPromise: Promise<Map<string, string>> | null = null;
+
+export function fetchEbirdCodes(): Promise<Map<string, string>> {
+  if (!ebirdCodesPromise) {
+    ebirdCodesPromise = fetchCatalog().then((list) => {
+      if (list.length === 0) ebirdCodesPromise = null; // unreachable catalog: retry on next mount
+      const m = new Map<string, string>();
+      for (const s of list) if (s.sci_name && s.ebird_code) m.set(s.sci_name, s.ebird_code);
+      return m;
+    });
+  }
+  return ebirdCodesPromise;
 }
 
 /** Session-memoized slug → art_status map. Honesty contract: the map is used

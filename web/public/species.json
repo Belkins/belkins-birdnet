@@ -7,6 +7,7 @@
     "last_detected": "2026-06-28",
     "detection_count": 1342,
     "art_status": "ready",
+    "ebird_code": "amerob",
     "accession": 1,
     "weeks": [[10, 4], [14, 9], [18, 12], [22, 15], [26, 10], [30, 6]]
   },
@@ -18,6 +19,7 @@
     "last_detected": "2026-06-29",
     "detection_count": 908,
     "art_status": "ready",
+    "ebird_code": "moudov",
     "accession": 2,
     "weeks": [[8, 3], [16, 6], [24, 9], [32, 7], [40, 4]]
   },
@@ -29,6 +31,7 @@
     "last_detected": "2026-06-30",
     "detection_count": 517,
     "art_status": "none",
+    "ebird_code": "norcar",
     "accession": 3,
     "weeks": [[4, 2], [12, 5], [20, 7], [28, 6], [36, 4], [44, 3], [52, 2]]
   },
@@ -40,6 +43,7 @@
     "last_detected": "2026-06-27",
     "detection_count": 264,
     "art_status": "ready",
+    "ebird_code": "amegfi",
     "accession": 4,
     "weeks": [[18, 3], [22, 6], [26, 8], [30, 5]]
   },
@@ -51,6 +55,7 @@
     "last_detected": "2026-06-20",
     "detection_count": 173,
     "art_status": "none",
+    "ebird_code": "blujay",
     "accession": 5,
     "weeks": [[14, 2], [24, 4], [38, 3]]
   },
@@ -62,6 +67,7 @@
     "last_detected": "2026-05-30",
     "detection_count": 88,
     "art_status": "ready",
+    "ebird_code": "cedwax",
     "accession": 6,
     "weeks": [[2, 5], [6, 7], [50, 4]]
   },
@@ -73,6 +79,7 @@
     "last_detected": "2026-06-25",
     "detection_count": 51,
     "art_status": "ready",
+    "ebird_code": "sonspa",
     "accession": 7,
     "weeks": [[20, 3], [24, 4], [36, 2]]
   },
@@ -84,6 +91,7 @@
     "last_detected": null,
     "detection_count": 3,
     "art_status": "none",
+    "ebird_code": "herthr",
     "accession": null,
     "weeks": []
   }

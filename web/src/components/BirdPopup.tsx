@@ -38,11 +38,8 @@ import { clearBird, writeRead, writeTab } from '../url';
 import { useBirdImage } from '../useBirdImage';
 import { useRepaint, type RepaintPhase } from '../repaint';
 import { downloadPlateCard } from '../export-card';
+import { ebirdMediaUrl } from '../ebird';
 import './BirdPopup.css';
-
-// eBird / Macaulay media catalogue search, keyed on the binomial — matches the
-// Atlas footer link so the two surfaces resolve identically.
-const EBIRD_SEARCH = 'https://media.ebird.org/catalog?q=';
 
 // A single clickable bird — the collage tile / Atlas row projected down to just
 // what the modal needs. `n` is the window count (this window only); the all-time
@@ -176,6 +173,10 @@ function Dialog({
   // Pinned museum accession number for this species (from the nightly catalog),
   // used only to stamp a saved plate card. null until the catalog resolves.
   const [accession, setAccession] = useState<number | null>(null);
+  // eBird taxon code for this species, from the same catalog row as `accession`
+  // — null until it resolves, and null forever for a class the source table has
+  // no code for, in which case no eBird link is offered at all.
+  const [ebirdCode, setEbirdCode] = useState<string | null>(null);
   // One-shot guard so a double-click never kicks off two card renders at once.
   const [saving, setSaving] = useState(false);
   // Keyed per species, so this init is per-open (deep-link pose restore stays
@@ -315,6 +316,7 @@ function Dialog({
         const match = list.find((s) => s.sci_name === bird.sci);
         setPhen(match ? phenologyWeeks(match) : null);
         setAccession(match?.accession ?? null);
+        setEbirdCode(match?.ebird_code ?? null);
       })
       .catch(() => {
         // defensive — the ribbon just stays hidden.
@@ -503,6 +505,9 @@ function Dialog({
     counterpoint?.kind === 'voice' ? firstSentence(counterpoint.passage.text) : null;
   const rarity = rarityLabel(detail?.total ?? null, detail?.firstSeen ?? null);
   const recordings = detail?.recordings ?? [];
+  // null until the catalog resolves, and null for a class with no eBird taxon —
+  // the link row simply omits the chip rather than offering a dead one.
+  const ebirdHref = ebirdMediaUrl(ebirdCode);
 
   // Save a museum plate CARD of this bird via the shared export engine — the same
   // seat-ink + kachō-e treatment as the wall. Every stamped field is a real value
@@ -846,14 +851,11 @@ function Dialog({
           >
             wiki ↗
           </a>
-          <a
-            className="bp-lnk"
-            href={`${EBIRD_SEARCH}${encodeURIComponent(bird.sci)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            ebird ↗
-          </a>
+          {ebirdHref && (
+            <a className="bp-lnk" href={ebirdHref} target="_blank" rel="noreferrer">
+              ebird ↗
+            </a>
+          )}
           <button
             type="button"
             className="bp-lnk bp-lnk-b bp-lnk-right"
