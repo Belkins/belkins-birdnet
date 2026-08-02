@@ -5,6 +5,7 @@ import { CollageEngine } from './collage';
 import { MOCK } from './config';
 import { loadSettings, saveSettings } from './settings';
 import type { Settings } from './settings';
+import { accessionCopy, decideAccession, hhmm, msUntilNextHour } from './accession';
 import type { LiveState, RosterRow } from './types';
 import { counterFrom } from './counter';
 import { LiveCounter } from './components/LiveCounter';
@@ -113,6 +114,30 @@ function ArchiveCaption({ day, species, onNow }: { day: string; species: number;
   );
 }
 
+/** The Accession Moment card — same tombstone vocabulary as ArchiveCaption,
+ *  held above the LiveCounter until the top of the hour. The OUTER region is
+ *  always mounted with role="status" (dynamically-inserted live regions are
+ *  unreliably announced; a pre-existing region whose CONTENT changes is the
+ *  reliable form), the INNER block is keyed per event so the entry fade
+ *  re-runs for each ceremony. */
+function AccessionSlot({ card }: { card: { com: string; num: number | null; at: number } | null }) {
+  return (
+    <div className="accession-cap" role="status" aria-live="polite">
+      {card &&
+        (() => {
+          const copy = accessionCopy(card.com, card.num, hhmm(new Date(card.at)));
+          return (
+            <div className="acc-in" key={card.at}>
+              <div className="acc-lab">{copy.headline}</div>
+              <div className="acc-name">{copy.name}</div>
+              <div className="acc-sub">{copy.sub}</div>
+            </div>
+          );
+        })()}
+    </div>
+  );
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +198,11 @@ export default function App() {
   // (the mount probe + `on` echo keep an old Pi's live data from ever
   // masquerading as an archive day).
   const [viewDay, setViewDay] = useState<string | null>(null);
+  // The Accession Moment: the one live first-detection currently on ceremony
+  // hold (cleared at the top of the hour). num starts null — honest "pending" —
+  // and upgrades if the catalog already holds a pinned number for this species.
+  const [accession, setAccession] = useState<{ com: string; sci: string; num: number | null; at: number } | null>(null);
+  const accessionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dayStrip, setDayStrip] = useState<DayActivity[]>([]);
   const [scrubOk, setScrubOk] = useState(false);
   // Always-current mirrors (settingsRef pattern) for the stable keyboard /
@@ -265,6 +295,33 @@ export default function App() {
       },
       onLive: setLiveState,
       onReady: markFrameReady, // spec §5.4 — signal shoot.py the frame is settled
+      onAccession: (ev) => {
+        // The engine's signal is only "new to the current WINDOW" — the
+        // verdict comes from the station-lifetime catalog, and the whole rule
+        // is decideAccession (unit-tested). A species PRESENT in the ledger
+        // has been heard before, by definition: its presence is the disproof.
+        // fetchCatalog collapses to [] on failure, and an empty ledger proves
+        // nothing — decideAccession stays silent then (catalogNonEmpty).
+        fetchCatalog().then((rows) => {
+          const fire = decideAccession({
+            isWindowNew: true,
+            inCatalog: rows.some((r) => r.sci_name === ev.sci),
+            catalogNonEmpty: rows.length > 0,
+            // dayPinned is false by construction — addBird never runs on a
+            // pinned day — but the predicate keeps the term where it is tested.
+            dayPinned: false,
+            enabled: settingsRef.current.accessionCard,
+          });
+          if (!fire) return;
+          // The card's time is the DETECTION's own stamp (SSE replay delivers
+          // old frames by design); the hold window anchors to the wall clock.
+          const evMs = ev.whenIso ? Date.parse(ev.whenIso) : Number.NaN;
+          const at = Number.isFinite(evMs) ? evMs : Date.now();
+          setAccession({ com: ev.com, sci: ev.sci, num: null, at });
+          if (accessionTimer.current) clearTimeout(accessionTimer.current);
+          accessionTimer.current = setTimeout(() => setAccession(null), msUntilNextHour(new Date()));
+        });
+      },
     });
     engineRef.current = engine;
 
@@ -326,6 +383,7 @@ export default function App() {
       ro.disconnect();
       engine.destroy();
       engineRef.current = null;
+      if (accessionTimer.current) clearTimeout(accessionTimer.current);
     };
   }, []);
 
@@ -743,6 +801,10 @@ export default function App() {
         </nav>
         {showScrub && <Scrubber days={dayStrip} selected={viewDay} onSelect={selectDay} />}
       </div>
+
+      {!framed && (
+        <AccessionSlot card={!viewDay && settings.accessionCard ? accession : null} />
+      )}
 
       {!framed &&
         (viewDay ? (

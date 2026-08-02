@@ -198,6 +198,15 @@ export function SettingsPanel(props: {
               on={settings.solarLight}
               onToggle={(v) => onChange({ solarLight: v })}
             />
+            <Toggle
+              label="First-detection card"
+              on={settings.accessionCard}
+              onToggle={(v) => onChange({ accessionCard: v })}
+            />
+            <p className="set-note">
+              When a species the station has never recorded lands live, a quiet accession card
+              joins the counter until the top of the hour. The ledger numbers it overnight.
+            </p>
             <p className="set-note">
               {hasLocation
                 ? 'Warms the gallery ink with the real sun — sunrise and sunset computed offline from this frame’s location.'

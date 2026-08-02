@@ -115,6 +115,17 @@ export interface EngineCallbacks {
   /** Fired at most once after the seed's illustrations settle, so the frame /
    *  print path can call markFrameReady() (spec §5.4). */
   onReady?: () => void;
+  /** A live detection of a species the CURRENT WINDOW's roster has never
+   *  held. This is a cheap PRE-FILTER, not a first-ever verdict — the roster
+   *  is window-scoped (cleared on every setWindow/setDay), so a ledger
+   *  veteran quiet for an hour trips it too. The Accession Moment's real
+   *  authority is the station-lifetime catalog, checked by the App handler
+   *  via accession.ts's decideAccession. whenIso is the DETECTION's own
+   *  timestamp (the event frame), because SSE replay delivers old frames by
+   *  design and the card's copy is a claim about the detection, not the
+   *  browser. addBird never runs on a pinned day, so this cannot fire from
+   *  the archive. */
+  onAccession?: (ev: { sci: string; com: string; slug: string; whenIso: string | null }) => void;
 }
 
 export class CollageEngine {
@@ -520,6 +531,9 @@ export class CollageEngine {
     this.renderer.requestDraw();
     this.cb.onCount?.(this.grid.onScreen().length);
     this.cb.onLatest?.(ev.com || sci);
+    if (isNewSpecies) {
+      this.cb.onAccession?.({ sci, com: ev.com || sci, slug, whenIso: ev.iso8601 || null });
+    }
     this.emitRoster();
   }
 
