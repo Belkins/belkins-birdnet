@@ -64,6 +64,16 @@ proxy that terminates TLS and enforces authentication, and harden the box first.
 bundled Cloudflare Tunnel recipe is a convenience, not a hardening layer — the same
 "add auth in front of it" advice applies.
 
+**The LAN gate is a single, owner-controlled switch.** Since 2026-07-27 the admin
+plane (config, service controls, the database, the terminal) sits behind Caddy
+`basic_auth` plus a PHP auth layer, both keyed on `CADDY_PWD` in `birdnet.conf` —
+fail-closed: an empty password refuses rather than opens. `STATION_OPEN="1"` in
+`birdnet.conf` stands both layers down **deliberately** — the owner of this station
+typed that choice on 2026-07-30 so the household can reach everything without a
+password; Host pinning stays on either way. If that trade is not yours to make, run
+closed: set `STATION_OPEN="0"` (or leave it unset) and both layers enforce. The
+restore path after an open period is `STATION_OPEN="0"` plus re-running the installer.
+
 A few practical notes:
 
 - Keep the Pi on your LAN; reach it at `http://birdnet.local/`.

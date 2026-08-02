@@ -1,7 +1,7 @@
 // THE LAB'S CONSOLE GROWTH — logic + doctrine suite for the 2026-07-30 tabs.
 //
-// Same standing caveat as every suite in this directory: CI runs pytest only,
-// so `cd web && npm test` is a manual discipline before every dist rebuild.
+// (The old caveat here — "CI runs pytest only" — retired 2026-08-02: web-ci.yml
+// runs `npm test` + lint + a dist-fresh check on every push touching web/**.)
 //
 // Two kinds of test here:
 //   1. Pure logic — buildActivityGrid (the day x hour heatmap builder) and the
