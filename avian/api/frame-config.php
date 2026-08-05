@@ -30,6 +30,21 @@ $STATE = '/run/birdframe/panel-state.json';  // published by the daemon, served 
 $method = $_SERVER['REQUEST_METHOD'] ?? '';
 
 if ($method === 'GET') {
+    // ?shot=1 — the wall's OWN last screenshot, mirrored by the daemon into
+    // the spool dir. The preview's dice and the wall's dice roll separately;
+    // this image is the only ground truth for "what is on the ink".
+    if (($_GET['shot'] ?? '') === '1') {
+        $shot = '/run/birdframe/last-shot.png';
+        $bytes = @file_get_contents($shot);
+        if ($bytes === false) {
+            http_response_code(404);
+            echo json_encode(['error' => 'no shot mirrored yet — has the wall painted since the daemon restarted?']);
+            exit;
+        }
+        header('Content-Type: image/png');
+        echo $bytes;
+        exit;
+    }
     $raw = @file_get_contents($STATE);
     if ($raw !== false) {
         json_decode($raw);

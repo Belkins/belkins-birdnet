@@ -176,6 +176,7 @@ def main():
                 panel_apply.publish_state(
                     "~/.birdframe/config.toml", cfg["state"],
                     (views.read_view(cfg["view_file"]) or {}).get("view"))
+                panel_apply.sync_last_shot()
             except Exception as e:
                 print(f"panel state publish failed: {e}")
             # Idle sweep: a press that landed mid-paint left its token

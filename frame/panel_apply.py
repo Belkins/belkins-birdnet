@@ -188,6 +188,34 @@ def rewrite_config(cfg_text, merged):
     return head + tail
 
 
+SHOT_SRC = "~/.birdframe/shot.png"
+SHOT_DEST = "/run/birdframe/last-shot.png"
+
+
+def sync_last_shot(src=SHOT_SRC, dest=SHOT_DEST):
+    """Mirror the wall's OWN last screenshot into the spool dir so the panel
+    can show what the ink actually took — the preview's dice and the wall's
+    dice roll independently, and only this image settles arguments. Copies
+    only when the source mtime moved (a stat per tick, a copy per paint);
+    /run is tmpfs so the ~300KB costs RAM, never the SD card."""
+    try:
+        src = os.path.expanduser(src)
+        st = os.stat(src)
+        try:
+            if os.stat(dest).st_mtime >= st.st_mtime:
+                return False
+        except OSError:
+            pass  # no mirror yet
+        tmp = dest + ".tmp"
+        with open(src, "rb") as fin, open(tmp, "wb") as fout:
+            fout.write(fin.read())
+        os.replace(tmp, dest)
+        os.utime(dest, (st.st_mtime, st.st_mtime))
+        return True
+    except Exception:
+        return False  # a missing shot must never disturb the tick
+
+
 def publish_state(cfg_path, state_json_path, view_name, state_path=STATE_PATH):
     """Compose and atomically publish what the wall currently believes.
     Re-read fresh from the config FILE, not from the request that just

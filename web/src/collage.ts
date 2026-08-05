@@ -199,7 +199,12 @@ export class CollageEngine {
     // the cluster uses the vertical room instead of a squat band.
     this.xBias = narrow ? 1 : T.ellipseAspectBias;
     this.yBias = narrow ? 1.5 : 1.2;
-    this.pad = narrow ? Math.max(1, COLLAGE_PAD - 1) : COLLAGE_PAD;
+    // COLLAGE_PAD was tuned on desktop-width canvases. The wall shoots ZOOMED
+    // viewports (273px wide at zoom 2.2) where three fixed grid cells read as
+    // a moat around every bird and the flock cannot attain its budget —
+    // "locked resolution" smallness. Scale the pad with canvas width, floor 1.
+    const basePad = narrow ? Math.max(1, COLLAGE_PAD - 1) : COLLAGE_PAD;
+    this.pad = Math.max(1, Math.round(basePad * Math.min(1, this.W / 600)));
   }
 
   /** The composition-safe rectangle: the region the cluster may occupy so no
@@ -635,7 +640,7 @@ export class CollageEngine {
     this.W = Math.max(1, W);
     this.H = Math.max(1, H);
     this.computeBiases();
-    const next = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
+    const next = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad, STAMP_FRAC);
     for (const t of this.grid.placed) next.placed.push(t);
 
     // Re-centre the existing cluster into the resized viewport's SAFE box. Phase 0
@@ -818,7 +823,7 @@ export class CollageEngine {
       targetTotal: isWall ? 16 : undefined,
     });
 
-    const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad);
+    const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad, STAMP_FRAC);
     // Reserve every real bird's footprint so ambient nests AROUND the cluster,
     // never on top of a counted bird. With this.grid.placed empty (N=0) blockOut
     // stamps nothing and the first non-anchored tile still resolves to centre via

@@ -246,6 +246,17 @@
       <div class="frame-caption"><span id="cap-view">&nbsp;</span><span id="cap-zoom">&nbsp;</span></div>
     </div>
 
+    <p class="seclabel" style="margin-top:1.2rem">on the inky now</p>
+    <div class="frame">
+      <div class="screen">
+        <!-- The wall's OWN last screenshot (daemon-mirrored). The preview's
+             dice and the wall's dice roll separately — this settles it. -->
+        <img id="inkshot" alt="the wall's last screenshot"
+             style="width:100%;aspect-ratio:3/4;object-fit:contain;display:block;background:#f4f1e8">
+      </div>
+      <div class="frame-caption"><span id="inkshot-cap">the literal image the ink took</span><span></span></div>
+    </div>
+
     <div class="segrow">
       <div class="seg" id="winseg" role="group" aria-label="window">
         <button type="button" data-win="1">1H</button>
@@ -303,7 +314,9 @@
         <label for="zoom">zoom<span class="key">shoot_zoom</span></label>
         <output for="zoom" id="v-zoom"></output>
       </div>
-      <input type="range" id="zoom" min="1.0" max="2.2" step="0.1">
+      <!-- capped at 1.8: past it the page's fixed margins (title zone, bird
+           padding) eat the shrinking viewport and the flock gets SMALLER -->
+      <input type="range" id="zoom" min="1.0" max="1.8" step="0.1">
     </div>
 
     <button type="button" id="apply">apply to wall</button>
@@ -500,6 +513,7 @@
             setStatus('✓ on the wall', 'ok');
             setPending(false);
             renderOnWall(st);
+            refreshInkshot();
           }
         });
       }, 5000);
@@ -551,11 +565,18 @@
   applyBtn.addEventListener('click', apply);
   window.addEventListener('resize', updateGeometry);
 
+  /* ---------- the wall's own last screenshot ---------- */
+  function refreshInkshot(){
+    // cache-bust: the mirror keeps one name; the browser must not keep one image
+    el('inkshot').src = API + '?shot=1&t=' + Date.now();
+  }
+
   /* ---------- boot ---------- */
   getState().then(function(st){
     populate(st);
     renderOnWall(st);
     reloadPreview();
+    refreshInkshot();
   });
 })();
 </script>
