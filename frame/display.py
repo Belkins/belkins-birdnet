@@ -55,6 +55,16 @@ DEFAULTS = {
     "shoot_title": None, "shoot_subtitle": None,
     "shoot_headline_px": 42, "shoot_eyebrow_px": 18, "shoot_lowercase": False,
     "shoot_mat": 0.04, "shoot_small_floor": 0.04, "shoot_count_exp": 0.65,
+    # Collage geometry, config-reachable since the 13.3" wall read as "small":
+    # the band's share of the page and the packer's spread/padding.
+    "shoot_collage_vh": 52, "shoot_cluster_xbias": 1.0, "shoot_cluster_ybias": 1.2,
+    "shoot_cluster_pad": 1,
+    # The one knob that actually grows the PICTURE: render the page at
+    # viewport/zoom with device-scale 2*zoom, so title and birds all land
+    # proportionally larger on the same panel pixels. 1.25 keeps the maths
+    # integer (480x640 @ 2.5 = exactly 1200x1600). The packer sizes its
+    # cluster from the viewport, which is why collage_vh alone cannot do this.
+    "shoot_zoom": 1.0,
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
@@ -343,10 +353,14 @@ def obtain_image(cfg):
         out = os.path.join(os.path.expanduser(cfg["cache"]), "shot.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
         shoot_url = cfg["base_url"].rstrip("/") + "/" + cfg.get("shoot_path", "/index.html").lstrip("/")
+        zoom = float(cfg["shoot_zoom"]) or 1.0
         shoot(shoot_url, out, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
+              vw=round(600 / zoom), vh=round(800 / zoom), dsf=2 * zoom,
               headline_px=cfg["shoot_headline_px"], eyebrow_px=cfg["shoot_eyebrow_px"],
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
+              collage_vh=cfg["shoot_collage_vh"], cluster_xbias=cfg["shoot_cluster_xbias"],
+              cluster_ybias=cfg["shoot_cluster_ybias"], cluster_pad=cfg["shoot_cluster_pad"],
               user=cfg["basic_user"], password=cfg["basic_pass"],
               # Re-window the page's own API call to the config/view window, so
               # the collage shows the same hours the signature poll watches —
