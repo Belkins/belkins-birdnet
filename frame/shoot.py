@@ -46,7 +46,14 @@ SPA_URL = "http://127.0.0.1/collage/?surface=eink&tab=library"
 # stay. Injected before first paint.
 HIDE_CSS = """
   .top, .slider, .return-to-atlas, #menu-dd, #detail-modal, #about-modal,
-  .admin-screen, #collageTip, .modal-backdrop, #v1, #v2 { display: none !important; }
+  .admin-screen, #collageTip, .modal-backdrop { display: none !important; }
+  /* Every carousel panel except the collage — BY EXCLUSION, never a list. The
+     enumerated form (#v1, #v2) went stale the day apt.js grew #v3 (Index): the
+     visible extra panel kept the site's shrink-proof flex-basis 100%, and in a
+     552px row it crushed our shrinkable #v0 to width 0 — renderCollage() then
+     retried !W forever and no shot with birds could ever complete. A future #v4
+     must fall into this selector, not re-run that hunt. */
+  .views > .view:not(#v0) { display: none !important; }
   .views { transform: none !important; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   html, body { background: var(--paper, #efece0) !important; }
@@ -58,7 +65,15 @@ def _frame_css(headline_px, eyebrow_px, lowercase, pad_top, pad_side, pad_bottom
         f".stage {{ padding: {pad_top}px {pad_side}px {pad_bottom}px !important;"
         f" box-sizing: border-box !important; justify-content: center !important; }}"
         f".views {{ flex: 0 0 auto !important; height: {collage_vh}vh !important; }}"
-        f".view#v0 {{ height: 100% !important; flex: 1 1 100% !important; padding: 6px 0 !important; }}"
+        # width is PINNED, not inherited: #v0's flex-basis rides the carousel's
+        # main axis and its cross-axis width collapses to content — which is 0,
+        # because every .gtile is absolutely positioned. apt.js renderCollage()
+        # then retries `if (!W || !H)` at 80ms forever: no tiles, no .empty, a
+        # 45s selector timeout. Only a window WITH birds reaches that branch,
+        # so the empty-card shot that validated this pipeline never saw it.
+        f".view#v0 {{ height: 100% !important; width: 100% !important;"
+        f" flex: 1 1 100% !important; padding: 6px 0 !important; }}"
+        f".gcollage {{ width: 100% !important; }}"
         f".gcollage {{ max-width: none !important; }}"
         f".static-head {{ padding: 0 8px 14px !important; }}"
         f".static-head .pre {{ font-size: {eyebrow_px}px !important; }}"
