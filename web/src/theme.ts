@@ -10,8 +10,18 @@ export type Theme = 'night' | 'day';
 
 const KEY = 'belkins-birdnet-theme';
 
-/** The persisted theme, defaulting to night (Obsidian). */
+/** The persisted theme, defaulting to night (Obsidian). A `?theme=day|night`
+ *  query knob overrides storage without replacing it — the e-ink print path
+ *  boots a fresh profile with no localStorage, and the wall must not inherit
+ *  the museum's evening dress (the print path only sets query knobs). Kept in
+ *  lockstep with the FOUC pre-paint script in index.html. */
 export function storedTheme(): Theme {
+  try {
+    const q = new URLSearchParams(location.search).get('theme');
+    if (q === 'night' || q === 'day') return q;
+  } catch {
+    /* no location / malformed query; fall through to storage */
+  }
   try {
     const v = localStorage.getItem(KEY);
     if (v === 'night' || v === 'day') return v;

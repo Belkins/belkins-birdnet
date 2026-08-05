@@ -832,6 +832,7 @@ export default function App() {
       {framed && (
         <FrameOverlay
           onExit={exitFrame}
+          exitable={PROFILE.surface !== 'eink'}
           tombstone={
             frameLibrary
               ? undefined
