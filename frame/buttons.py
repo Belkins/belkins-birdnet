@@ -39,7 +39,11 @@ VIEW_BY_PIN = {PIN_A: "realtime", PIN_B: "today", PIN_C: "week", PIN_D: "all"}
 LABEL = {PIN_A: "A", PIN_B: "B", PIN_C: "C", PIN_D: "D"}
 
 DEBOUNCE_S = 0.35     # tactile switch chatter, not human intent
-RECONCILE_S = 30      # idle sweep: deliver tokens absorbed during a paint
+# The idle tick is also the Wall Panel's pickup latency: an Apply sits in the
+# spool until the next tick. 3s makes Apply feel immediate while every tick
+# stays trivially cheap — a stat on tmpfs, two small JSON reads, one tmpfs
+# write. (Was 30 when the tick only re-delivered absorbed button presses.)
+RECONCILE_S = 3
 MAX_RETRIGGERS = 2    # per token; after that the 15-min timer owns it
 
 
