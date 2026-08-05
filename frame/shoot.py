@@ -256,7 +256,7 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
     return out
 
 
-def shoot_spa(url, out, *, timeout_ms=45000, vw=600, vh=800, dsf=2):
+def shoot_spa(url, out, *, timeout_ms=45000, vw=600, vh=800, dsf=2, settle_ms=250):
     """Screenshot the React museum (/collage/) instead of the legacy apt.js page.
 
     UNTESTED against a live SPA. Nothing below has ever run against a real
@@ -291,7 +291,12 @@ def shoot_spa(url, out, *, timeout_ms=45000, vw=600, vh=800, dsf=2):
             if resp is None or not resp.ok:
                 raise RuntimeError(f"site returned {resp.status if resp else 'no response'}")
             page.wait_for_selector("html[data-frame-ready]", state="attached", timeout=timeout_ms)
-            page.wait_for_timeout(250)
+            # settle_ms: 250 suffices on ?surface=eink (no transient chrome).
+            # On ?surface=kiosk the FrameOverlay exit pill is REAL chrome for a
+            # touchscreen and must not be gated off — it auto-hides after 3s of
+            # stillness, so a wall shooting the kiosk surface sets ~3500 and
+            # captures the wall as a visitor sees it once the room goes quiet.
+            page.wait_for_timeout(settle_ms)
             # clip is CSS px; device_scale_factor scales the PNG to vw*dsf by vh*dsf = 1200x1600
             page.screenshot(path=out, clip={"x": 0, "y": 0, "width": vw, "height": vh})
         finally:
