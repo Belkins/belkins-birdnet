@@ -63,7 +63,7 @@ from typing import Optional
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from pydantic import BaseModel
 
 # Ported generation pipeline (verbatim copies of the avian/scripts originals).
@@ -167,6 +167,20 @@ NO_POSITIVE_REF_SLUGS = set(
 # plates get the satellite-drop instead. Per-species opt-in, default empty.
 TUCK_SLUGS = set(
     s.strip() for s in os.environ.get("TUCK_SLUGS", "").split(",") if s.strip())
+# Species whose plumage sits INSIDE the default chromakey tolerance of the cream
+# ground, so the key eats a painted body region (the robin's cream belly:
+# max-channel distance 24-29 from the ground vs the default tol 42 — the whole
+# belly went alpha-0 while the paint survived in the RGB). The hollow-cutout
+# gate never fires for these: the rest of the bird keeps the bbox fill above the
+# floor, so the plate publishes with a void where the belly is. Keying THESE
+# species at a tighter per-species tol keeps the pale body attached on every
+# future publish — without this registry a /reclean rekey fix dies on the next
+# repaint, exactly like an unregistered tuck. Format: "slug:tol,slug:tol".
+KEY_TOL_SLUGS: dict = {}
+for _part in os.environ.get("KEY_TOL_SLUGS", "erithacus-rubecula:15").split(","):
+    _slug, _, _tol = _part.strip().partition(":")
+    if _slug and _tol.isdigit() and 5 <= int(_tol) <= 41:
+        KEY_TOL_SLUGS[_slug] = int(_tol)
 REFS_DIR = Path(os.environ.get("REFS_DIR", str(ASSETS_DIR / "_refs")))
 ANTI_DIR = Path(os.environ.get("ANTI_DIR", str(REFS_DIR)))
 _styles = os.environ.get("AV_STYLES_DIR", str(HERE / "styles"))
@@ -1118,6 +1132,91 @@ def clean_alpha(cut_path: str, tuck: bool = False) -> Optional[str]:
     return "cleaned edge (removed %.3f %s, halo=%dpx)" % (dropped, kind, r)
 
 
+# Interior-pocket heal: when a pale body region sits within the chromakey
+# tolerance of the ground, the key flood eats it through any thin cream path
+# and the plate ships with an alpha-0 void INSIDE the bird — invisible on the
+# light card (cream void over cream card), a jagged black hole on the dark
+# dossier. The paint is still present in the RGB channels (the key only zeroes
+# alpha), so restoring alpha over such a pocket reveals the ORIGINAL art —
+# deterministic, zero Gemini spend, never invents a pixel. A keyed body region
+# is enclosed by solid bird once the silhouette is morphologically closed;
+# genuine negative space (a between-the-legs gap) opens wide to the ground and
+# never seals, so the closing separates the two.
+CLEAN_HEAL_CLOSE_FRAC = float(os.environ.get("CLEAN_HEAL_CLOSE_FRAC", "0.014"))  # closing radius / long edge
+CLEAN_HEAL_MIN_FRAC = float(os.environ.get("CLEAN_HEAL_MIN_FRAC", "0.01"))       # min pocket area / body area
+
+
+def heal_pockets(cut_path: str) -> Optional[str]:
+    """Restore alpha over large transparent pockets trapped inside the bird's
+    CLOSED silhouette (keyed-away pale body regions whose paint survives in the
+    RGB). Opt-in per /reclean call, never a default publish step: a rare
+    legitimate enclosed background pocket is only filled when an operator has
+    eyeballed the plate. Returns a note, or None when no qualifying pocket."""
+    im = Image.open(cut_path).convert("RGBA")
+    w, h = im.size
+    A = im.getchannel("A")
+    S = A.point(lambda v: 255 if v >= 128 else 0)
+    body = S.histogram()[255]
+    if not body:
+        return None
+    r = max(4, int(CLEAN_HEAL_CLOSE_FRAC * max(w, h)))
+    k = 2 * r + 1
+    closed = S.filter(ImageFilter.MaxFilter(k)).filter(ImageFilter.MinFilter(k))
+    # Ground = the region outside the closed silhouette, found by flooding its
+    # complement from the frame border. Transparent pixels the flood cannot
+    # reach are interior pockets.
+    scratch = ImageChops.invert(closed)
+    for seed in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+                 (w // 2, 0), (w // 2, h - 1), (0, h // 2), (w - 1, h // 2)):
+        if scratch.getpixel(seed) == 255:
+            ImageDraw.floodfill(scratch, seed, 128)
+    outside = scratch.point(lambda v: 255 if v == 128 else 0)
+    pocket = ImageChops.multiply(ImageChops.invert(outside), ImageChops.invert(S))
+    # Keep only pockets big enough to be a keyed body region — toe-gap and
+    # feather-notch specks stay as the art's own negative space.
+    ppx = list(pocket.getdata())
+    n = w * h
+    min_sz = max(1, int(CLEAN_HEAL_MIN_FRAC * body))
+    seen = bytearray(n)
+    keep = bytearray(n)
+    healed_px = 0
+    pockets = 0
+    for start in range(n):
+        if ppx[start] and not seen[start]:
+            comp = []
+            dq = deque((start,))
+            seen[start] = 1
+            while dq:
+                i = dq.popleft()
+                comp.append(i)
+                x = i % w
+                if x > 0 and ppx[i - 1] and not seen[i - 1]:
+                    seen[i - 1] = 1
+                    dq.append(i - 1)
+                if x < w - 1 and ppx[i + 1] and not seen[i + 1]:
+                    seen[i + 1] = 1
+                    dq.append(i + 1)
+                if i >= w and ppx[i - w] and not seen[i - w]:
+                    seen[i - w] = 1
+                    dq.append(i - w)
+                if i < n - w and ppx[i + w] and not seen[i + w]:
+                    seen[i + w] = 1
+                    dq.append(i + w)
+            if len(comp) >= min_sz:
+                pockets += 1
+                healed_px += len(comp)
+                for i in comp:
+                    keep[i] = 1
+    if not pockets:
+        return None
+    keepim = Image.frombytes("L", (w, h), bytes(255 if b else 0 for b in keep))
+    healed = ImageChops.lighter(A, keepim.filter(ImageFilter.GaussianBlur(0.6)))
+    im.putalpha(healed)
+    im.save(cut_path)
+    return "healed %d interior pocket(s), %d px (%.1f%% of body)" % (
+        pockets, healed_px, 100.0 * healed_px / body)
+
+
 # Times the verify gate went BLIND this process (API error or unparseable
 # response -> fail open, by design). Exposed on /health so a Gemini-Vision
 # drift that silently disarms the never-worse gate is visible from one curl
@@ -1267,7 +1366,8 @@ def _gen_pose(slug: str, sci: str, com: str, pose: int,  # noqa: C901  (complexi
         tmp_cut = ASSETS_DIR / (".%s.cut.png" % tmp_tag)
         try:
             tmp_raw.write_bytes(png)
-            frac = chromakey(str(tmp_raw), str(tmp_cut))
+            frac = chromakey(str(tmp_raw), str(tmp_cut),
+                             tol=KEY_TOL_SLUGS.get(slug, 42))
             if not (QA_MIN <= frac <= QA_MAX):
                 raise QAReject("opaque_frac=%.4f out of [%.3f,%.3f]" % (frac, QA_MIN, QA_MAX))
             # deterministic dirty-output gate (leaked magenta / ragged alpha /
@@ -1805,9 +1905,14 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
     """Re-run the edge cleanup over ALREADY-PUBLISHED plates — no Gemini call,
     no ledger cost, the SAME art. Fixes frayed/ripped thin features and faint
     ghosts that predate the cleanup step, without a stochastic re-roll. Body:
-    {"slugs": [...], "poses": [1]|[2]|[1,2] (default [1,2])}. Bearer auth.
+    {"slugs": [...], "poses": [1]|[2]|[1,2] (default [1,2]),
+     "heal": true — restore large keyed-away pockets INSIDE the silhouette
+     (heal_pockets), "rekey_tol": 5..41 — re-run the chromakey from the plate's
+     own embedded RGB at a tighter tolerance (recovers a pale belly the default
+     tol keyed out, reconnecting anything it severed)}. Bearer auth.
     Atomic + never-worse: each plate is archived to _prev/ and only overwritten
-    when the cleaned version writes successfully."""
+    when the cleaned version writes successfully; a rekey whose opaque fraction
+    leaves the QA band is discarded, keeping the current plate."""
     if not WATCHER_WEBHOOK_SECRET:
         return JSONResponse({"error": "auth not configured"}, status_code=503)
     expected = "Bearer " + WATCHER_WEBHOOK_SECRET
@@ -1837,6 +1942,10 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
     # TUCK_SLUGS species get tuck on their PERCHED plate even without the flag,
     # so the registry-persisted fix survives casual recleans too.
     tuck = body.get("tuck") is True
+    heal = body.get("heal") is True
+    rekey_tol = body.get("rekey_tol")
+    if rekey_tol is not None and not (type(rekey_tol) is int and 5 <= rekey_tol <= 41):
+        return JSONResponse({"error": "invalid rekey_tol (int 5..41)"}, status_code=422)
 
     recleaned: list = []
     skipped: dict = {}
@@ -1852,12 +1961,32 @@ async def reclean(request: Request, authorization: Optional[str] = Header(None))
             tmp = ASSETS_DIR / (".%s.clean.png" % name)
             try:
                 shutil.copy2(str(out_path), str(tmp))
+                steps: list = []
+                if rekey_tol is not None:
+                    # Re-key from the plate's OWN embedded RGB (the key only
+                    # zeroes alpha; the full paint — ground included — survives
+                    # underneath), rebuilding alpha from scratch at the tighter
+                    # tolerance. Discarded unless the result stays in-band.
+                    frac = chromakey(str(tmp), str(tmp), tol=rekey_tol)
+                    if not (QA_MIN <= frac <= QA_MAX):
+                        skipped[key] = "rekey-out-of-band (opaque=%.3f)" % frac
+                        os.unlink(str(tmp))
+                        continue
+                    steps.append("rekeyed tol=%d opaque=%.3f" % (rekey_tol, frac))
+                if heal:
+                    heal_note = heal_pockets(str(tmp))
+                    if heal_note:
+                        steps.append(heal_note)
                 _reclean_tuck = tuck or (pose == 1 and slug in TUCK_SLUGS)
                 note = clean_alpha(str(tmp), tuck=_reclean_tuck)
-                if note is None:
+                if note is None and not steps:
                     skipped[key] = "nothing-to-clean"
                     os.unlink(str(tmp))
                     continue
+                if note and steps:
+                    note = " | ".join(steps + [note])
+                elif steps:
+                    note = " | ".join(steps)
                 if _clean_over_removed(note, _reclean_tuck):
                     # never-worse: a non-tuck reclean that would remove a
                     # mutilating fraction is NOT applied — keep the current plate

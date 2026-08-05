@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import pytest
+from PIL import Image, ImageDraw
 
 import app  # sys.path + env are prepared by conftest.py (loaded first)
 
@@ -748,3 +749,145 @@ def test_attest_unknown_slug_404s_with_cors(client):
     r = client.get("/attest/never-heard-species")
     assert r.status_code == 404
     assert r.headers.get("access-control-allow-origin") == "*"
+
+
+# --------------------------------------------------------------------------- #
+# Keyed-belly recovery: /reclean {heal, rekey_tol} + the KEY_TOL_SLUGS registry
+# (the robin's cream belly sat within the default key tolerance of the ground:
+# alpha-0 void inside the bird, paint intact in the RGB underneath)
+# --------------------------------------------------------------------------- #
+_GROUND = (240, 228, 205)   # the flat cream ground creamkey auto-detects
+_PALE = (230, 212, 177)     # a robin-belly cream: max-channel distance 28 from _GROUND
+
+
+def _disk_plate(size=400, hole=None, channel=None):
+    """Synthetic published plate: transparent cream ground + a solid dark disk
+    (the bird). ``hole`` punches an alpha-0 rectangle INSIDE the disk while
+    keeping pale paint underneath — the keyed-belly signature. ``channel``
+    additionally opens that hole to the frame edge (genuine negative space)."""
+    im = Image.new("RGBA", (size, size), _GROUND + (0,))
+    d = ImageDraw.Draw(im)
+    d.ellipse((100, 100, 300, 300), fill=(60, 40, 30, 255))
+    if hole:
+        d.rectangle(hole, fill=_PALE + (0,))
+    if channel:
+        d.rectangle(channel, fill=_PALE + (0,))
+    return im
+
+
+def _publish_plate(name, im):
+    p = app.ASSETS_DIR / name
+    im.save(str(p))
+    return p
+
+
+def test_reclean_heal_restores_enclosed_keyed_pocket(client, auth):
+    """A large alpha-0 pocket fully inside the closed silhouette is a keyed-away
+    body region: heal must restore its alpha, revealing the surviving paint."""
+    p = _publish_plate("turdus-merula.png", _disk_plate(hole=(170, 170, 230, 230)))
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "poses": [1],
+                                      "heal": True}, headers=auth)
+    assert r.status_code == 200
+    assert "turdus-merula#1" in r.json()["recleaned"]
+    assert "healed 1 interior pocket" in r.json()["notes"]["turdus-merula#1"]
+    out = Image.open(str(p)).convert("RGBA")
+    px = out.load()
+    assert px[200, 200][3] >= 200, "pocket center must be opaque again"
+    assert px[200, 200][:3] == _PALE, "heal must reveal the ORIGINAL paint, not invent pixels"
+    assert px[2, 2][3] == 0, "the open ground must stay transparent"
+
+
+def test_reclean_heal_leaves_border_open_gap_alone(client, auth):
+    """The same pocket with a WIDE channel to the frame edge is genuine negative
+    space (a between-the-legs gap): heal must refuse to fill it."""
+    p = _publish_plate("turdus-merula.png",
+                       _disk_plate(hole=(170, 170, 230, 230), channel=(170, 0, 230, 230)))
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "poses": [1],
+                                      "heal": True}, headers=auth)
+    assert r.status_code == 200
+    assert "healed" not in r.json().get("notes", {}).get("turdus-merula#1", "")
+    out = Image.open(str(p)).convert("RGBA")
+    assert out.load()[200, 200][3] == 0, "an open gap must stay transparent"
+
+
+def test_reclean_heal_noop_on_whole_plate(client, auth):
+    """A plate with no interior pocket takes no heal — the note must not claim
+    one (the edge cleanup itself may still run)."""
+    _publish_plate("turdus-merula.png", _disk_plate())
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "poses": [1],
+                                      "heal": True}, headers=auth)
+    assert r.status_code == 200
+    note = r.json().get("notes", {}).get("turdus-merula#1", "")
+    assert "healed" not in note
+
+
+def test_reclean_rekey_restores_pale_region_from_embedded_rgb(client, auth, monkeypatch):
+    """rekey_tol re-runs the REAL chromakey over the plate's own embedded RGB:
+    a pale region the fat default tolerance keyed away survives a tol the pale
+    paint sits outside of (robin belly: distance 28 > tol 15)."""
+    import creamkey
+    monkeypatch.setattr(app, "chromakey", creamkey.chromakey)
+    # published state: the belly patch is already eaten (alpha 0, paint kept)
+    _publish_plate("turdus-merula.png", _disk_plate(hole=(170, 170, 230, 230)))
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "poses": [1],
+                                      "rekey_tol": 15}, headers=auth)
+    assert r.status_code == 200
+    assert "rekeyed tol=15" in r.json()["notes"]["turdus-merula#1"]
+    out = Image.open(str(app.ASSETS_DIR / "turdus-merula.png")).convert("RGBA")
+    w, h = out.size
+    px = out.load()
+    assert px[w // 2, h // 2][3] >= 200, "the pale patch must survive the tighter key"
+    assert px[2, 2][3] == 0, "the ground must still key away"
+
+
+def test_reclean_rekey_tol_validated(client, auth):
+    _publish_plate("turdus-merula.png", _disk_plate())
+    for bad in ("15", 4, 42, True):
+        r = client.post("/reclean", json={"slugs": ["turdus-merula"],
+                                          "rekey_tol": bad}, headers=auth)
+        assert r.status_code == 422, "rekey_tol=%r must 422" % (bad,)
+
+
+def test_reclean_rekey_out_of_band_keeps_current_plate(client, auth, monkeypatch):
+    """A rekey whose opaque fraction leaves the QA band is discarded — the
+    published plate must remain byte-identical (never-worse)."""
+    p = _publish_plate("turdus-merula.png", _disk_plate())
+    before = p.read_bytes()
+
+    def bad_key(src, dst, tol=42):
+        Image.new("RGBA", (16, 16), (0, 0, 0, 0)).save(dst)
+        return 0.001
+
+    monkeypatch.setattr(app, "chromakey", bad_key)
+    r = client.post("/reclean", json={"slugs": ["turdus-merula"], "poses": [1],
+                                      "rekey_tol": 15}, headers=auth)
+    assert r.status_code == 200
+    assert r.json()["skipped"]["turdus-merula#1"].startswith("rekey-out-of-band")
+    assert p.read_bytes() == before, "an out-of-band rekey must not touch the plate"
+
+
+def test_gen_uses_key_tol_registry(monkeypatch):
+    """A KEY_TOL_SLUGS species must be keyed at its registered tolerance on
+    EVERY generated pose — without this the next repaint re-eats the belly the
+    reclean just restored (the unregistered-tuck lesson, again)."""
+    stub = app.chromakey  # conftest's fake, re-applied by the autouse fixture
+    tols = []
+
+    def spy(src, dst, tol=42):
+        tols.append(tol)
+        return stub(src, dst, tol)
+
+    monkeypatch.setattr(app, "chromakey", spy)
+    monkeypatch.setattr(app, "KEY_TOL_SLUGS", {"turdus-merula": 17})
+    _publish("turdus-merula", "Turdus merula", "Common Blackbird")
+    assert len(tols) >= 2, "both poses must key"
+    assert all(t == 17 for t in tols), "registered slug must key at its tol: %r" % tols
+    tols.clear()
+    _publish("parus-major", "Parus major", "Great Tit")
+    assert all(t == 42 for t in tols), "unregistered slug keeps the default tol"
+
+
+def test_key_tol_registry_default_carries_the_robin():
+    """The shipped default must key the robin at 15 — the measured tol that
+    keeps its cream belly (distance 24-29 from ground) out of the key."""
+    assert app.KEY_TOL_SLUGS.get("erithacus-rubecula") == 15

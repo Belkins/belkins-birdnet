@@ -20,7 +20,9 @@ export const FLY_PROB = 0.25;
 /** Measured flight-image aspect (width / height). The tile box uses this so the
  *  flight art fills its box without being squished or stretched. */
 export const FLIGHT_ASPECT: Record<string, number> = {
-  'erithacus-rubecula': 1.28,
+  // robin re-measured 2026-08-05 after the belly rekey (plate now 1042x625);
+  // the 1.28 here was probed 07-01 against a plate two generations gone.
+  'erithacus-rubecula': 1.67,
   'psittacula-krameri': 1.0,
   'cyanistes-caeruleus': 1.2,
   'carduelis-carduelis': 1.82,
