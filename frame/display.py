@@ -477,6 +477,14 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False, view_
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
         return
+    # The DELIVERED image — what actually went to the glass, in every mode
+    # (shoot, image, gallery). The panel's "on the inky" pane mirrors THIS,
+    # never shot.png: shot.png is an intermediate of the shoot path only, and
+    # mirroring an intermediate is how the A5-mat shrinkage hid for a day.
+    try:
+        img.save(os.path.join(os.path.expanduser(cfg["cache"]), "delivered.png"))
+    except Exception as e:
+        print(f"delivered-mirror save failed (paint unaffected): {e}", file=sys.stderr)
     save_state(cfg["state"], sig if sig is not None else state.get("signature"), now,
                view_token=view_token)
     print("panel updated")
