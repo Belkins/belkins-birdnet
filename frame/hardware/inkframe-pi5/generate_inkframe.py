@@ -12,7 +12,14 @@ Panel facts (measured off the official drawing):
 """
 
 from build123d import *
+import argparse
 import os
+
+ap = argparse.ArgumentParser(description="Inkframe generator: --variant pi5 (Mk I) | zero (Mk II slim)")
+ap.add_argument("--variant", choices=("pi5", "zero"), default="pi5")
+VARIANT = ap.parse_args().variant
+ZERO = VARIANT == "zero"
+SUFFIX = "_zero" if ZERO else ""
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 os.makedirs(OUT, exist_ok=True)
@@ -21,12 +28,14 @@ os.makedirs(OUT, exist_ok=True)
 PANEL_W, PANEL_H = 296.7, 210.0
 ACTIVE_W, ACTIVE_H = 270.4, 202.8
 PANEL_T = 4.5          # panel edge stack thickness — verify with calipers; foam absorbs +/-1.5
-PANEL_CLR = 0.35       # pocket clearance per side
+PANEL_CLR = 0.45 if ZERO else 0.35   # pocket clearance per side (zero adds shrinkage headroom)
 
 FACE_T = 3.2           # front face plate thickness
 REVEAL = 0.8           # opening margin outside active area, per side
 FACE_W_TB = 19.0       # face border width top/bottom
-INTERIOR = 34.0        # clear depth behind panel back (booster + Pi 5 + ports ~30)
+# pi5: booster + Pi 5 + ports ~30 real. zero: panel socket ~8.5 + Zero 2W PCB
+# + rear bumps ~11 real; power plug rides inside the socket gap, parallel to the board.
+INTERIOR = 15.0 if ZERO else 34.0
 COVER_T = 2.4          # back cover plate
 RABBET_D = 2.6         # back cover recess depth
 WALL_MIN = 2.5         # wall left beside rabbet
@@ -50,7 +59,7 @@ POST_D = 8.0
 FOAM_GAP = 1.5         # 3mm EVA foam compressed to ~1.5
 POST_TIP_Z = FACE_T + PANEL_T + FOAM_GAP          # post tip presses foam onto panel back
 
-Z_SPLIT = 22.0         # half-lap split plane for quadrant joints
+Z_SPLIT = 12.8 if ZERO else 22.0   # half-lap split plane ~DEPTH/2 so both lap layers carry meat
 LAP = 16.0             # lap tongue length
 LAP_CLR = 0.15
 
@@ -83,6 +92,12 @@ ring -= box(RAB_W, RAB_H, RABBET_D + 1, z=RAB_Z)             # back cover rabbet
 
 # button channel along left pocket wall
 ring -= box(BTN_CLR + 1, 2 * BTN_SPAN, DEPTH, x=-(POCK_W / 2 + (BTN_CLR + 1) / 2 - 0.5), z=FACE_T)
+
+# FFC relief along the full top pocket wall — the display flex wraps the panel's
+# top edge and stands proud of the board (unmodeled in Mk I; 0.35 was a bind risk).
+# The panel locates on the bottom wall; gravity seats it there in both hang modes.
+FFC_CLR = 1.6
+ring -= box(POCK_W, FFC_CLR + 1, DEPTH, y=POCK_H / 2 + (FFC_CLR + 1) / 2 - 0.5, z=FACE_T)
 
 # cable tunnel through bottom wall (rear 11mm, exits at back-bottom edge)
 cx = (CABLE_X[0] + CABLE_X[1]) / 2
@@ -207,8 +222,15 @@ back_left = back_full - right_zone - grow_tabs(tabs, LAP_CLR)
 
 # ----------------------------- mocks for assembly STEP ----------------------
 panel_mock = box(PANEL_W, PANEL_H, PANEL_T, z=FACE_T)
-# Pi board: holes at x {-17.25, 40.75}, y {-4.9, 44.1}; board 85x56, holes 3.5 in from corners
-pi_mock = box(85, 56, 28, x=-17.25 - 3.5 + 42.5, y=-4.9 - 3.5 + 28, z=FACE_T + PANEL_T + 2)
+if ZERO:
+    # Zero 2W direct on the panel socket: header edge up at the socket row (~y 50),
+    # board hangs to ~y 20, ports on the lower long edge. Approximate envelope.
+    sbc_mock = box(65, 30, 11, x=5, y=35, z=FACE_T + PANEL_T)
+    sbc_label = "zero2w_mock"
+else:
+    # Pi board: holes at x {-17.25, 40.75}, y {-4.9, 44.1}; board 85x56, holes 3.5 in from corners
+    sbc_mock = box(85, 56, 28, x=-17.25 - 3.5 + 42.5, y=-4.9 - 3.5 + 28, z=FACE_T + PANEL_T + 2)
+    sbc_label = "pi5_mock"
 
 # ----------------------------- checks + export ------------------------------
 def report(name, p):
@@ -224,16 +246,16 @@ for n, p in parts.items():
     report(n, p)
 
 for n, p in parts.items():
-    export_stl(p, os.path.join(OUT, f"inkframe_{n}.stl"))
-    export_step(p, os.path.join(OUT, f"inkframe_{n}.step"))
+    export_stl(p, os.path.join(OUT, f"inkframe{SUFFIX}_{n}.stl"))
+    export_step(p, os.path.join(OUT, f"inkframe{SUFFIX}_{n}.step"))
 
 asm = Compound(children=[
     Compound(children=[front_full], label="front_frame"),
     Compound(children=[back_full], label="back_cover"),
     Compound(children=[panel_mock], label="inky_panel_mock"),
-    Compound(children=[pi_mock], label="pi5_mock"),
+    Compound(children=[sbc_mock], label=sbc_label),
 ])
-export_step(asm, os.path.join(OUT, "inkframe_assembly.step"))
+export_step(asm, os.path.join(OUT, f"inkframe{SUFFIX}_assembly.step"))
 print("exported to", OUT)
 
 # section SVGs for visual verification (thin slab intersect -> planar faces)
@@ -244,7 +266,7 @@ def export_section(part, zval, name):
     exp = ExportSVG(margin=5)
     for f in faces:
         exp.add_shape(f)
-    exp.write(os.path.join(OUT, f"sec_{name}.svg"))
+    exp.write(os.path.join(OUT, f"sec{SUFFIX}_{name}.svg"))
 
 for zname, zval, part in (("face", 1.0, front_full), ("mid", 20.0, front_full),
                           ("rear", DEPTH - 1.5, front_full), ("cover", RAB_Z + 1.2, back_full),
@@ -261,7 +283,7 @@ for name, part in (("iso_front", front_full), ("iso_back", back_full)):
         exp = ExportSVG(margin=5)
         for e in vis:
             exp.add_shape(e)
-        exp.write(os.path.join(OUT, f"{name}.svg"))
+        exp.write(os.path.join(OUT, f"{name}{SUFFIX}.svg"))
     except Exception as e:
         print(f"{name} render failed: {e}")
 print("done")

@@ -1,15 +1,32 @@
-# Inkframe Mk I — printed wall frame for the 13.3" Spectra + Pi 5
+# Inkframe — printed wall frame for the 13.3" Spectra (Mk I: Pi 5 · Mk II: Zero 2 W)
 
 A two-part, fully 3D-printed museum frame for the Pimoroni Inky Impression 13.3"
-(Spectra 6) with a full-size Raspberry Pi 5 mounted on its stock booster header.
-Hangs flush on the wall, landscape or portrait. Every dimension comes from
-Pimoroni's official dimensional drawing (`pimoroni-official-drawing.png`) —
+(Spectra 6). Hangs flush on the wall, landscape or portrait. Every dimension comes
+from Pimoroni's official dimensional drawing (`pimoroni-official-drawing.png`) —
 board 296.7 × 210.0, active area 270.4 × 202.8, side buttons at ±25.35/±76.05 mm,
 Pi holes 58 × 49 at 107.6 from the right edge / 100.1 from the bottom.
 
-**Outer size: 312 × 242.4 × 44.6 mm.** The opening sits 0.8 mm outside the active
-area, so the panel's own black border vanishes behind the lip — the image reads
-edge-to-edge, like a matted print. Print it in matte black.
+Two variants from one generator (`--variant pi5` | `--variant zero`):
+
+| | Mk I (`inkframe_*`) | Mk II slim (`inkframe_zero_*`) |
+|---|---|---|
+| Computer | Pi 5 on the stock booster header | Pi Zero 2 W straight into the panel socket |
+| Outer size | 312 × 242.4 × **44.6** mm | 312 × 242.4 × **25.6** mm |
+| Interior depth | 34 mm | 15 mm |
+| Architecture | one-box: the frame Pi IS the station | two-box: station renders, the Zero fetches + paints |
+| Cables in tunnel | USB-C power + mic lead | micro-USB power only (mic stays with the station) |
+
+Mk II also adds two fixes Mk I's prints don't have: a 1.6 mm FFC relief along the
+top pocket wall (the display flex wraps the panel's top edge — unmodeled in Mk I)
+and pocket clearance widened 0.35 → 0.45 per side for print-shrinkage headroom.
+The panel locates on the bottom wall; gravity seats it there in both hang modes.
+Zero notes: flash the microSD before assembly (slot faces the left edge, reachable
+with the cover off); optionally add 2 × M2.5 8–9 mm standoffs on the socket-row
+holes; power is micro-USB, not USB-C.
+
+**The opening sits 0.8 mm outside the active area**, so the panel's own black
+border vanishes behind the lip — the image reads edge-to-edge, like a matted
+print. Print it in matte black.
 
 ## Files
 
@@ -77,7 +94,8 @@ Pimoroni's own booster header + standoffs; the frame never touches it.
 
 ```bash
 python3 -m venv cadenv && ./cadenv/bin/pip install build123d
-./cadenv/bin/python generate_inkframe.py     # writes to ./out
+./cadenv/bin/python generate_inkframe.py                 # Mk I (Pi 5)  → out/inkframe_*
+./cadenv/bin/python generate_inkframe.py --variant zero  # Mk II slim   → out/inkframe_zero_*
 ```
 
 Key parameters at the top of the script: `PANEL_T` (panel edge thickness),
