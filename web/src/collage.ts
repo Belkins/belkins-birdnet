@@ -39,18 +39,23 @@ const RETRY_WINDOW_MS = 90000; // only watch a live-new tile for ~90s after it l
 // this composes the scene top-to-bottom instead of floating it top-heavy.
 const HERO_Y_FRAC = 0.54;
 
-// Count-weighted tuning — ported verbatim from apt.js `tuning()`.
+// Count-weighted tuning — ported verbatim from apt.js `tuning()`. The wall's
+// Display Profile may override the three FRACTIONS (?budget= / ?mintile= /
+// ?herocap=): a print viewport IS the whole panel, and these count-stepped
+// values — sized so a busy plate never crowds a page that also carries
+// chrome — read as a stamp on 13.3" of ink. countExp and the ellipse stay
+// the composition's own; the knobs move shares of the page, never its shape.
 function tuning(n: number) {
   return {
-    packingBudgetFrac: n <= 4 ? 0.46 : n <= 12 ? 0.4 : n <= 24 ? 0.34 : 0.28,
+    packingBudgetFrac: PROFILE.budget ?? (n <= 4 ? 0.46 : n <= 12 ? 0.4 : n <= 24 ? 0.34 : 0.28),
     countExp: 0.65,
-    minTileAreaFrac: n <= 8 ? 0.01 : n <= 20 ? 0.0075 : 0.0055,
+    minTileAreaFrac: PROFILE.minTile ?? (n <= 8 ? 0.01 : n <= 20 ? 0.0075 : 0.0055),
     // Hero cap: no single bird exceeds this fraction of the viewport. Raised from
     // the old 0.17/0.13/0.10 so the most-heard species reads as UNMISTAKABLY the
     // largest plate at optical centre — the old cap flattened the top of the
     // gradient and let the #1 and #2 birds tie in size. Still bounded so a lone
     // N=1 window can't balloon into a canvas-filling plate.
-    maxTileAreaFrac: n <= 2 ? 0.22 : n <= 6 ? 0.17 : n <= 12 ? 0.13 : 0.11,
+    maxTileAreaFrac: PROFILE.heroCap ?? (n <= 2 ? 0.22 : n <= 6 ? 0.17 : n <= 12 ? 0.13 : 0.11),
     // Ellipse bias for the spiral nest. Dropped from 2.1 (a wide, shelf-like
     // horizontal band that spread birds into an even top row) to 1.35 and now
     // 1.18 so the cluster grows as a rounded ROSETTE that fills the composition

@@ -97,14 +97,16 @@ sudo reboot                     # when YOU are ready — this brings SPI up
 
 ## The buttons
 
-The Impression's four side switches are views (`birdframe-buttons.service`):
+The Impression's four side switches are windows (`birdframe-buttons.service`):
 
 | Button | View | |
 |--------|------|---|
-| **A** (top) | **Today** | the config default, back from any whim |
-| **B** | **This Week** | 7 days |
-| **C** | **All Time** | the whole collection |
-| **D** | **repaint now** | whatever view is active, painted fresh |
+| **A** (top) | **Real time** | the last hour — what is singing now |
+| **B** | **Today** | 24 hours |
+| **C** | **This Week** | 7 days |
+| **D** | **All Time** | the whole collection |
+
+"Repaint now" is any button's second press — a fresh token always paints.
 
 A press is a ceremony, not a click — a Spectra 6 refresh is ~30 seconds of
 colour theatre. Presses that land mid-paint are absorbed and delivered when

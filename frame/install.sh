@@ -240,7 +240,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
 sudo systemctl enable --now frame-watch.timer
 sudo systemctl enable --now birdframe-buttons.service
-echo "     Buttons live: A Today, B This Week, C All Time, D repaint now."
+echo "     Buttons live: A Real time (1h), B Today, C This Week, D All Time."
 echo "     Frame watchdog installed (frame-watch.timer, hourly). For a phone push when"
 echo "     the wall freezes, uncomment NOTIFY_URL in $WATCH_ENV"
 echo "     (ntfy app, subscribe the topic, no account)."

@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""The four Inky buttons -> the wall changes view.
+"""The four Inky buttons -> the wall changes its window.
 
-    A (top)  Today          the config default, back from any whim
-    B        This Week      7 days
-    C        All Time       the whole collection
-    D        repaint now    whatever view is active, painted fresh
+    A (top)  Real time      the last hour, what is singing NOW
+    B        Today          24 hours
+    C        This Week      7 days
+    D        All Time       the whole collection
 
-Each press writes ~/.birdframe/view.json and starts birdframe.service; the
-fresh token makes display.py paint immediately (the --force bypasses). A
-pressed view expires after view_ttl_hours (default 4) back to Today. A
-Spectra 6 refresh is ~30s of colour theatre — a press is a ceremony, not a
-click; presses during a paint are absorbed and reconciled after it.
+Pressing the button of the view already showing repaints it fresh — every
+press writes a new token, and an unseen token always paints. Each press
+writes ~/.birdframe/view.json and starts birdframe.service; the fresh token
+makes display.py paint immediately (the --force bypasses). A pressed view
+expires after view_ttl_hours (default 4) back to the config's resting view.
+A Spectra 6 refresh is ~30s of colour theatre — a press is a ceremony, not
+a click; presses during a paint are absorbed and reconciled after it.
 
 gpiod/gpiodevice are imported inside main() so this module imports cleanly
 on CI and on boxes with no GPIO; the pin map and choose_view() are pure and
@@ -29,9 +31,10 @@ import views  # noqa: E402
 
 # 13.3" Impression, top to bottom. C is GPIO25 ON THE 13.3" — it is 16 on the
 # smaller Impressions, and Pimoroni's own examples/spectra6/buttons.py carries
-# the warning. D deliberately maps to None: "repaint what is showing".
+# the warning. Every button names a view — "repaint now" is any button's
+# second press (a fresh token always paints).
 PIN_A, PIN_B, PIN_C, PIN_D = 5, 6, 25, 24
-VIEW_BY_PIN = {PIN_A: "today", PIN_B: "week", PIN_C: "all", PIN_D: None}
+VIEW_BY_PIN = {PIN_A: "realtime", PIN_B: "today", PIN_C: "week", PIN_D: "all"}
 LABEL = {PIN_A: "A", PIN_B: "B", PIN_C: "C", PIN_D: "D"}
 
 DEBOUNCE_S = 0.35     # tactile switch chatter, not human intent
@@ -40,9 +43,9 @@ MAX_RETRIGGERS = 2    # per token; after that the 15-min timer owns it
 
 
 def choose_view(pin, current):
-    """The view a press lands on: A/B/C name one; D repaints whatever is
-    active — or Today when nothing is, so D on a quiet wall is a plain
-    'refresh now' and never an error."""
+    """The view a press lands on. Every mapped pin names its view outright;
+    an unmapped pin (a future board revision, a stray offset) falls back to
+    whatever is showing — or Today — rather than crashing the daemon."""
     name = VIEW_BY_PIN.get(pin)
     if name is None:
         return current or "today"

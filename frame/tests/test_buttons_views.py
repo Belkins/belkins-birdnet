@@ -98,13 +98,21 @@ def test_resolve_all_uses_the_spa_sentinel(tmp_path):
     assert out["hours"] == 1_000_000 and token is not None
 
 
-def test_resolve_today_is_identity_but_tokened(tmp_path):
-    """Pressing A must force a paint (token) while changing nothing (overlay)."""
-    cfg = _cfg(tmp_path)
+def test_resolve_today_pins_24h_and_tokens(tmp_path):
+    """Pressing B must force a paint (token) and pin the 24h window even when
+    the config's resting hours differ — a button always means its window."""
+    cfg = _cfg(tmp_path, hours=48)
     views.write_view(cfg["view_file"], "today", 4, now=NOW)
     out, token = views.resolve(cfg, now=NOW + 1)
     assert token is not None
-    assert out["hours"] == cfg["hours"] and out["shoot_subtitle"] == cfg["shoot_subtitle"]
+    assert out["hours"] == 24
+
+
+def test_realtime_is_one_hour(tmp_path):
+    cfg = _cfg(tmp_path)
+    views.write_view(cfg["view_file"], "realtime", 4, now=NOW)
+    out, token = views.resolve(cfg, now=NOW + 1)
+    assert out["hours"] == 1 and token is not None
 
 
 def test_resolve_unknown_view_is_ignored(tmp_path):
@@ -151,15 +159,26 @@ def test_write_read_roundtrip(tmp_path):
 
 # --- 4. choose_view ------------------------------------------------------------
 
-def test_named_buttons_name_their_views():
-    assert buttons.choose_view(buttons.PIN_A, current="week") == "today"
-    assert buttons.choose_view(buttons.PIN_B, current=None) == "week"
-    assert buttons.choose_view(buttons.PIN_C, current="today") == "all"
+def test_every_button_names_its_view():
+    """Vlad's mapping (2026-08-05): A real time, B today, C week, D all time.
+    `current` must never influence a mapped pin — a button is a promise."""
+    assert buttons.choose_view(buttons.PIN_A, current="week") == "realtime"
+    assert buttons.choose_view(buttons.PIN_B, current=None) == "today"
+    assert buttons.choose_view(buttons.PIN_C, current="all") == "week"
+    assert buttons.choose_view(buttons.PIN_D, current="realtime") == "all"
 
 
-def test_d_repaints_current_or_today():
-    assert buttons.choose_view(buttons.PIN_D, current="all") == "all"
-    assert buttons.choose_view(buttons.PIN_D, current=None) == "today"
+def test_unknown_pin_falls_back_not_crashes():
+    assert buttons.choose_view(99, current="week") == "week"
+    assert buttons.choose_view(99, current=None) == "today"
+
+
+def test_view_registry_matches_the_buttons():
+    """Every button's view exists in the registry with the window it promises:
+    1h / 24h / 168h / the SPA's ALL sentinel. A button naming a missing view
+    would be silently ignored by resolve() — a dead switch with a green LED."""
+    hours = {n: views.VIEWS[n]["hours"] for n in buttons.VIEW_BY_PIN.values()}
+    assert hours == {"realtime": 1, "today": 24, "week": 168, "all": 1_000_000}
 
 
 def test_the_133_c_pin_is_25():
