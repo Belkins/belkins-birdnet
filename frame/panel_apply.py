@@ -244,6 +244,8 @@ def publish_state(cfg_path, state_json_path, view_name, state_path=STATE_PATH):
         "view": view_name,
         "last_refresh": last_refresh,
         "published_at": time.time(),
+        # The Easter egg's shelf: ids only; thumbs stream via ?thumb=<id>.
+        "gallery": list_gallery(),
     }
     tmp = state_path + ".tmp"
     with open(tmp, "w") as f:
@@ -331,3 +333,171 @@ def consume(cfg_path, frame_state_path, view_file, ttl_hours,
         # spool file anyway, so nothing is lost by discarding this one.
         _drop(req_path)
         return "error: %s" % e
+
+
+# --- the gallery Easter egg ---------------------------------------------------
+# A guest exhibit in the museum's frame: the panel uploads a photo, the daemon
+# re-encodes it into ~/.birdframe/gallery/, and "showing" one is nothing more
+# than the existing view system pointing the frame's IMAGE MODE at a symlink —
+# display.py needs zero new code, and the 4h view TTL means a party photo
+# quietly becomes birds again by morning. Same two-spool discipline as the
+# knobs: PHP writes intent into /run/birdframe, this (the daemon, the config's
+# only writer) validates and acts.
+
+GALLERY_DIR = "~/.birdframe/gallery"
+GALLERY_CURRENT = "~/.birdframe/gallery/current.png"
+THUMBS_DIR = "/run/birdframe/thumbs"
+GALLERY_UPLOAD = "/run/birdframe/gallery-upload.img"
+GALLERY_REQ = "/run/birdframe/gallery-request.json"
+
+# ids are daemon-assigned basenames; the charset pin is the traversal guard —
+# an id like "../.ssh/x" or ".hidden" must die at validation, never at open().
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+GALLERY_VIEW_SECTION = (
+    "\n# The gallery Easter egg's view: image mode, painted full-glass. Written\n"
+    "# by panel_apply.ensure_gallery_view; the symlink names the chosen photo.\n"
+    "[views.gallery]\n"
+    "shoot = false\n"
+    'image = "~/.birdframe/gallery/current.png"\n'
+)
+
+
+def ensure_gallery_view(cfg_text):
+    """Idempotently append the [views.gallery] table. Appending at EOF is the
+    ONE safe place for a table in text surgery — anywhere earlier and every
+    key after the header would join the table (the trap that bit shoot_spa)."""
+    if re.search(r"^\[views\.gallery\]", cfg_text, re.M):
+        return cfg_text
+    return cfg_text.rstrip("\n") + "\n" + GALLERY_VIEW_SECTION
+
+
+def validate_gallery_request(req):
+    """(action, id) or (None, reason). Strict: two actions, pinned charset."""
+    if not isinstance(req, dict):
+        return None, "not an object"
+    unknown = set(req) - {"action", "id", "token"}
+    if unknown:
+        return None, "unknown keys: %s" % ",".join(sorted(unknown))
+    action = req.get("action")
+    if action not in ("show", "remove"):
+        return None, "unknown action"
+    gid = req.get("id")
+    if not isinstance(gid, str) or not _ID_RE.match(gid) or gid == "current.png":
+        return None, "bad id"
+    if not isinstance(req.get("token"), str) or not req["token"]:
+        return None, "token required"
+    return {"action": action, "id": gid, "token": req["token"]}, ""
+
+
+def list_gallery(gallery_dir=GALLERY_DIR):
+    """Photo ids newest-first, excluding the current-symlink itself."""
+    d = os.path.expanduser(gallery_dir)
+    try:
+        names = [n for n in os.listdir(d)
+                 if n != "current.png" and _ID_RE.match(n)]
+    except OSError:
+        return []
+    names.sort(key=lambda n: os.path.getmtime(os.path.join(d, n)), reverse=True)
+    return names
+
+
+def _thumb(src, gid, thumbs_dir=THUMBS_DIR):
+    """A ~240px thumb into tmpfs for the panel to stream. PIL is imported
+    lazily: it exists in the frame venv (display.py needs it) but not on CI,
+    and a failed thumb must never fail the upload."""
+    try:
+        from PIL import Image
+        os.makedirs(thumbs_dir, exist_ok=True)
+        im = Image.open(src)
+        im.thumbnail((240, 320))
+        tmp = os.path.join(thumbs_dir, gid + ".tmp")
+        im.convert("RGB").save(tmp, "PNG")
+        os.replace(tmp, os.path.join(thumbs_dir, gid))
+        return True
+    except Exception:
+        return False
+
+
+def consume_gallery(cfg_path, view_file, ttl_hours,
+                    upload_path=GALLERY_UPLOAD, req_path=GALLERY_REQ,
+                    gallery_dir=GALLERY_DIR, thumbs_dir=THUMBS_DIR):
+    """One tick of the gallery pipeline; returns an outcome string or None.
+    Never raises — same survival contract as consume()."""
+    import views  # sibling module; deferred so tests can import panel_apply alone
+    try:
+        # 1. An uploaded image waiting in the spool: verify it IS an image by
+        # re-encoding through PIL (which also strips EXIF), then admit it.
+        if os.path.exists(upload_path):
+            gid = "g%d.png" % int(time.time())
+            d = os.path.expanduser(gallery_dir)
+            os.makedirs(d, exist_ok=True)
+            dest = os.path.join(d, gid)
+            try:
+                from PIL import Image
+                im = Image.open(upload_path)
+                im = im.convert("RGB")
+                tmp = dest + ".tmp"
+                im.save(tmp, "PNG")
+                os.replace(tmp, dest)
+                _thumb(dest, gid, thumbs_dir)
+                _drop(upload_path)
+                return "gallery: admitted %s" % gid
+            except Exception as e:
+                _drop(upload_path)
+                return "gallery: rejected upload (%s)" % e
+        # 2. A show/remove request.
+        if not os.path.exists(req_path):
+            return None
+        try:
+            with open(req_path) as f:
+                raw = json.load(f)
+        except Exception:
+            _drop(req_path)
+            return "gallery: corrupt request dropped"
+        req, reason = validate_gallery_request(raw)
+        _drop(req_path)
+        if req is None:
+            return "gallery: invalid (%s)" % reason
+        d = os.path.expanduser(gallery_dir)
+        target = os.path.join(d, req["id"])
+        cur = os.path.expanduser(GALLERY_CURRENT)
+        if req["action"] == "remove":
+            try:
+                os.unlink(target)
+            except OSError:
+                pass
+            try:
+                os.unlink(os.path.join(thumbs_dir, req["id"]))
+            except OSError:
+                pass
+            # If the wall was showing this photo, drop the symlink too — the
+            # next paint of the gallery view fails soft (keeps last panel) and
+            # the TTL brings the birds back.
+            if os.path.islink(cur) and os.readlink(cur) == target:
+                os.unlink(cur)
+            return "gallery: removed %s" % req["id"]
+        # show
+        if not os.path.exists(target):
+            return "gallery: no such photo %s" % req["id"]
+        p = os.path.expanduser(cfg_path)
+        with open(p) as f:
+            cfg_text = f.read()
+        new_text = ensure_gallery_view(cfg_text)
+        if new_text != cfg_text:
+            tmp = p + ".tmp"
+            with open(tmp, "w") as f:
+                f.write(new_text)
+            os.replace(tmp, p)
+        tmp_link = cur + ".tmp"
+        try:
+            os.unlink(tmp_link)
+        except OSError:
+            pass
+        os.symlink(target, tmp_link)
+        os.replace(tmp_link, cur)
+        views.write_view(view_file, "gallery", ttl_hours)
+        return "gallery: showing %s (token written)" % req["id"]
+    except Exception as e:
+        _drop(req_path)
+        return "gallery: error %s" % e

@@ -168,6 +168,15 @@ def main():
                 if outcome.startswith("applied"):
                     mode = trigger_paint(frame_dir)
                     print(f"panel paint via {mode}")
+            # The gallery Easter egg's tick: admit uploads, honour show/remove.
+            # "showing" armed a view token, so it paints like any button press.
+            g = panel_apply.consume_gallery(
+                "~/.birdframe/config.toml", cfg["view_file"], cfg["ttl"])
+            if g:
+                print(g)
+                if g.startswith("gallery: showing"):
+                    mode = trigger_paint(frame_dir)
+                    print(f"gallery paint via {mode}")
             # Republish panel state every quiet tick: the panel's "✓ on the
             # wall" polls state.last_refresh, which display.py only writes
             # when the ~40s paint COMPLETES — a publish made inside consume()
