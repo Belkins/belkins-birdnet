@@ -29,6 +29,13 @@ shoot_subtitle = "Heard Today"
 # shoot_mat = 0.04
 # shoot_small_floor = 0.04
 # shoot_count_exp = 0.65   # tile size vs call count; higher = the loudest birds dominate more
+# shoot_zoom = 1.0         # THE size knob: renders at viewport/zoom, dsf*zoom — grows title
+#                          # and birds together (1.4 live on the 13.3"). The packer sizes its
+#                          # cluster from the viewport, so collage_vh alone cannot do this.
+# shoot_collage_vh = 52    # the collage band's share of the page height
+# shoot_cluster_xbias = 1.0  # ellipse spread; >1 = wider cluster
+# shoot_cluster_ybias = 1.2
+# shoot_cluster_pad = 1
 
 # --- Panel ------------------------------------------------------------------
 rotate = 90            # 90 or 270 if the frame hangs the other way up
