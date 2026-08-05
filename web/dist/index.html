@@ -7,8 +7,12 @@
     <meta name="theme-color" content="#0a090d" />
     <script>
       // Set the theme before first paint so a persisted Day theme doesn't flash dark.
+      // ?theme=day|night overrides storage (kept in lockstep with theme.ts
+      // storedTheme): the e-ink print path boots a fresh profile with no
+      // storage and must not inherit the museum's evening dress.
       try {
-        var _t = localStorage.getItem('belkins-birdnet-theme');
+        var _q = new URLSearchParams(location.search).get('theme');
+        var _t = (_q === 'day' || _q === 'night') ? _q : localStorage.getItem('belkins-birdnet-theme');
         document.documentElement.setAttribute('data-theme', _t === 'day' ? 'day' : 'night');
         if (_t === 'day') document.querySelector('meta[name="theme-color"]').content = '#fcfaf4';
       } catch (e) {}
@@ -20,7 +24,7 @@
       rel="stylesheet"
     />
     <title>Belkins BirdNET — Living Gallery</title>
-    <script type="module" crossorigin src="/collage/assets/index-DBh9OrAM.js"></script>
+    <script type="module" crossorigin src="/collage/assets/index-hHZF9tYh.js"></script>
     <link rel="modulepreload" crossorigin href="/collage/assets/catalog-HJp03uRQ.js">
     <link rel="modulepreload" crossorigin href="/collage/assets/img-BN1HYoqZ.js">
     <link rel="modulepreload" crossorigin href="/collage/assets/export-card-D5f9Nm09.js">

@@ -13,9 +13,14 @@ const HIDE_AFTER_MS = 3000;
 export function FrameOverlay({
   onExit,
   tombstone,
+  exitable = true,
 }: {
   onExit: () => void;
   tombstone?: { title: string; sub: string };
+  /** false on surfaces that cannot be clicked (the e-ink print): the pill is
+   *  an affordance for a pointer, and a printed button is a lie on paper. The
+   *  tombstone stays — a wall label is exactly what a print wants. */
+  exitable?: boolean;
 }) {
   // The exit pill is visible on entry, then auto-hides; pointer/keyboard wake it.
   const [visible, setVisible] = useState(true);
@@ -39,17 +44,19 @@ export function FrameOverlay({
 
   return (
     <div className="frame-ov">
-      <button
-        type="button"
-        className={visible ? 'exit-frame show' : 'exit-frame'}
-        onClick={onExit}
-        aria-label="Exit frame"
-      >
-        Exit frame
-        <span className="exit-frame-x" aria-hidden="true">
-          ✕
-        </span>
-      </button>
+      {exitable && (
+        <button
+          type="button"
+          className={visible ? 'exit-frame show' : 'exit-frame'}
+          onClick={onExit}
+          aria-label="Exit frame"
+        >
+          Exit frame
+          <span className="exit-frame-x" aria-hidden="true">
+            ✕
+          </span>
+        </button>
+      )}
       {tombstone && (
         <div className="wall-tomb">
           <div className="wall-tomb-eyebrow">your window</div>

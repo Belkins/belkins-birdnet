@@ -48,6 +48,15 @@ DEFAULTS = {
     # against the SPA it would just time out. base_url itself must stay the bare
     # host because fetch_recent() appends /avian/api/... to it.
     "shoot_path": "/index.html",
+    # The React museum instead of the legacy page: shoot_spa=true drives
+    # shoot_spa() at shoot_spa_path (+&win=<hours>). The SPA styles itself from
+    # ?surface=eink (spectra6, portrait, chrome dissolved) and publishes its own
+    # readiness, so none of the legacy tunables (budget/cluster/title) apply —
+    # the composition is the SPA's own. Titles come from the SPA too.
+    "shoot_spa": False,
+    # theme=day: a fresh headless profile has no localStorage and the SPA's
+    # stored default is night (Obsidian) — the wall wants the day print.
+    "shoot_spa_path": "/collage/?surface=eink&theme=day",
     "hours": 24,
     "image": "",            # local PNG written by the shooter
     "image_url": "",        # or a published screenshot URL
@@ -356,9 +365,18 @@ def in_quiet_hours(cfg, hour):
 # --- run --------------------------------------------------------------------
 def obtain_image(cfg):
     if cfg["shoot"]:
-        from shoot import shoot
         out = os.path.join(os.path.expanduser(cfg["cache"]), "shot.png")
         os.makedirs(os.path.dirname(out), exist_ok=True)
+        if cfg["shoot_spa"]:
+            from shoot import shoot_spa
+            spa = cfg["shoot_spa_path"].lstrip("/")
+            sep = "&" if "?" in spa else "?"
+            url = f"{cfg['base_url'].rstrip('/')}/{spa}{sep}win={int(cfg['hours'])}"
+            zoom = float(cfg["shoot_zoom"]) or 1.0
+            shoot_spa(url, out, timeout_ms=cfg["timeout"] * 1000,
+                      vw=round(600 / zoom), vh=round(800 / zoom), dsf=2 * zoom)
+            return Image.open(out).convert("RGB")
+        from shoot import shoot
         shoot_url = cfg["base_url"].rstrip("/") + "/" + cfg.get("shoot_path", "/index.html").lstrip("/")
         zoom = float(cfg["shoot_zoom"]) or 1.0
         shoot(shoot_url, out, title=cfg["shoot_title"], subtitle=cfg["shoot_subtitle"],
