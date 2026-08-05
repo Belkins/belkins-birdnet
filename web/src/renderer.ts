@@ -252,9 +252,17 @@ export class CollageRenderer {
       ctx.restore();
     }
 
-    for (const t of this.tiles) {
-      if (t.ambient || t.x <= -99998) continue; // ambient handled above / parked off-screen
-
+    // Depth law: the louder the bird, the closer it stands. Real birds paint
+    // smallest-first so, wherever the overlap knob lets silhouettes touch, a
+    // bigger bird always fronts a smaller one — the hero (largest by the
+    // count->size engine) can never end up under a commoner's feet, which is
+    // exactly how a crow once stood on the robin's head. Sorted per frame on
+    // a copy: tile sizes settle early but live additions append mid-session,
+    // and ~50 items cost nothing. hitTest() mirrors this order.
+    const realByDepth = this.tiles
+      .filter((t) => !t.ambient && t.x > -99998)
+      .sort((a, b) => Math.max(a.fullW, a.fullH) - Math.max(b.fullW, b.fullH));
+    for (const t of realByDepth) {
       const isImage = t.loaded && !!t.img && !t.failed;
       const span = Math.max(t.fullW, t.fullH);
       // Never paint a speck: drop a sub-legible silhouette / pending placeholder

@@ -765,15 +765,19 @@ export class CollageEngine {
    *  ambient backdrop grid is intentionally NOT consulted — ghosts aren't clickable
    *  (they're uncounted, and a click must map to a real, counted detection). */
   hitTest(px: number, py: number): { sci: string; com: string; slug: string; n: number } | null {
-    const placed = this.grid.placed;
-    for (let i = placed.length - 1; i >= 0; i--) {
-      const t = placed[i];
+    // Mirrors the renderer's depth law (largest paints frontmost): among all
+    // tiles under the pointer, the LARGEST is the visible one and takes the
+    // hit — reverse-placement order stopped being "topmost" when the draw
+    // loop switched to size-sorted painting.
+    let best: (typeof this.grid.placed)[number] | null = null;
+    for (const t of this.grid.placed) {
       if (t.x <= -99998) continue; // parked off-screen — not visible, not clickable
       if (px < t.x || px > t.x + t.fullW || py < t.y || py > t.y + t.fullH) continue;
-      const row = this.roster.get(t.sci);
-      return { sci: t.sci, com: t.com, slug: t.slug, n: row ? row.n : 1 };
+      if (!best || Math.max(t.fullW, t.fullH) > Math.max(best.fullW, best.fullH)) best = t;
     }
-    return null;
+    if (!best) return null;
+    const row = this.roster.get(best.sci);
+    return { sci: best.sci, com: best.com, slug: best.slug, n: row ? row.n : 1 };
   }
 
   /** Set the never-barren ambient backdrop mode + density and rebuild it now.
