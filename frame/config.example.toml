@@ -36,6 +36,11 @@ shoot_subtitle = "Heard Today"
 # shoot_cluster_xbias = 1.0  # ellipse spread; >1 = wider cluster
 # shoot_cluster_ybias = 1.2
 # shoot_cluster_pad = 1
+# shoot_budget_frac = 1.0    # override the page's packing budget (it caps the flock at
+#                            # ~a third of the panel area); 1.0 = full-bleed. Verify tile
+#                            # placement per view when raising — unplaceable tiles hide
+#                            # SILENTLY at x=-99999. Per-view overrides via [views.<name>].
+# shoot_min_tile_frac = 0.022  # floor under the rarest bird, as area fraction
 
 # --- Panel ------------------------------------------------------------------
 rotate = 90            # 90 or 270 if the frame hangs the other way up

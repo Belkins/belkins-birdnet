@@ -65,6 +65,13 @@ DEFAULTS = {
     # integer (480x640 @ 2.5 = exactly 1200x1600). The packer sizes its
     # cluster from the viewport, which is why collage_vh alone cannot do this.
     "shoot_zoom": 1.0,
+    # ...and zoom saturates anyway: the page's tuning() caps the cluster at
+    # packingBudgetFrac of the viewport AREA (0.28-0.46 by count), and the
+    # viewport maps 1:1 onto the panel. These two override that law outright
+    # (None = the page's own stepped values). Budget is the fraction of the
+    # panel the flock may claim; min_tile the floor under the rarest bird.
+    "shoot_budget_frac": None,
+    "shoot_min_tile_frac": None,
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
@@ -361,6 +368,7 @@ def obtain_image(cfg):
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
               collage_vh=cfg["shoot_collage_vh"], cluster_xbias=cfg["shoot_cluster_xbias"],
               cluster_ybias=cfg["shoot_cluster_ybias"], cluster_pad=cfg["shoot_cluster_pad"],
+              budget_frac=cfg["shoot_budget_frac"], min_tile_frac=cfg["shoot_min_tile_frac"],
               user=cfg["basic_user"], password=cfg["basic_pass"],
               # Re-window the page's own API call to the config/view window, so
               # the collage shows the same hours the signature poll watches —
