@@ -1,0 +1,7 @@
+# The Wall Panel's spool directory (see avian/api/frame-config.php and
+# frame/panel_apply.py). Owner belkins so the daemon may unlink any file in
+# it regardless of who wrote it; group caddy with g+w so php-fpm may create
+# the request spool. A sticky /tmp forbids exactly that pair — the seam
+# review proved it empirically on the live box before this file existed.
+# /run is tmpfs: recreated on boot by systemd-tmpfiles, zero SD-card wear.
+d /run/birdframe 0775 belkins caddy -

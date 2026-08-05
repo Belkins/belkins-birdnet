@@ -28,6 +28,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import views  # noqa: E402
+import panel_apply  # noqa: E402  (the Wall Panel's spool consumer)
 
 # 13.3" Impression, top to bottom. C is GPIO25 ON THE 13.3" — it is 16 on the
 # smaller Impressions, and Pimoroni's own examples/spectra6/buttons.py carries
@@ -126,6 +127,15 @@ def main():
     last_press = dict.fromkeys(VIEW_BY_PIN, 0.0)
     retriggers = {}  # token -> attempts, so a failing paint cannot be hammered
 
+    # The Wall Panel reads its state file before the first apply ever happens —
+    # publish on startup so the panel's sliders open on the truth.
+    try:
+        panel_apply.publish_state("~/.birdframe/config.toml", cfg["state"],
+                                  (views.read_view(cfg["view_file"]) or {}).get("view"))
+        print("panel state published")
+    except Exception as e:  # a broken publish must never kill the buttons
+        print(f"panel state publish failed: {e}")
+
     while True:
         if request.wait_edge_events(RECONCILE_S):
             for event in request.read_edge_events():
@@ -143,6 +153,27 @@ def main():
                 print(f"button {LABEL[pin]}: view '{name}' "
                       f"token {doc['token']} -> paint via {mode}")
         else:
+            # The Wall Panel's spool: a browser draft lands as a request file,
+            # panel_apply validates + rewrites the config + writes the view
+            # token, and the paint below fires immediately. consume() never
+            # raises — the buttons outlive any panel misadventure.
+            outcome = panel_apply.consume(
+                "~/.birdframe/config.toml", cfg["state"], cfg["view_file"], cfg["ttl"])
+            if outcome:
+                print(f"panel: {outcome}")
+                if outcome.startswith("applied"):
+                    mode = trigger_paint(frame_dir)
+                    print(f"panel paint via {mode}")
+            # Republish panel state every quiet tick: the panel's "✓ on the
+            # wall" polls state.last_refresh, which display.py only writes
+            # when the ~40s paint COMPLETES — a publish made inside consume()
+            # necessarily predates it. /run is tmpfs; this costs RAM, not SD.
+            try:
+                panel_apply.publish_state(
+                    "~/.birdframe/config.toml", cfg["state"],
+                    (views.read_view(cfg["view_file"]) or {}).get("view"))
+            except Exception as e:
+                print(f"panel state publish failed: {e}")
             # Idle sweep: a press that landed mid-paint left its token
             # unconsumed. Deliver it now that the panel is free — a couple of
             # times; beyond that the 15-minute timer owns the retry so a
