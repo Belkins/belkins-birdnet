@@ -1,5 +1,5 @@
 [Unit]
-Description=Belkins BirdNET frame buttons (A Today, B Week, C All Time, D repaint)
+Description=Belkins BirdNET frame buttons (A Real time, B Today, C Week, D All Time)
 Documentation=https://github.com/Belkins/belkins-birdnet
 # No network needed: the daemon only watches GPIO edges and writes one small
 # file; the paint it triggers does its own waiting.

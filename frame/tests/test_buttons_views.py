@@ -6,9 +6,9 @@ The load-bearing properties, each negative-tested:
   2. resolve() overlays exactly the named view's keys and returns the token;
      an unknown name is ignored (old file, deleted view: the wall stays up).
   3. Every write carries a fresh token even when the view name repeats —
-     button D's "repaint now" IS that property.
-  4. choose_view: A/B/C name views; D repaints the active one, Today when
-     nothing is active.
+     "repaint now" (any button's second press) IS that property.
+  4. choose_view: every button names its window (A realtime, B today, C week,
+     D all); only an unmapped pin falls back to current-or-today.
 
 Stdlib only: this suite runs on CI with no gpiod, no PIL, no panel.
 """

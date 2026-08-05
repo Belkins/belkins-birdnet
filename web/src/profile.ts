@@ -29,6 +29,10 @@ export interface DisplayProfile {
   budget: number | null; // packingBudgetFrac: flock's share of viewport area
   minTile: number | null; // minTileAreaFrac: floor under the rarest bird
   heroCap: number | null; // maxTileAreaFrac: ceiling over the most-heard bird
+  /** ?overlap= — fraction of each bird's silhouette that neighbours may
+   *  cover (packer stamps only the central 1-overlap of the mask). null = no
+   *  overlap, the museum's own law. The layered-mob look on the wall. */
+  overlap: number | null;
 }
 
 /** The frozen-for-the-session profile, parsed once at module load. */
@@ -122,8 +126,17 @@ function readProfile(): DisplayProfile {
     return Number.isFinite(v) && v > 0 && v <= max ? v : null;
   };
   const budget = frac('budget', 'VITE_BUDGET', 1.2);
-  const minTile = frac('mintile', 'VITE_MIN_TILE', 0.06);
-  const heroCap = frac('herocap', 'VITE_HERO_CAP', 0.4);
+  let minTile = frac('mintile', 'VITE_MIN_TILE', 0.06);
+  let heroCap = frac('herocap', 'VITE_HERO_CAP', 0.4);
+  // The PAIR is atomic, like lat/lon below: a floor at or above the ceiling
+  // inverts the hero law (every commoner raised to the floor while the hero
+  // holds the cap) and parks overflow birds off-screen with no telemetry.
+  // Individually valid but jointly absurd -> BOTH revert to the page's law.
+  if (minTile !== null && heroCap !== null && minTile >= heroCap) {
+    minTile = null;
+    heroCap = null;
+  }
+  const overlap = frac('overlap', 'VITE_OVERLAP', 0.6);
 
   // ?lat=&lon= — one-time city-level location for Golden Hour. The pair is
   // ATOMIC: both must parse in range or BOTH stay null (a half-set location is
@@ -156,5 +169,6 @@ function readProfile(): DisplayProfile {
     budget,
     minTile,
     heroCap,
+    overlap,
   };
 }

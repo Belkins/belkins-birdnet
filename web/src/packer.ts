@@ -38,11 +38,20 @@ export class CollageGrid {
   // seeded PRNG keeps layouts deterministic across resizes (apt.js).
   private prngState = 0x9e3779b9;
 
-  constructor(W: number, H: number, stride = GRID_STRIDE, pad = COLLAGE_PAD) {
+  /** Fraction of each bird's opaque mask that gets STAMPED as a blocker
+   *  (1 = the whole silhouette, today's law). Below 1, only the central
+   *  stampFrac box of the mask blocks — collision checks still read the FULL
+   *  mask, so a newcomer never sits on an earlier bird's core but MAY cover
+   *  its fringes: wings and tails layer, heads stay clear. This is the wall's
+   *  ?overlap= knob (stampFrac = 1 - overlap); the museum's own renders keep 1. */
+  private readonly stampFrac: number;
+
+  constructor(W: number, H: number, stride = GRID_STRIDE, pad = COLLAGE_PAD, stampFrac = 1) {
     this.W = W;
     this.H = H;
     this.stride = stride;
     this.pad = pad;
+    this.stampFrac = stampFrac < 0.4 ? 0.4 : stampFrac > 1 ? 1 : stampFrac;
     this.GW = Math.ceil(W / stride) + 2;
     this.GH = Math.ceil(H / stride) + 2;
     this.grid = new Uint8Array(this.GW * this.GH);
@@ -86,8 +95,18 @@ export class CollageGrid {
   private stamp(tile: Tile, tx: number, ty: number): void {
     const cells = tile.mask.cells;
     const pad = this.pad;
+    // Erosion for overlap: keep only mask cells inside the central stampFrac
+    // box. Cells are mask-grid coords; the box is measured around the mask's
+    // own centre so the erosion is even on all sides.
+    const fx = (this.stampFrac * tile.mask.w) / 2;
+    const fy = (this.stampFrac * tile.mask.h) / 2;
+    const mcx = tile.mask.w / 2;
+    const mcy = tile.mask.h / 2;
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i];
+      if (this.stampFrac < 1 && (Math.abs(c[0] + 0.5 - mcx) > fx || Math.abs(c[1] + 0.5 - mcy) > fy)) {
+        continue;
+      }
       const [rx0, ry0, rx1, ry1] = this.cellRange(tile, tx, ty, c[0], c[1]);
       // Dilate the stamp by `pad` cells so the next bird keeps a uniform gap.
       let gy0 = ry0 - pad;

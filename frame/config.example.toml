@@ -11,6 +11,19 @@ base_url = "http://birdnet.local"
 shoot_path = "/index.html"
 shoot = true
 
+# Or shoot the React museum itself (the live Belkins wall runs this way):
+# shoot_spa = true
+# shoot_spa_path = "/collage/?surface=kiosk&theme=day&motion=off&budget=0.92&mintile=0.012&herocap=0.24"
+# shoot_spa_settle_ms = 3500   # kiosk surface: outlive the exit pill's 3s fade
+# The composition knobs (budget/mintile/herocap — the flock's share of the
+# panel, the rarest bird's floor, the hero's ceiling) ride IN the URL; the
+# SPA validates them (web/src/profile.ts) and a bad value silently reverts
+# to the page's own law. TWO traps: (a) a [views.<name>] table that carries
+# its own shoot_spa_path REPLACES this string wholesale — restate the knobs
+# there or that view shoots knob-less; (b) never put win= in this path —
+# display.py appends the view's window itself, and the page reads the FIRST
+# occurrence, so a baked-in win= would freeze every button to one window.
+
 # Or fetch a ready-made PNG instead of rendering here (lighter, but needs
 # something that serves a frame image, e.g. a public Cloudflare Worker):
 # shoot = false

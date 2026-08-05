@@ -39,6 +39,11 @@ const RETRY_WINDOW_MS = 90000; // only watch a live-new tile for ~90s after it l
 // this composes the scene top-to-bottom instead of floating it top-heavy.
 const HERO_Y_FRAC = 0.54;
 
+// The wall's ?overlap= knob as a stamp fraction (1 = no overlap, the museum's
+// own law). Applied at every CollageGrid construction so incremental placement
+// and full repacks agree on what blocks.
+const STAMP_FRAC = 1 - (PROFILE.overlap ?? 0);
+
 // Count-weighted tuning — ported verbatim from apt.js `tuning()`. The wall's
 // Display Profile may override the three FRACTIONS (?budget= / ?mintile= /
 // ?herocap=): a print viewport IS the whole panel, and these count-stepped
@@ -181,7 +186,7 @@ export class CollageEngine {
     const rect = canvas.getBoundingClientRect();
     this.W = Math.max(1, rect.width);
     this.H = Math.max(1, rect.height);
-    this.grid = new CollageGrid(this.W, this.H);
+    this.grid = new CollageGrid(this.W, this.H, GRID_STRIDE, COLLAGE_PAD, STAMP_FRAC);
     this.computeBiases();
   }
 
@@ -406,7 +411,7 @@ export class CollageEngine {
     const safe = this.safeBox();
     const boxW = Math.max(1, safe.R - safe.L);
     const boxH = Math.max(1, safe.B - safe.T);
-    let grid = new CollageGrid(W, H, GRID_STRIDE, this.pad);
+    let grid = new CollageGrid(W, H, GRID_STRIDE, this.pad, STAMP_FRAC);
     grid.seed(tiles, this.xBias, this.yBias);
     for (let iter = 0; iter < 12; iter++) {
       const b = bounds(grid.onScreen());
@@ -425,7 +430,7 @@ export class CollageEngine {
         t.fullW *= scale;
         t.fullH *= scale;
       });
-      grid = new CollageGrid(W, H, GRID_STRIDE, this.pad);
+      grid = new CollageGrid(W, H, GRID_STRIDE, this.pad, STAMP_FRAC);
       grid.seed(tiles, this.xBias, this.yBias);
     }
 
