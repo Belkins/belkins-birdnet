@@ -176,8 +176,12 @@ TUCK_SLUGS = set(
 # species at a tighter per-species tol keeps the pale body attached on every
 # future publish — without this registry a /reclean rekey fix dies on the next
 # repaint, exactly like an unregistered tuck. Format: "slug:tol,slug:tol".
+# robin: belly measured 24-29 from ground. parakeet: the pale blue-green
+# breast wash measured 38-50 (its palest reaches under 42, which is how the
+# default tol ate the neck on 07-03) — 20 spares the wash, ground texture is <=8.
 KEY_TOL_SLUGS: dict = {}
-for _part in os.environ.get("KEY_TOL_SLUGS", "erithacus-rubecula:15").split(","):
+for _part in os.environ.get(
+        "KEY_TOL_SLUGS", "erithacus-rubecula:15,psittacula-krameri:20").split(","):
     _slug, _, _tol = _part.strip().partition(":")
     if _slug and _tol.isdigit() and 5 <= int(_tol) <= 41:
         KEY_TOL_SLUGS[_slug] = int(_tol)
