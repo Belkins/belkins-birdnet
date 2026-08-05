@@ -37,7 +37,7 @@ import { Scrubber } from './components/Scrubber';
 import { fetchDayActivity, formatDay, isoDay } from './days';
 import type { DayActivity } from './days';
 import { fetchDaySnapshot } from './snapshot';
-import { PERIODS, windowLabel, windowHeadline } from './window';
+import { ALL_TIME_HOURS, PERIODS, windowLabel, windowHeadline } from './window';
 
 type Tab = 'collage' | 'index' | 'stats' | 'atlas' | 'wall' | 'library';
 
@@ -71,13 +71,18 @@ function loadTab(): Tab {
   return 'collage';
 }
 
-/** Masthead / tombstone title by real-species tier (DESIGN-SPEC §6.1). Keyed on
- *  the honest species count (rows.length), never on the on-screen tile count. */
-function mastTitle(species: number): string {
+/** Masthead / tombstone title: the empty and first-visitor states keep their
+ *  poetry (keyed on the honest species count, never tile count — DESIGN-SPEC
+ *  §6.1); every other state NAMES THE WINDOW, via the same windowHeadline the
+ *  chips use, so the wall's buttons visibly change the title: HEARD THIS HOUR
+ *  / HEARD THESE 24 HOURS / HEARD THESE 7 DAYS / ALL TIME. The old count
+ *  tiers ('HEARD TODAY' at <=3 species) could caption an All-Time window as
+ *  today — a heading is a claim about data, and the window is the claim. */
+function mastTitle(species: number, hours: number): string {
   if (species === 0) return 'LISTENING';
   if (species === 1) return 'FIRST VISITOR';
-  if (species <= 3) return 'HEARD TODAY';
-  return 'HEARD RECENTLY';
+  if (hours === ALL_TIME_HOURS) return 'ALL TIME';
+  return ('HEARD ' + windowHeadline(hours)).toUpperCase();
 }
 
 /** Forward a settings change into the live engine. Diff-aware on purpose: only
@@ -710,7 +715,7 @@ export default function App() {
           {/* Archive days get archival titles — never "HEARD TODAY" over a past
               day. A zero-detection day is an honest quiet wall, not LISTENING. */}
           <div className="mast-t">
-            {viewDay ? (species === 0 ? 'A QUIET DAY' : 'FROM THE ARCHIVE') : mastTitle(species)}
+            {viewDay ? (species === 0 ? 'A QUIET DAY' : 'FROM THE ARCHIVE') : mastTitle(species, settings.windowHours)}
           </div>
         </header>
       )}
