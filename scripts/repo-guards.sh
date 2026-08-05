@@ -983,13 +983,16 @@ for lf in ("avian/frontend/apt.js", "avian/frontend/index.html"):
         legacy_files[lf] = open(lf).read()
     except OSError:
         bad.append(f"{lf} is gone — the legacy shot target no longer exists; the wall will freeze silently")
-m = re.search(r"for pat, repl in \((.*?)\):\n", src, re.S)
+# The rewrite rules live in _make_js_handler as a `rules` list plus
+# conditional appends (budget/min_tile, 2026-08-05) — slice the whole
+# function so every anchor is extracted no matter which container holds it.
+m = re.search(r"def _make_js_handler\b.*?(?=\ndef )", src, re.S)
 if not m:
-    bad.append("could not locate the apt.js rewrite tuple in frame/shoot.py — if the legacy shot path was removed on purpose, update guard 17")
+    bad.append("could not locate _make_js_handler in frame/shoot.py — if the legacy shot path was removed on purpose, update guard 17")
 else:
-    pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(1))
-    if len(pats) != 4:
-        bad.append(f"expected 4 rewrite patterns in frame/shoot.py, extracted {len(pats)} — extraction broke, guard would pass vacuously")
+    pats = re.findall(r'\(r"((?:[^"\\]|\\.)*)"', m.group(0))
+    if len(pats) != 6:
+        bad.append(f"expected 6 rewrite patterns in frame/shoot.py's _make_js_handler, extracted {len(pats)} — extraction broke, guard would pass vacuously")
     js = legacy_files.get("avian/frontend/apt.js")
     for p in pats:
         # js None = apt.js missing, already a finding above; don't stack noise.
