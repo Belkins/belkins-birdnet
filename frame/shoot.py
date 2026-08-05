@@ -155,16 +155,33 @@ def _make_cutout_handler(base):
     return handler
 
 
-def _make_js_handler(xbias, ybias, count_exp, pad, auth, misses):
-    """Rewrite the collage tunables inside the page's apt.js at capture time."""
+def _make_js_handler(xbias, ybias, count_exp, pad, auth, misses,
+                     budget_frac=None, min_tile_frac=None):
+    """Rewrite the collage tunables inside the page's apt.js at capture time.
+
+    budget_frac / min_tile_frac (None = leave the page's own law) replace the
+    count-stepped ternaries in tuning() with flat values. They are THE size
+    levers for the wall: the cluster fills packingBudgetFrac of the viewport
+    area, and viewport*dsf is the panel — so no zoom can ever grow the birds
+    past that fraction; the 13.3" read as "small" at any zoom until this."""
     def handler(route):
         try:
             kw = {"headers": {**route.request.headers, "authorization": auth}} if auth else {}
             js = route.fetch(**kw).text()
-            for pat, repl in ((r"var xBias = narrow \? 1 : T\.ellipseAspectBias;", f"var xBias = {xbias};"),
-                              (r"var yBias = narrow \? 1\.7 : 1;", f"var yBias = {ybias};"),
-                              (r"countExp:\s*[\d.]+,", f"countExp: {count_exp},"),
-                              (r"var pad = narrow \? Math\.max\(1, COLLAGE_PAD - 1\) : COLLAGE_PAD;", f"var pad = {pad};")):
+            rules = [(r"var xBias = narrow \? 1 : T\.ellipseAspectBias;", f"var xBias = {xbias};"),
+                     (r"var yBias = narrow \? 1\.7 : 1;", f"var yBias = {ybias};"),
+                     (r"countExp:\s*[\d.]+,", f"countExp: {count_exp},"),
+                     (r"var pad = narrow \? Math\.max\(1, COLLAGE_PAD - 1\) : COLLAGE_PAD;", f"var pad = {pad};")]
+            if budget_frac is not None:
+                # The whole count-stepped ternary, non-greedy to its trailing
+                # default. Anchored on the key name so an upstream value edit
+                # still matches; a structural rewrite lands in `misses` below.
+                rules.append((r"packingBudgetFrac: n <= 4[\s\S]*?:\s*[\d.]+,",
+                              f"packingBudgetFrac: {budget_frac},"))
+            if min_tile_frac is not None:
+                rules.append((r"minTileAreaFrac: n <= 8[\s\S]*?:\s*[\d.]+,",
+                              f"minTileAreaFrac: {min_tile_frac},"))
+            for pat, repl in rules:
                 js, n = re.subn(pat, repl, js)
                 if not n:
                     misses.append(pat)
@@ -179,7 +196,8 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
           headline_px=42, eyebrow_px=18, lowercase=False,
           mat=0.04, collage_vh=52, cluster_xbias=1.0, cluster_ybias=1.2,
           count_exp=0.4, cluster_pad=1, small_floor=0.04, window_hours=None,
-          timeout_ms=45000, user=None, password=None, species=None, cutout_base=None):
+          timeout_ms=45000, user=None, password=None, species=None, cutout_base=None,
+          budget_frac=None, min_tile_frac=None):
     pad_side, pad_top, pad_bottom = int(vw * mat), int(vh * mat * 0.92), int(vh * mat)
     auth = "Basic " + base64.b64encode(f"{user}:{password or ''}".encode()).decode() if user else None
 
@@ -192,7 +210,8 @@ def shoot(url, out, *, title=None, subtitle=None, vw=600, vh=800, dsf=2,
             page = browser.new_context(**ctx_kw).new_page()
             misses = []
             page.route("**/birdnet-api.php**", _make_api_handler(small_floor, window_hours, auth, species))
-            page.route("**/apt.js*", _make_js_handler(cluster_xbias, cluster_ybias, count_exp, cluster_pad, auth, misses))
+            page.route("**/apt.js*", _make_js_handler(cluster_xbias, cluster_ybias, count_exp, cluster_pad, auth, misses,
+                                                      budget_frac=budget_frac, min_tile_frac=min_tile_frac))
             if cutout_base:
                 page.route("**/cutout.php*", _make_cutout_handler(cutout_base))
 
