@@ -56,7 +56,11 @@ DEFAULTS = {
     "shoot_spa": False,
     # theme=day: a fresh headless profile has no localStorage and the SPA's
     # stored default is night (Obsidian) — the wall wants the day print.
+    # surface=eink is the SPA's dedicated print; surface=kiosk shoots the
+    # SCREEN composition (bigger ring, ambient) and needs settle_ms > 3000
+    # so the exit pill has auto-hidden by capture.
     "shoot_spa_path": "/collage/?surface=eink&theme=day",
+    "shoot_spa_settle_ms": 250,
     "hours": 24,
     "image": "",            # local PNG written by the shooter
     "image_url": "",        # or a published screenshot URL
@@ -374,7 +378,8 @@ def obtain_image(cfg):
             url = f"{cfg['base_url'].rstrip('/')}/{spa}{sep}win={int(cfg['hours'])}"
             zoom = float(cfg["shoot_zoom"]) or 1.0
             shoot_spa(url, out, timeout_ms=cfg["timeout"] * 1000,
-                      vw=round(600 / zoom), vh=round(800 / zoom), dsf=2 * zoom)
+                      vw=round(600 / zoom), vh=round(800 / zoom), dsf=2 * zoom,
+                      settle_ms=int(cfg["shoot_spa_settle_ms"]))
             return Image.open(out).convert("RGB")
         from shoot import shoot
         shoot_url = cfg["base_url"].rstrip("/") + "/" + cfg.get("shoot_path", "/index.html").lstrip("/")
