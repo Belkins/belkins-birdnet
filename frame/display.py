@@ -66,6 +66,12 @@ DEFAULTS = {
     "cache": "~/.birdframe",
     "timeout": 45,
     "basic_user": None, "basic_pass": None,
+    # Button views (buttons.py + views.py): where the override file lives, how
+    # long a pressed view holds before reverting to this config, and operator
+    # [views.<name>] tables laid over the built-ins.
+    "view_file": "~/.birdframe/view.json",
+    "view_ttl_hours": 4,
+    "views": {},
 }
 
 
@@ -288,12 +294,17 @@ def load_state(path):
         return {"signature": None, "last_refresh": 0}
 
 
-def save_state(path, sig, when):
+def save_state(path, sig, when, view_token=None):
     path = os.path.expanduser(path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    doc = {"signature": sig, "last_refresh": when}
+    if view_token is not None:
+        # The last button token this frame has PAINTED. buttons.py compares it
+        # against view.json to re-deliver presses absorbed during a paint.
+        doc["view_token"] = view_token
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump({"signature": sig, "last_refresh": when}, f)
+        json.dump(doc, f)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)  # atomic: a power cut can't leave a half-written file
@@ -336,7 +347,12 @@ def obtain_image(cfg):
               headline_px=cfg["shoot_headline_px"], eyebrow_px=cfg["shoot_eyebrow_px"],
               lowercase=cfg["shoot_lowercase"], mat=cfg["shoot_mat"],
               small_floor=cfg["shoot_small_floor"], count_exp=cfg["shoot_count_exp"], timeout_ms=cfg["timeout"] * 1000,
-              user=cfg["basic_user"], password=cfg["basic_pass"])
+              user=cfg["basic_user"], password=cfg["basic_pass"],
+              # Re-window the page's own API call to the config/view window, so
+              # the collage shows the same hours the signature poll watches —
+              # the legacy page reads its window from localStorage, which a
+              # fresh headless profile never has.
+              window_hours=int(cfg["hours"]))
         return Image.open(out).convert("RGB")
     src = cfg["image_url"] or cfg["image"]
     if not src:
@@ -344,9 +360,15 @@ def obtain_image(cfg):
     return get_image(src, cfg["timeout"], _auth(cfg))
 
 
-def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
+def run(cfg, preview=None, force=False, use_signature=True, mat_box=False, view_token=None):
     now = time.time()
     state = load_state(cfg["state"])
+    if view_token is not None and view_token != state.get("view_token"):
+        # A token this frame has never painted = an operator's finger on the
+        # hardware. Paint now, with the same bypasses as --force: quiet hours,
+        # the change check and the min-refresh floor all yield to a button.
+        print("button press: paint now")
+        force = True
     sig = None
     species = None
     if use_signature:
@@ -402,7 +424,8 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False):
     except Exception as e:
         print(f"panel push failed: {e}", file=sys.stderr)
         return
-    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now)
+    save_state(cfg["state"], sig if sig is not None else state.get("signature"), now,
+               view_token=view_token)
     print("panel updated")
 
 
@@ -434,7 +457,13 @@ def main():
             cfg[key] = val
     if args.rotate is not None:
         cfg["rotate"] = args.rotate
-    run(cfg, preview=args.preview, force=args.force, use_signature=not args.no_signature, mat_box=args.mat_box)
+    # Button views last: they overlay whatever config+flags produced, so a
+    # pressed view wins for its lifetime and expiry falls back to exactly the
+    # cfg built above.
+    import views
+    cfg, view_token = views.resolve(cfg)
+    run(cfg, preview=args.preview, force=args.force, use_signature=not args.no_signature,
+        mat_box=args.mat_box, view_token=view_token)
 
 
 if __name__ == "__main__":
