@@ -85,6 +85,13 @@ DEFAULTS = {
     # panel the flock may claim; min_tile the floor under the rarest bird.
     "shoot_budget_frac": None,
     "shoot_min_tile_frac": None,
+    # The A5 mat composition exists for the BOM's physical A4 frame, whose
+    # cardboard passe-partout COVERS the outer glass — the content is sized
+    # for the opening the eye will actually see. On a bare panel (no frame
+    # yet, or a full-glass mount) that same composition reads as mysterious
+    # shrinkage with dead margins: set mat_window = false to ship the shot
+    # edge to edge, and flip it back the day the matted frame goes on.
+    "mat_window": True,
     "mat": 0.0,             # extra global shrink of the content inside the A5 opening
     "rotate": 90,           # 90 or 270 if the frame hangs the other way up
     "saturation": 0.6,
@@ -456,7 +463,8 @@ def run(cfg, preview=None, force=False, use_signature=True, mat_box=False, view_
     except Exception as e:
         print(f"could not get image: {e}", file=sys.stderr)  # keep last panel image
         return
-    img = mat_and_center(img, cfg["mat"], empty=(species == []))
+    if cfg["mat_window"]:
+        img = mat_and_center(img, cfg["mat"], empty=(species == []))
     if preview:
         out = quantize_spectra6(img)
         if mat_box:
