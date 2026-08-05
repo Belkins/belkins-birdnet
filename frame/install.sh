@@ -240,6 +240,10 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
 sudo systemctl enable --now frame-watch.timer
 sudo systemctl enable --now birdframe-buttons.service
+# enable --now does NOT restart an already-running daemon, and buttons.py holds
+# its pin->view map from import — on an upgrade the old map would keep running
+# while the line below announces the new one. Restart covers both paths.
+sudo systemctl restart birdframe-buttons.service
 echo "     Buttons live: A Real time (1h), B Today, C This Week, D All Time."
 echo "     Frame watchdog installed (frame-watch.timer, hourly). For a phone push when"
 echo "     the wall freezes, uncomment NOTIFY_URL in $WATCH_ENV"
