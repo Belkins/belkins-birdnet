@@ -95,6 +95,26 @@ sudo reboot                     # when YOU are ready — this brings SPI up
 
 ---
 
+## The buttons
+
+The Impression's four side switches are views (`birdframe-buttons.service`):
+
+| Button | View | |
+|--------|------|---|
+| **A** (top) | **Today** | the config default, back from any whim |
+| **B** | **This Week** | 7 days |
+| **C** | **All Time** | the whole collection |
+| **D** | **repaint now** | whatever view is active, painted fresh |
+
+A press is a ceremony, not a click — a Spectra 6 refresh is ~30 seconds of
+colour theatre. Presses that land mid-paint are absorbed and delivered when
+the panel is free. A pressed view holds for `view_ttl_hours` (default 4),
+then the wall reverts to the config on its own; `[views.<name>]` tables in
+`config.toml` override or add views. On the 13.3" the C button is GPIO 25,
+not the smaller boards' 16 — `buttons.py` already knows.
+
+---
+
 ### If the frame ever freezes
 
 `display.py` keeps the last picture on the panel and exits cleanly whenever a refresh fails — that is deliberate (a blank wall is worse than a stale one), but it means a dead screenshotter or a dead panel is completely silent. `frame_watch.py` runs hourly and alerts when the wall stops repainting: it compares the capture file and `~/.birdframe/state.json` against the frame's own configured cadence (`heal_hours` plus any quiet window), so a quiet garden or a muted night can never trigger it.

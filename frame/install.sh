@@ -218,6 +218,14 @@ fi
 sed "s|/home/monalisa/belkins-birdnet/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
   systemd/frame-watch.service | sudo tee /etc/systemd/system/frame-watch.service >/dev/null
 sudo cp systemd/frame-watch.timer /etc/systemd/system/frame-watch.timer
+
+# Buttons (all three modes): every Impression carries four, and a daemon that
+# nobody wired is indistinguishable from broken hardware — that support ticket
+# has already been filed once. Where passwordless systemctl is missing the
+# daemon falls back to running display.py directly, so this is safe to enable
+# everywhere.
+sed "s|/home/monalisa/belkins-birdnet/frame|$FRAME|g; s|/home/monalisa|$HOME|g; s|User=monalisa|User=$USER|" \
+  systemd/birdframe-buttons.service | sudo tee /etc/systemd/system/birdframe-buttons.service >/dev/null
 # One env file, created here with a commented placeholder rather than left for
 # the operator to invent: the frame's convention is one reference file per
 # surface (config.example.toml says so of itself), and 600 because a topic URL
@@ -231,6 +239,8 @@ fi
 sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
 sudo systemctl enable --now frame-watch.timer
+sudo systemctl enable --now birdframe-buttons.service
+echo "     Buttons live: A Today, B This Week, C All Time, D repaint now."
 echo "     Frame watchdog installed (frame-watch.timer, hourly). For a phone push when"
 echo "     the wall freezes, uncomment NOTIFY_URL in $WATCH_ENV"
 echo "     (ntfy app, subscribe the topic, no account)."

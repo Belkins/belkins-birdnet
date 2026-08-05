@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 *.png
 .birdframe/
+# *.png above targets regenerable frame screenshots — the CAD reference drawing
+# and previews are documentation, not pipeline output
+!hardware/inkframe-pi5/**/*.png
