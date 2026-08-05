@@ -22,6 +22,13 @@ export interface DisplayProfile {
   /** one-time city-level location for Golden Hour (null = feature silent). */
   lat: number | null;
   lon: number | null;
+  /** Composition-fraction overrides for print/wall surfaces (null = the
+   *  count-stepped defaults in collage.ts tuning()). A print viewport IS the
+   *  whole panel: the browser fractions, sized for pages that also carry
+   *  chrome, read as a stamp on 13.3" of ink. */
+  budget: number | null; // packingBudgetFrac: flock's share of viewport area
+  minTile: number | null; // minTileAreaFrac: floor under the rarest bird
+  heroCap: number | null; // maxTileAreaFrac: ceiling over the most-heard bird
 }
 
 /** The frozen-for-the-session profile, parsed once at module load. */
@@ -105,6 +112,19 @@ function readProfile(): DisplayProfile {
   // ?ghost=1 — opt-in full-cast scatter on the empty screen (never e-ink).
   if (params.get('ghost') === '1') ghost = true;
 
+  // ?budget= / ?mintile= / ?herocap= — wall-surface composition fractions.
+  // Each parses independently; out-of-range is null (the page's own law),
+  // never a clamp — a half-understood knob must not half-apply.
+  const frac = (key: string, envKey: string, max: number): number | null => {
+    const raw = pick(key, envKey)?.trim() ?? null;
+    if (raw === null || raw === '') return null;
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 && v <= max ? v : null;
+  };
+  const budget = frac('budget', 'VITE_BUDGET', 1.2);
+  const minTile = frac('mintile', 'VITE_MIN_TILE', 0.06);
+  const heroCap = frac('herocap', 'VITE_HERO_CAP', 0.4);
+
   // ?lat=&lon= — one-time city-level location for Golden Hour. The pair is
   // ATOMIC: both must parse in range or BOTH stay null (a half-set location is
   // silence, never a guess). No browser geolocation prompt, no cloud — the sun
@@ -122,5 +142,19 @@ function readProfile(): DisplayProfile {
     }
   }
 
-  return { surface, palette, motion, chrome, orientation, windowHours, debugN, ghost, lat, lon };
+  return {
+    surface,
+    palette,
+    motion,
+    chrome,
+    orientation,
+    windowHours,
+    debugN,
+    ghost,
+    lat,
+    lon,
+    budget,
+    minTile,
+    heroCap,
+  };
 }

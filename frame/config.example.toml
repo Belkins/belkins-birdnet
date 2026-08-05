@@ -59,11 +59,11 @@ heal_hours = 24        # force a refresh at least this often
 min_refresh_minutes = 20  # never flash the panel more often than this (a full refresh is ~35s); 0 disables
 
 # --- Buttons (the Impression's four side switches) ---------------------------
-# birdframe-buttons.service turns them into views: A Today (this config,
-# untouched), B This Week, C All Time, D repaint-now. A pressed view holds for
-# view_ttl_hours, then the wall reverts to this config on its own. Define
-# [views.<name>] tables to override any key per view — same names win over the
-# built-ins per key:
+# birdframe-buttons.service turns them into windows: A Real time (1h), B Today
+# (24h), C This Week (7d), D All Time. Re-pressing the showing view repaints
+# it. A pressed view holds for view_ttl_hours, then the wall reverts to this
+# config on its own. Define [views.<name>] tables to override any key per
+# view — same names win over the built-ins per key:
 # [views.week]
 # hours = 72                      # a 3-day week, if that is your rhythm
 # shoot_subtitle = "Heard This Week"

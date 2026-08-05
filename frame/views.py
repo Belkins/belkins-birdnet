@@ -18,12 +18,16 @@ import sys
 import time
 
 # The wall's vocabulary: each view is a config OVERLAY. `hours` drives BOTH
-# the signature poll and the shooter's API re-window (display.py passes it to
-# shoot(window_hours=...)), so the caption can never name a window the collage
+# the signature poll and the shot's window (legacy: shoot(window_hours=...);
+# SPA: &win= on the URL), so the caption can never name a window the collage
 # does not show — the same one-source rule as web/src/window.ts. 1_000_000 is
 # the SPA's own ALL sentinel; the API already receives it from every ALL chip.
+# Four views, one per button (Vlad's mapping, 2026-08-05): hours is EXPLICIT
+# even for today so a button always means the same window regardless of what
+# the config's resting `hours` is set to.
 VIEWS = {
-    "today": {},  # the config itself, untouched
+    "realtime": {"hours": 1, "shoot_subtitle": "This Hour"},
+    "today": {"hours": 24, "shoot_subtitle": "Heard Today"},
     "week": {"hours": 168, "shoot_subtitle": "Heard This Week"},
     "all": {"hours": 1_000_000, "shoot_subtitle": "All Time"},
 }
