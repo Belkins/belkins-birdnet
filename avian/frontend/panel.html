@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>THE WALL · panel</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#fcfaf4;
+    --ink:#1a1a1a;
+    --accent:#a34a24;
+    --muted:#8a8377;
+    --line:rgba(26,26,26,.16);
+    --line-soft:rgba(26,26,26,.08);
+    --screen-bg:#fcfaf4;
+    --btn-text:#fcfaf4;
+  }
+  body.night{
+    --bg:#171512;
+    --ink:#ece7db;
+    --muted:#8f887a;
+    --line:rgba(236,231,219,.2);
+    --line-soft:rgba(236,231,219,.09);
+    --screen-bg:#0f0e0c;
+    --btn-text:#fcfaf4;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Space Mono',monospace;
+    font-size:13px;
+    line-height:1.5;
+    padding:28px 18px 64px;
+  }
+  .wrap{max-width:460px;margin:0 auto}
+
+  /* ---------- header ---------- */
+  .eyebrow{
+    font-family:'Cormorant Garamond',serif;
+    font-style:italic;
+    font-weight:500;
+    font-size:19px;
+    color:var(--accent);
+  }
+  h1{
+    font-family:'Cormorant Garamond',serif;
+    font-weight:600;
+    font-size:clamp(42px,11vw,56px);
+    letter-spacing:.09em;
+    line-height:1.05;
+    margin:2px 0 14px;
+  }
+  .rule{border:0;border-top:1px solid var(--line);margin:0 0 14px;position:relative}
+  .rule::before{content:"";position:absolute;top:-1px;left:0;width:34px;border-top:1px solid var(--accent)}
+
+  .seclabel{
+    font-size:10px;
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:26px 0 10px;
+  }
+  .seclabel:first-of-type{margin-top:0}
+
+  /* ---------- on wall now ---------- */
+  #onwall{
+    font-size:11.5px;
+    color:var(--ink);
+    word-spacing:.05em;
+    overflow-wrap:anywhere;
+  }
+  #onwall .dot{color:var(--muted)}
+  #onwall .faint{color:var(--muted)}
+
+  /* ---------- preview ---------- */
+  .frame{
+    border:1px solid var(--ink);
+    padding:10px;
+    background:var(--bg);
+    box-shadow:0 1px 0 var(--line);
+  }
+  .screen{
+    position:relative;
+    width:100%;
+    aspect-ratio:3/4;
+    overflow:hidden;
+    background:var(--screen-bg);
+    border:1px solid var(--line-soft);
+  }
+  .screen iframe{
+    position:absolute;
+    top:0;left:0;
+    border:0;
+    display:block;
+    transform-origin:top left;
+    pointer-events:none;
+    background:var(--screen-bg);
+  }
+  .screen.loading::after{
+    content:"";
+    position:absolute;inset:0;
+    background:var(--screen-bg);
+    opacity:.55;
+  }
+  .frame-caption{
+    display:flex;justify-content:space-between;
+    font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin-top:8px;
+  }
+
+  /* ---------- segmented controls ---------- */
+  .segrow{display:flex;gap:10px;align-items:stretch;margin-top:10px}
+  .seg{display:flex;flex:1;border:1px solid var(--line)}
+  .seg button{
+    flex:1;
+    font-family:'Space Mono',monospace;
+    font-size:11px;
+    letter-spacing:.1em;
+    padding:10px 0;
+    background:transparent;
+    color:var(--muted);
+    border:0;
+    border-right:1px solid var(--line);
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--ink);color:var(--bg)}
+  .dice{
+    width:46px;
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--accent);
+    font-size:22px;
+    line-height:1;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---------- knobs ---------- */
+  .knob{margin-bottom:18px}
+  .knob-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:2px;
+  }
+  .knob-head label{
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  }
+  .knob-head .key{font-size:10px;color:var(--muted);letter-spacing:.04em;text-transform:none;margin-left:8px}
+  .knob-head output{
+    font-size:13px;font-weight:700;color:var(--accent);
+    font-variant-numeric:tabular-nums;
+  }
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:30px;background:transparent;
+    cursor:pointer;touch-action:pan-y;
+  }
+  input[type=range]:focus{outline:none}
+  input[type=range]:focus-visible{outline:1px dashed var(--accent);outline-offset:4px}
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--line)}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    margin-top:-8px;width:18px;height:18px;border-radius:50%;
+    background:var(--accent);border:3px solid var(--bg);
+    box-shadow:0 0 0 1px var(--line);
+  }
+  input[type=range]::-moz-range-track{height:2px;background:var(--line)}
+  input[type=range]::-moz-range-thumb{
+    width:13px;height:13px;border-radius:50%;
+    background:var(--accent);border:3px solid var(--bg);
+    box-shadow:0 0 0 1px var(--line);
+  }
+
+  /* ---------- apply ---------- */
+  #apply{
+    width:100%;
+    font-family:'Space Mono',monospace;
+    font-weight:700;
+    font-size:13px;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    padding:17px 0;
+    background:var(--accent);
+    color:var(--btn-text);
+    border:0;
+    cursor:pointer;
+    margin-top:6px;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #apply:disabled{opacity:.45;cursor:default}
+  #status{
+    min-height:20px;
+    margin-top:12px;
+    font-size:12px;
+    text-align:center;
+    color:var(--muted);
+  }
+  #status.pending{color:var(--accent)}
+  #status.ok{color:var(--ink);font-weight:700}
+  #status.warn{color:var(--accent)}
+
+  /* ---------- motion (guarded) ---------- */
+  @media (prefers-reduced-motion: no-preference){
+    body,.seg button,.frame,.screen{transition:background-color .35s ease,color .35s ease,border-color .35s ease}
+    .screen.loading::after{transition:opacity .3s ease}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+    #status.pending{animation:pulse 1.6s ease-in-out infinite}
+    @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+    .dice.rolling{animation:spin .45s ease}
+  }
+
+  /* ---------- wider than a phone ---------- */
+  @media (min-width:880px){
+    .wrap{max-width:920px;display:grid;grid-template-columns:400px 1fr;column-gap:56px;align-items:start}
+    header,.onwall-block{grid-column:1/-1}
+    .preview-col{position:sticky;top:28px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">your window</p>
+    <h1>THE WALL</h1>
+    <hr class="rule">
+  </header>
+
+  <div class="onwall-block">
+    <p class="seclabel">on the wall now</p>
+    <p id="onwall"><span class="faint">reading the wall&hellip;</span></p>
+  </div>
+
+  <div class="preview-col">
+    <p class="seclabel">preview</p>
+    <div class="frame">
+      <div class="screen" id="screen">
+        <iframe id="preview" title="wall preview" scrolling="no"></iframe>
+      </div>
+      <div class="frame-caption"><span id="cap-view">&nbsp;</span><span id="cap-zoom">&nbsp;</span></div>
+    </div>
+
+    <div class="segrow">
+      <div class="seg" id="winseg" role="group" aria-label="window">
+        <button type="button" data-win="1">1H</button>
+        <button type="button" data-win="24">24H</button>
+        <button type="button" data-win="168">7D</button>
+        <button type="button" data-win="1000000">ALL</button>
+      </div>
+    </div>
+    <div class="segrow">
+      <div class="seg" id="themeseg" role="group" aria-label="theme">
+        <button type="button" data-theme="day">DAY</button>
+        <button type="button" data-theme="night">NIGHT</button>
+      </div>
+      <button type="button" class="dice" id="dice" title="re-roll the flock" aria-label="re-roll the flock">&#9860;</button>
+    </div>
+  </div>
+
+  <div class="knobs-col">
+    <p class="seclabel">knobs</p>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="herocap">hero size<span class="key">herocap</span></label>
+        <output for="herocap" id="v-herocap"></output>
+      </div>
+      <input type="range" id="herocap" min="0.11" max="0.40" step="0.01">
+    </div>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="overlap">overlap<span class="key">overlap</span></label>
+        <output for="overlap" id="v-overlap"></output>
+      </div>
+      <input type="range" id="overlap" min="0" max="0.5" step="0.05">
+    </div>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="budget">flock budget<span class="key">budget</span></label>
+        <output for="budget" id="v-budget"></output>
+      </div>
+      <input type="range" id="budget" min="0.30" max="1.00" step="0.05">
+    </div>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="mintile">small birds<span class="key">mintile</span></label>
+        <output for="mintile" id="v-mintile"></output>
+      </div>
+      <input type="range" id="mintile" min="0.005" max="0.030" step="0.001">
+    </div>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="zoom">zoom<span class="key">shoot_zoom</span></label>
+        <output for="zoom" id="v-zoom"></output>
+      </div>
+      <input type="range" id="zoom" min="1.0" max="2.2" step="0.1">
+    </div>
+
+    <button type="button" id="apply">apply to wall</button>
+    <p id="status" role="status" aria-live="polite"></p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var API = '../api/frame-config.php';
+  var BASE_W = 600, BASE_H = 800;           // the viewport the frame photographs at zoom 1
+  var DEFAULTS = { zoom:1.7, budget:0.95, mintile:0.009, herocap:0.32, overlap:0.3, theme:'day' };
+  var WIN_VIEW = { '1':'realtime', '24':'today', '168':'week', '1000000':'all' };
+  var VIEW_WIN = { realtime:'1', today:'24', week:'168', all:'1000000' };
+  var DECIMALS = { zoom:1, budget:2, mintile:3, herocap:2, overlap:2 };
+  var KNOBS = ['herocap','overlap','budget','mintile','zoom'];
+
+  var el = function(id){ return document.getElementById(id); };
+  var sliders = {};
+  KNOBS.forEach(function(k){ sliders[k] = el(k); });
+  var iframe = el('preview'), screen = el('screen');
+  var applyBtn = el('apply'), statusEl = el('status');
+
+  var theme = DEFAULTS.theme;
+  var win = '24';
+  var roll = 1;
+  var pollTimer = null, killTimer = null;
+
+  /* ---------- honest values: what you see is what is sent ---------- */
+  function val(k){
+    var p = Math.pow(10, DECIMALS[k]);
+    return Math.round(parseFloat(sliders[k].value) * p) / p;
+  }
+  function shown(k){ return val(k).toFixed(DECIMALS[k]); }
+  function sent(k){ return String(val(k)); }   // no trailing zeros in URLs
+
+  function updateReadout(k){
+    el('v-' + k).textContent = k === 'zoom' ? shown(k) + '×' : shown(k);
+  }
+
+  /* ---------- pair rule: mintile must stay below herocap ---------- */
+  function enforcePair(){
+    var cap = Math.min(0.030, Math.round((val('herocap') - 0.001) * 1000) / 1000);
+    sliders.mintile.max = cap;
+    if (val('mintile') > cap){ sliders.mintile.value = cap; }
+    updateReadout('mintile');
+  }
+
+  /* ---------- preview: the zoom trick ---------- */
+  function updateGeometry(){
+    var z = val('zoom');
+    var w = BASE_W / z, h = BASE_H / z;
+    iframe.style.width = w + 'px';
+    iframe.style.height = h + 'px';
+    iframe.style.transform = 'scale(' + (screen.clientWidth / w) + ')';
+    el('cap-zoom').textContent = shown('zoom') + '× · ' + Math.round(w) + '×' + Math.round(h);
+  }
+
+  function previewURL(){
+    return '/collage/?surface=kiosk'
+      + '&theme=' + theme
+      + '&motion=off'
+      + '&budget=' + sent('budget')
+      + '&mintile=' + sent('mintile')
+      + '&herocap=' + sent('herocap')
+      + '&overlap=' + sent('overlap')
+      + '&win=' + win
+      + '&roll=' + roll;
+  }
+
+  function reloadPreview(){
+    updateGeometry();
+    screen.classList.add('loading');
+    iframe.src = previewURL();
+    el('cap-view').textContent = WIN_VIEW[win] + ' · ' + theme;
+  }
+  iframe.addEventListener('load', function(){ screen.classList.remove('loading'); });
+
+  var debounceT = null;
+  function scheduleReload(){
+    clearTimeout(debounceT);
+    debounceT = setTimeout(reloadPreview, 400);
+  }
+
+  /* ---------- chrome ---------- */
+  function applyThemeUI(){
+    document.body.classList.toggle('night', theme === 'night');
+    var btns = el('themeseg').querySelectorAll('button');
+    btns.forEach(function(b){
+      var on = b.dataset.theme === theme;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    });
+  }
+  function applyWinUI(){
+    el('winseg').querySelectorAll('button').forEach(function(b){
+      var on = b.dataset.win === win;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    });
+  }
+
+  /* ---------- state ---------- */
+  function getState(){
+    return fetch(API, { cache:'no-store' }).then(function(res){
+      if (!res.ok) return null;
+      return res.json().catch(function(){ return null; });
+    }).catch(function(){ return null; });
+  }
+
+  function populate(st){
+    var knobs = (st && st.knobs) || {};
+    KNOBS.forEach(function(k){
+      var v = (typeof knobs[k] === 'number' && isFinite(knobs[k])) ? knobs[k] : DEFAULTS[k];
+      sliders[k].value = v;   // range input clamps into its own bounds
+    });
+    theme = (st && st.theme === 'night') ? 'night' : DEFAULTS.theme;
+    win = (st && st.view && VIEW_WIN[st.view]) ? VIEW_WIN[st.view] : '24';
+    enforcePair();
+    KNOBS.forEach(updateReadout);
+    applyThemeUI();
+    applyWinUI();
+  }
+
+  function esc(s){
+    return String(s).replace(/[&<>"]/g, function(c){
+      return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
+    });
+  }
+  function fmtNum(v){ return (typeof v === 'number' && isFinite(v)) ? String(v) : '—'; }
+  function fmtTime(sec){
+    if (typeof sec !== 'number' || !isFinite(sec)) return 'not yet painted';
+    var d = new Date(sec * 1000);
+    return 'painted ' + d.getHours() + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
+  function renderOnWall(st){
+    var o = el('onwall');
+    if (!st || !st.knobs){
+      o.innerHTML = '<span class="faint">no state published yet — defaults loaded</span>';
+      return;
+    }
+    var k = st.knobs, sep = ' <span class="dot">·</span> ';
+    o.innerHTML =
+      'zoom ' + fmtNum(k.zoom) + sep +
+      'budget ' + fmtNum(k.budget) + sep +
+      'mintile ' + fmtNum(k.mintile) + sep +
+      'herocap ' + fmtNum(k.herocap) + sep +
+      'overlap ' + fmtNum(k.overlap) + sep +
+      esc(st.theme || '—') + sep +
+      esc(st.view || '—') + sep +
+      '<span class="faint">' + fmtTime(st.last_refresh) + '</span>';
+  }
+
+  /* ---------- apply to wall ---------- */
+  function setStatus(msg, cls){
+    statusEl.textContent = msg;
+    statusEl.className = cls || '';
+  }
+  function setPending(p){ applyBtn.disabled = p; }
+  function stopWatch(){
+    clearInterval(pollTimer); pollTimer = null;
+    clearTimeout(killTimer); killTimer = null;
+  }
+
+  function apply(){
+    var payload = {
+      zoom: val('zoom'),
+      budget: val('budget'),
+      mintile: val('mintile'),
+      herocap: val('herocap'),
+      overlap: val('overlap'),
+      theme: theme,
+      view: WIN_VIEW[win],
+      token: String(Date.now())
+    };
+    var applyAt = Date.now() / 1000;
+    setPending(true);
+    setStatus('painting… (~40s ceremony)', 'pending');
+
+    fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      pollTimer = setInterval(function(){
+        getState().then(function(st){
+          if (st && typeof st.last_refresh === 'number' && st.last_refresh > applyAt){
+            stopWatch();
+            setStatus('✓ on the wall', 'ok');
+            setPending(false);
+            renderOnWall(st);
+          }
+        });
+      }, 5000);
+      killTimer = setTimeout(function(){
+        stopWatch();
+        setStatus('check the frame — confirmation timed out', 'warn');
+        setPending(false);
+      }, 120000);
+    }).catch(function(){
+      stopWatch();
+      setStatus('apply failed — the wall is unreachable', 'warn');
+      setPending(false);
+    });
+  }
+
+  /* ---------- wiring ---------- */
+  KNOBS.forEach(function(k){
+    sliders[k].addEventListener('input', function(){
+      if (k === 'herocap' || k === 'mintile'){ enforcePair(); }
+      updateReadout(k);
+      if (k === 'zoom'){ updateGeometry(); }
+      scheduleReload();
+    });
+  });
+
+  el('winseg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    win = b.dataset.win;
+    applyWinUI();
+    reloadPreview();
+  });
+
+  el('themeseg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    theme = b.dataset.theme;
+    applyThemeUI();
+    reloadPreview();
+  });
+
+  el('dice').addEventListener('click', function(){
+    roll += 1;
+    var d = el('dice');
+    d.classList.remove('rolling');
+    void d.offsetWidth;
+    d.classList.add('rolling');
+    reloadPreview();
+  });
+
+  applyBtn.addEventListener('click', apply);
+  window.addEventListener('resize', updateGeometry);
+
+  /* ---------- boot ---------- */
+  getState().then(function(st){
+    populate(st);
+    renderOnWall(st);
+    reloadPreview();
+  });
+})();
+</script>
+</body>
+</html>

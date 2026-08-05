@@ -236,6 +236,12 @@ if [ ! -f "$WATCH_ENV" ]; then
   chmod 600 "$WATCH_ENV"
 fi
 
+# The Wall Panel's spool dir (/run/birdframe): owner belkins/group caddy so
+# php-fpm may write requests and the daemon may consume them — a sticky /tmp
+# forbids that pair (belkins cannot unlink caddy's file there; proven live).
+sudo cp systemd/birdframe-panel.tmpfiles /etc/tmpfiles.d/birdframe-panel.conf
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/birdframe-panel.conf
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now birdframe.timer  # --now starts it immediately, not only on the next boot
 sudo systemctl enable --now frame-watch.timer
