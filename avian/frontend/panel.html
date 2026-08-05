@@ -272,6 +272,24 @@
       </div>
       <button type="button" class="dice" id="dice" title="re-roll the flock" aria-label="re-roll the flock">&#9860;</button>
     </div>
+
+    <!-- THE GALLERY EASTER EGG: a guest exhibit in the museum's frame. Any
+         photo, painted full-glass in the six inks; any bird button (or the
+         4h view TTL) brings the birds back on its own. -->
+    <p class="seclabel" style="margin-top:1.2rem">
+      <button type="button" id="gal-toggle"
+        style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;letter-spacing:inherit;text-transform:inherit">
+        &#128444;&#65039; gallery — hang your own picture</button>
+    </p>
+    <div id="gallery" style="display:none">
+      <label for="gal-file" class="seg" style="display:inline-block;padding:.55rem .9rem;cursor:pointer">
+        add a photo
+        <input type="file" id="gal-file" accept="image/*" style="display:none">
+      </label>
+      <span id="gal-note" class="faint" style="margin-left:.6rem"></span>
+      <div id="gal-shelf" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:.6rem;margin-top:.8rem"></div>
+      <p class="faint" style="margin-top:.5rem">any window button brings the birds back — or the wall does it itself after 4h</p>
+    </div>
   </div>
 
   <div class="knobs-col">
@@ -571,12 +589,98 @@
     el('inkshot').src = API + '?shot=1&t=' + Date.now();
   }
 
+  /* ---------- the gallery Easter egg ---------- */
+  var GAPI = '../api/frame-gallery.php';
+
+  el('gal-toggle').addEventListener('click', function(){
+    var g = el('gallery');
+    g.style.display = g.style.display === 'none' ? 'block' : 'none';
+  });
+
+  function renderGallery(st){
+    var shelf = el('gal-shelf');
+    var ids = (st && st.gallery) || [];
+    shelf.innerHTML = '';
+    ids.forEach(function(id){
+      var card = document.createElement('div');
+      var img = document.createElement('img');
+      img.src = GAPI + '?thumb=' + encodeURIComponent(id) + '&t=' + Date.now();
+      img.style.cssText = 'width:100%;aspect-ratio:3/4;object-fit:cover;display:block;background:#f4f1e8;cursor:pointer';
+      img.title = 'hang it on the wall';
+      img.addEventListener('click', function(){ galAct('show', id); });
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;margin-top:.2rem';
+      var show = document.createElement('button');
+      show.textContent = 'show';
+      show.style.cssText = 'background:none;border:none;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;padding:0';
+      show.addEventListener('click', function(){ galAct('show', id); });
+      var del = document.createElement('button');
+      del.textContent = '✕';
+      del.setAttribute('aria-label', 'remove');
+      del.style.cssText = show.style.cssText;
+      del.addEventListener('click', function(){ galAct('remove', id); });
+      row.appendChild(show); row.appendChild(del);
+      card.appendChild(img); card.appendChild(row);
+      shelf.appendChild(card);
+    });
+  }
+
+  function galRefreshSoon(times){
+    // the daemon admits/acts on its ~3s tick — poll the shelf a few times
+    var n = 0;
+    var t = setInterval(function(){
+      getState().then(renderGallery);
+      if (++n >= (times || 4)) clearInterval(t);
+    }, 2500);
+  }
+
+  function galAct(action, id){
+    var applyAt = Date.now() / 1000;
+    fetch(GAPI, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, id: id, token: String(Date.now()) })
+    }).then(function(res){
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      if (action === 'remove'){ el('gal-note').textContent = 'removed'; galRefreshSoon(2); return; }
+      setStatus('hanging your picture… (~40s ceremony)', 'pending');
+      var poll = setInterval(function(){
+        getState().then(function(st){
+          if (st && typeof st.last_refresh === 'number' && st.last_refresh > applyAt){
+            clearInterval(poll);
+            setStatus('✓ on the wall', 'ok');
+            refreshInkshot();
+          }
+        });
+      }, 5000);
+      setTimeout(function(){ clearInterval(poll); }, 120000);
+    }).catch(function(){ el('gal-note').textContent = 'the wall is unreachable'; });
+  }
+
+  el('gal-file').addEventListener('change', function(){
+    var f = this.files && this.files[0];
+    if (!f) return;
+    this.value = '';
+    el('gal-note').textContent = 'uploading…';
+    var fd = new FormData();
+    fd.append('photo', f);
+    fetch(GAPI, { method: 'POST', body: fd }).then(function(res){
+      return res.json().then(function(j){
+        if (!res.ok) throw new Error(j.error || ('HTTP ' + res.status));
+        el('gal-note').textContent = 'admitting…';
+        galRefreshSoon(4);
+        setTimeout(function(){ el('gal-note').textContent = ''; }, 12000);
+      });
+    }).catch(function(e){ el('gal-note').textContent = String(e.message || e); });
+  });
+
   /* ---------- boot ---------- */
   getState().then(function(st){
     populate(st);
     renderOnWall(st);
     reloadPreview();
     refreshInkshot();
+    renderGallery(st);
   });
 })();
 </script>
