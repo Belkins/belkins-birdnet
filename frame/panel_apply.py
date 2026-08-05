@@ -188,7 +188,7 @@ def rewrite_config(cfg_text, merged):
     return head + tail
 
 
-SHOT_SRC = "~/.birdframe/shot.png"
+SHOT_SRC = "~/.birdframe/delivered.png"  # the composed post-everything image display.py saves after each successful push — NEVER shot.png, a shoot-path intermediate
 SHOT_DEST = "/run/birdframe/last-shot.png"
 
 
