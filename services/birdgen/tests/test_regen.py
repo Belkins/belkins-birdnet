@@ -889,5 +889,8 @@ def test_gen_uses_key_tol_registry(monkeypatch):
 
 def test_key_tol_registry_default_carries_the_robin():
     """The shipped default must key the robin at 15 — the measured tol that
-    keeps its cream belly (distance 24-29 from ground) out of the key."""
+    keeps its cream belly (distance 24-29 from ground) out of the key — and
+    the parakeet at 20 (its pale breast wash measured 38-50; the palest of it
+    fell inside the default 42 and the neck went with it)."""
     assert app.KEY_TOL_SLUGS.get("erithacus-rubecula") == 15
+    assert app.KEY_TOL_SLUGS.get("psittacula-krameri") == 20
