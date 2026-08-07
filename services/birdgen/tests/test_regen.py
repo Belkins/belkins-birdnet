@@ -894,3 +894,15 @@ def test_key_tol_registry_default_carries_the_robin():
     fell inside the default 42 and the neck went with it)."""
     assert app.KEY_TOL_SLUGS.get("erithacus-rubecula") == 15
     assert app.KEY_TOL_SLUGS.get("psittacula-krameri") == 20
+    assert app.KEY_TOL_SLUGS.get("ardea-cinerea") == 10
+    assert app.KEY_TOL_SLUGS.get("aegithalos-caudatus") == 20
+
+
+def test_pale_ground_seed_carries_the_tit():
+    """PALE_GROUND_SLUGS seeding must survive the in-memory set being cleared
+    (a restart, or the test fixture): re-seeding restores the tit, whose
+    near-paper head the hollow-cutout gate can never flag — without the seed
+    every regen re-rolls on the cream ground and mutilates identically."""
+    app._PALE_GROUND_SLUGS.clear()
+    app._seed_pale_ground()
+    assert "aegithalos-caudatus" in app._PALE_GROUND_SLUGS

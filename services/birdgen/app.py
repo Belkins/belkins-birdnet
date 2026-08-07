@@ -179,9 +179,14 @@ TUCK_SLUGS = set(
 # robin: belly measured 24-29 from ground. parakeet: the pale blue-green
 # breast wash measured 38-50 (its palest reaches under 42, which is how the
 # default tol ate the neck on 07-03) — 20 spares the wash, ground texture is <=8.
+# heron: white neck/breast measured 14-23 from ground (10 spares both poses,
+# ground texture <=4). tit: 20 protects its belly (31) — the head is a lost
+# cause for ANY tol (painted 1-3 from the ground) and rides PALE_GROUND_SLUGS.
 KEY_TOL_SLUGS: dict = {}
 for _part in os.environ.get(
-        "KEY_TOL_SLUGS", "erithacus-rubecula:15,psittacula-krameri:20").split(","):
+        "KEY_TOL_SLUGS",
+        "erithacus-rubecula:15,psittacula-krameri:20,"
+        "ardea-cinerea:10,aegithalos-caudatus:20").split(","):
     _slug, _, _tol = _part.strip().partition(":")
     if _slug and _tol.isdigit() and 5 <= int(_tol) <= 41:
         KEY_TOL_SLUGS[_slug] = int(_tol)
@@ -1306,6 +1311,21 @@ def _qa_verify(slug: str, sci: str, com: str, pose: int, cut_path: Path,
 # darker ground from the first attempt. In-memory: a restart re-learns at the
 # cost of one rejected roll.
 _PALE_GROUND_SLUGS: set = set()
+
+
+def _seed_pale_ground() -> None:
+    """Persistent seeding for species the hollow-cutout gate can NEVER flag:
+    a PARTIALLY-pale bird (the long-tailed tit — head painted 1-3 max-channel
+    from the cream ground, and its contour never closes) keeps enough dark
+    body to clear the bbox-fill floor, publishes mutilated, and the in-memory
+    learning above never fires. Seeded at boot so every gen — not just a
+    post-reject retry — renders these on the darker tea-stain ground."""
+    for _s in os.environ.get("PALE_GROUND_SLUGS", "aegithalos-caudatus").split(","):
+        if _s.strip():
+            _PALE_GROUND_SLUGS.add(_s.strip())
+
+
+_seed_pale_ground()
 
 PALE_GROUND_NOTE = (
     "This species has very pale, white-dominant plumage. So the cutout keys "
