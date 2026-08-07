@@ -42,6 +42,10 @@ export const FLIGHT_ASPECT: Record<string, number> = {
   // neck survives the per-species key tol.
   'aegithalos-caudatus': 1.09,
   'ardea-cinerea': 1.12,
+  // measured 2026-08-07 after the rekey batch made their flight plates whole.
+  'troglodytes-troglodytes': 1.68,
+  'buteo-buteo': 1.01,
+  'motacilla-alba': 2.06,
 };
 
 /** A bird can fly in the collage iff we have a measured flight aspect for it

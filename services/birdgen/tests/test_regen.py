@@ -896,6 +896,9 @@ def test_key_tol_registry_default_carries_the_robin():
     assert app.KEY_TOL_SLUGS.get("psittacula-krameri") == 20
     assert app.KEY_TOL_SLUGS.get("ardea-cinerea") == 10
     assert app.KEY_TOL_SLUGS.get("aegithalos-caudatus") == 20
+    assert app.KEY_TOL_SLUGS.get("troglodytes-troglodytes") == 18
+    assert app.KEY_TOL_SLUGS.get("buteo-buteo") == 8
+    assert app.KEY_TOL_SLUGS.get("motacilla-alba") == 18
 
 
 def test_pale_ground_seed_carries_the_tit():
