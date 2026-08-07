@@ -37,6 +37,11 @@ export const FLIGHT_ASPECT: Record<string, number> = {
   'charadrius-dubius': 1.16,
   'haematopus-ostralegus': 1.58,
   'chloris-chloris': 1.39,
+  // measured 2026-08-07 after their plates were made whole: the tit's flight
+  // plate is a REAL render now (was a byte-copy of perched), the heron's
+  // neck survives the per-species key tol.
+  'aegithalos-caudatus': 1.09,
+  'ardea-cinerea': 1.12,
 };
 
 /** A bird can fly in the collage iff we have a measured flight aspect for it
