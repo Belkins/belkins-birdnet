@@ -186,7 +186,10 @@ KEY_TOL_SLUGS: dict = {}
 for _part in os.environ.get(
         "KEY_TOL_SLUGS",
         "erithacus-rubecula:15,psittacula-krameri:20,"
-        "ardea-cinerea:10,aegithalos-caudatus:20").split(","):
+        "ardea-cinerea:10,aegithalos-caudatus:20,"
+        # wren breast 29-32, buzzard white belly 11 (tightest with the heron),
+        # wagtail white belly 29 — all measured 2026-08-07 from the live plates.
+        "troglodytes-troglodytes:18,buteo-buteo:8,motacilla-alba:18").split(","):
     _slug, _, _tol = _part.strip().partition(":")
     if _slug and _tol.isdigit() and 5 <= int(_tol) <= 41:
         KEY_TOL_SLUGS[_slug] = int(_tol)
