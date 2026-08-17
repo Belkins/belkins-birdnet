@@ -1,0 +1,167 @@
+{
+  "repo": "Belkins/belkins-birdnet",
+  "mainBranch": "main",
+  "board": {
+    "enabled": false,
+    "owner": "Belkins",
+    "ownerType": "user",
+    "number": 0,
+    "issueFields": [],
+    "statusField": "Status",
+    "statuses": {
+      "inbox": "Inbox",
+      "refining": "Refining",
+      "ready": "Ready",
+      "inProgress": "In progress",
+      "inReview": "In review",
+      "blocked": "Blocked",
+      "done": "Done"
+    },
+    "priority": {
+      "field": "Priority",
+      "values": [
+        "Urgent",
+        "High",
+        "Medium",
+        "Low"
+      ]
+    },
+    "iterationField": "Iteration"
+  },
+  "labels": {
+    "areas": [
+      {
+        "name": "area/web",
+        "description": "web/ — Vite/TS collage front-end"
+      },
+      {
+        "name": "area/avian",
+        "description": "avian/ — catalog, realtime forwarder, backup"
+      },
+      {
+        "name": "area/birdgen",
+        "description": "services/birdgen — generation service (Railway)"
+      },
+      {
+        "name": "area/frame",
+        "description": "frame/, homepage/, templates/ — the Pi-served surfaces"
+      },
+      {
+        "name": "area/deploy",
+        "description": "deploy-*.sh, scripts/, tools/ — Pi + Railway deployment"
+      },
+      {
+        "name": "area/docs",
+        "description": "docs/, _plan, _design-plan"
+      }
+    ],
+    "risk": [
+      {
+        "name": "risk/low",
+        "description": "Contained; a mistake is visible and cheap to undo"
+      },
+      {
+        "name": "risk/medium",
+        "description": "Touches shared code or data others depend on"
+      },
+      {
+        "name": "risk/high",
+        "description": "Auth, tenant isolation, money, or a data migration"
+      }
+    ]
+  },
+  "review": {
+    "base": "origin/main",
+    "riskHighLabel": "risk/high",
+    "smallFix": {
+      "maxChangedLines": 50,
+      "allowNewFiles": false,
+      "protectedPaths": [
+        "deploy-christina.sh",
+        "deploy-realtime.sh",
+        "scripts/repo-guards.sh"
+      ]
+    },
+    "deterministicChecks": [
+      {
+        "command": "bash scripts/repo-guards.sh",
+        "decides": "the repository guards (python-app.yml)"
+      },
+      {
+        "command": "flake8",
+        "decides": "Python lint (python-ci.yml)"
+      },
+      {
+        "command": "cd web && npm test",
+        "decides": "whether the web tests pass (web-ci.yml)"
+      },
+      {
+        "command": "cd web && npm run lint",
+        "decides": "oxlint over web/ (web-ci.yml)"
+      },
+      {
+        "command": "cd web && npm run build",
+        "decides": "that the web build (tsc -b + vite) succeeds and matches dist (web-ci.yml)"
+      }
+    ],
+    "agents": {
+      "scope-reviewer": {
+        "enabled": true,
+        "always": true
+      },
+      "simplicity-reviewer": {
+        "enabled": true,
+        "paths": [
+          "*.py",
+          "*.ts",
+          "*.tsx"
+        ]
+      },
+      "test-quality-reviewer": {
+        "enabled": true,
+        "paths": [
+          "*.py",
+          "*.ts",
+          "*.tsx"
+        ]
+      },
+      "security-reviewer": {
+        "enabled": true,
+        "wakesOnRiskHigh": true,
+        "paths": [
+          "avian/realtime/*",
+          "services/birdgen/*",
+          "deploy-*.sh",
+          "scripts/*",
+          ".github/workflows/*",
+          "*.env.example"
+        ]
+      },
+      "db-reviewer": {
+        "enabled": false,
+        "paths": []
+      },
+      "contract-reviewer": {
+        "enabled": false,
+        "paths": []
+      }
+    }
+  },
+  "contracts": {
+    "enabled": false,
+    "path": ""
+  },
+  "verification": [
+    "bash scripts/repo-guards.sh",
+    "python3 -m pytest -q",
+    "cd web && npm test && npm run lint && npm run build"
+  ],
+  "docs": {
+    "root": "docs",
+    "workflow": "docs/workflow",
+    "decisionDocs": [
+      "CLAUDE.md"
+    ]
+  },
+  "readOnlyPaths": []
+}
