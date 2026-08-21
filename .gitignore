@@ -106,3 +106,8 @@ tools/jardine/cache/
 # regenerable output into the repo. The .png plates themselves stay tracked.
 avian/assets/illustrations/*.webp
 avian/assets/cutouts/*.webp
+
+# workflow-kit: track ONLY the kit configuration under .claude/
+!.claude/
+.claude/*
+!.claude/workflow-kit.json
