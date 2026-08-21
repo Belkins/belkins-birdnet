@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Recap } from './Recap';
+import '../fonts.css';
 import './recap.css';
 
 const el = document.getElementById('recap-root');
