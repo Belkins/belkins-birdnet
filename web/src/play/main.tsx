@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Play } from './Play';
+import '../fonts.css';
 import './play.css';
 
 const el = document.getElementById('play-root');
