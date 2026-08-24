@@ -1,1 +1,0 @@
-import{g as e,m as t,p as n,s as r,x as i}from"./catalog-CusixMbL.js";var a=new Set(r.filter(e=>e.hasAsset).map(e=>n(e.sci)));function o(n,r,o=1){return i?a.has(n)?`${e}mock/${n}.png`:null:`${t}/cutout.php?sci=${encodeURIComponent(r)}&pose=${o}`}export{o as t};

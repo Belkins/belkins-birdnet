@@ -15,6 +15,7 @@ import type { Settings } from './settings';
 import { CollageGrid, COLLAGE_PAD, GRID_STRIDE } from './packer';
 import { CollageRenderer } from './renderer';
 import { aspect, loadData, loadMask, slugify } from './data';
+import { isEngine } from './engine';
 import { fetchDaySnapshot, fetchSnapshot } from './snapshot';
 import { ambientRoster } from './ambient';
 import { MockStream, SseStream } from './events';
@@ -319,6 +320,11 @@ export class CollageEngine {
   /** Faithful initial pack of the snapshot (apt.js renderCollage pipeline). */
   private seed(species: SpeciesRow[]): void {
     const { W, H } = this;
+    // The Engine easter egg is never COMPOSED into the flock (Vlad's call,
+    // 2026-08-25): the aeroplane hangs only where a visitor goes looking —
+    // the dossier and the Atlas. A window where only the sky was heard is a
+    // LISTENING screen, not a lone plane.
+    species = species.filter((s) => !isEngine(slugify(s.sci)));
     if (!species.length) {
       this.cb.onStatus?.(MOCK ? 'mock — waiting for birds' : 'no birds in window');
       this.cb.onCount?.(0);
@@ -494,6 +500,7 @@ export class CollageEngine {
     if (this.viewDay !== null) return; // a live detection belongs to NOW, never painted onto a pinned past day
     const sci = ev.sci;
     const slug = ev.slug || slugify(sci);
+    if (isEngine(slug)) return; // aircraft never join the flock (see seed())
     const ar = aspect(sci);
     // TODO(phase1): live tiles use a representative area, NOT the global
     // count-weighted re-normalisation, because re-normalising would require
@@ -825,7 +832,9 @@ export class CollageEngine {
       // always reads as a composed painting, never empty/still-loading. Screens
       // keep the honest density tier (undefined → the DENSITY_CAP default).
       targetTotal: isWall ? 16 : undefined,
-    });
+    }).filter((a) => !isEngine(slugify(a.sci)));
+    // ^ allTime comes from species.json, which honestly records Engine — the
+    //   backdrop must not resurrect as a ghost what seed()/addBird() exclude.
 
     const grid = new CollageGrid(this.W, this.H, GRID_STRIDE, this.pad, STAMP_FRAC);
     // Reserve every real bird's footprint so ambient nests AROUND the cluster,

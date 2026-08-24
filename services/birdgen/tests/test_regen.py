@@ -901,6 +901,61 @@ def test_key_tol_registry_default_carries_the_robin():
     assert app.KEY_TOL_SLUGS.get("motacilla-alba") == 18
 
 
+def test_key_tol_registry_default_carries_the_2026_08_24_reclean_batch():
+    """The 2026-08-24 /reclean rekey measurements: kestrel and alpine swift
+    healed at 28; the hawfinch breast and the bellbird's all-white body needed
+    14; the turnstone's white belly needed 8 (tightest band, beside the
+    buzzard). Dropping any entry — or malforming it so the silent isdigit/5-41
+    parse guard discards it — re-eats the healed body on that species' next
+    repaint at the default 42, so each entry rides its own pin like the
+    robin's."""
+    assert app.KEY_TOL_SLUGS.get("falco-tinnunculus") == 28
+    assert app.KEY_TOL_SLUGS.get("apus-melba") == 28
+    assert app.KEY_TOL_SLUGS.get("coccothraustes-coccothraustes") == 14
+    assert app.KEY_TOL_SLUGS.get("procnias-nudicollis") == 14
+    assert app.KEY_TOL_SLUGS.get("arenaria-interpres") == 8
+
+
+def test_non_bird_label_never_buys_a_generation(client, auth):
+    """BirdNET's non-bird classes carry the SAME text in both label halves
+    ('Engine_Engine'); the one recorded generation for Engine hallucinated a
+    house sparrow. Both paid entry points must refuse them: /detected before
+    the queue, /requeue before delete-first (a refused requeue must not wipe
+    a published plate). A real bird keeps flowing."""
+    slug, sci, com = "engine", "Engine", "Engine"
+
+    # /detected refuses pre-queue: no row is ever created.
+    r = client.post(
+        "/detected",
+        json={"slug": slug, "sci": sci, "com": com, "conf": 0.99},
+        headers=auth,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"status": "non_bird"}
+    assert app.get_state(slug) is None, "refused detection must not enqueue"
+
+    # /requeue refuses by stored label, and BEFORE the delete-first wipe.
+    _publish(slug, sci, com)  # simulate the pre-guard world: engine got painted
+    before = _p1(slug).read_bytes()
+    r = client.post("/requeue", json={"slugs": [slug]}, headers=auth)
+    assert r.status_code == 200, r.text
+    assert r.json().get("refused", {}).get(slug) == "non_bird"
+    assert slug not in r.json()["requeued"]
+    assert _p1(slug).exists() and _p1(slug).read_bytes() == before, (
+        "a refused requeue must leave the published plate serving"
+    )
+
+    # Control: a real species (sci != com) still queues normally.
+    r = client.post(
+        "/detected",
+        json={"slug": "erithacus-rubecula", "sci": "Erithacus rubecula",
+              "com": "European Robin", "conf": 0.99},
+        headers=auth,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] in ("queued", "cached", "bundled", "in_progress")
+
+
 def test_pale_ground_seed_carries_the_tit():
     """PALE_GROUND_SLUGS seeding must survive the in-memory set being cleared
     (a restart, or the test fixture): re-seeding restores the tit, whose
