@@ -40,6 +40,11 @@ export interface DisplayProfile {
    *  null = 1 = today's law. Low values let birds crowd the masthead — the
    *  panel preview shows the truth before anything is painted. */
   air: number | null;
+  /** ?seed= — pins the composition dice. The packer itself is deterministic;
+   *  the only randomness in a kiosk shot is rollPose's perched-vs-flight
+   *  roll, so a pinned seed makes APPLY paint the very composition the panel
+   *  previewed. null = every load rolls fresh (the museum's own law). */
+  seed: number | null;
 }
 
 /** The frozen-for-the-session profile, parsed once at module load. */
@@ -149,6 +154,16 @@ function readProfile(): DisplayProfile {
   // glass edge and under the masthead) is a mistake, not a composition.
   const air = frac('air', 'VITE_AIR', 1);
 
+  // ?seed= — a positive int31 pins the pose dice; anything else is null
+  // (free roll). Digits-only first so "1e3" and "0x10" never sneak past
+  // Number(), and 0 stays null — the daemon uses 0 as "not baked".
+  const seedRaw = pick('seed', 'VITE_SEED')?.trim() ?? null;
+  let seed: number | null = null;
+  if (seedRaw !== null && /^[0-9]{1,10}$/.test(seedRaw)) {
+    const s = Number(seedRaw);
+    if (s >= 1 && s <= 2147483647) seed = s;
+  }
+
   // ?lat=&lon= — one-time city-level location for Golden Hour. The pair is
   // ATOMIC: both must parse in range or BOTH stay null (a half-set location is
   // silence, never a guess). No browser geolocation prompt, no cloud — the sun
@@ -182,5 +197,6 @@ function readProfile(): DisplayProfile {
     heroCap,
     overlap,
     air,
+    seed,
   };
 }

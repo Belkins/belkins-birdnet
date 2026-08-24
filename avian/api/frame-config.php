@@ -92,7 +92,7 @@ if (json_last_error() !== JSON_ERROR_NONE || !is_array($req)) {
 // Key whitelist: anything outside the contract is a 400, not a shrug -
 // a typo'd knob name must never read back as "applied". (JSON keys that
 // look numeric decode to int array keys, hence the (string) cast.)
-$KNOWN = ['zoom', 'budget', 'mintile', 'herocap', 'overlap', 'air', 'theme', 'view', 'token'];
+$KNOWN = ['zoom', 'budget', 'mintile', 'herocap', 'overlap', 'air', 'seed', 'theme', 'view', 'token'];
 foreach (array_keys($req) as $k) {
     if (!in_array($k, $KNOWN, true)) bad('unknown key: ' . (string)$k);
 }
@@ -119,6 +119,19 @@ foreach ($FLOATS as $key => $r) {
     $loOk = $r['lo_open'] ? ($f > $r['lo']) : ($f >= $r['lo']);
     if (!$loOk || $f > $r['hi']) bad($key . ' out of range ' . $r['range']);
     $out[$key] = $f;
+}
+
+// seed is the one INTEGER knob: 0 = "not baked" (free roll), a positive
+// int31 pins the pose dice so the wall paints the previewed composition.
+// is_numeric FIRST (same bool-cast trap as the floats), then integrality —
+// 1.5 must 400, never be truncated into a seed nobody previewed.
+if (array_key_exists('seed', $req)) {
+    $v = $req['seed'];
+    if (!is_numeric($v) || (float)$v !== floor((float)$v)
+        || (float)$v < 0 || (float)$v > 2147483647) {
+        bad('seed must be an integer in [0, 2147483647]');
+    }
+    $out['seed'] = (int)$v;
 }
 
 if (array_key_exists('theme', $req)) {

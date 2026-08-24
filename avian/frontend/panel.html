@@ -262,8 +262,9 @@
     <p class="seclabel" style="margin-top:1.2rem">on the inky now</p>
     <div class="frame">
       <div class="screen">
-        <!-- The wall's OWN last screenshot (daemon-mirrored). The preview's
-             dice and the wall's dice roll separately — this settles it. -->
+        <!-- The wall's OWN last screenshot (daemon-mirrored). APPLY now bakes
+             the previewed seed so the two agree by construction; this pane
+             stays the ground truth of what the ink actually took. -->
         <img id="inkshot" alt="the wall's last screenshot"
              style="width:100%;aspect-ratio:3/4;object-fit:contain;display:block;background:#f4f1e8">
       </div>
@@ -413,7 +414,12 @@
 
   var theme = DEFAULTS.theme;
   var win = '24';
-  var roll = 1;
+  // The composition dice. A fresh page rolls its own; the dice button
+  // re-rolls; APPLY bakes the CURRENT seed into the wall's shot URL, so the
+  // ink paints the very composition the preview showed (the two used to
+  // roll separately — that mismatch is what this seed retires).
+  function freshSeed(){ return 1 + Math.floor(Math.random() * 2147483646); }
+  var seed = freshSeed();
   var pollTimer = null, killTimer = null;
 
   /* ---------- honest values: what you see is what is sent ---------- */
@@ -455,8 +461,8 @@
       + '&herocap=' + sent('herocap')
       + '&overlap=' + sent('overlap')
       + '&air=' + sent('air')
-      + '&win=' + win
-      + '&roll=' + roll;
+      + '&seed=' + seed
+      + '&win=' + win;
   }
 
   function reloadPreview(){
@@ -507,6 +513,11 @@
     });
     theme = (st && st.theme === 'night') ? 'night' : DEFAULTS.theme;
     win = (st && st.view && VIEW_WIN[st.view]) ? VIEW_WIN[st.view] : '24';
+    // Adopt the wall's baked seed so the boot preview mirrors the glass;
+    // a wall that never baked one (seed 0 / absent) keeps the fresh roll.
+    if (st && st.knobs && typeof st.knobs.seed === 'number' && st.knobs.seed >= 1){
+      seed = Math.floor(st.knobs.seed);
+    }
     enforcePair();
     KNOBS.forEach(updateReadout);
     applyThemeUI();
@@ -539,6 +550,7 @@
       'herocap ' + fmtNum(k.herocap) + sep +
       'overlap ' + fmtNum(k.overlap) + sep +
       'air ' + fmtNum(k.air) + sep +
+      (k.seed >= 1 ? 'seed ' + fmtNum(k.seed) + sep : '') +
       esc(st.theme || '—') + sep +
       esc(st.view || '—') + sep +
       '<span class="faint">' + fmtTime(st.last_refresh) + '</span>';
@@ -563,6 +575,7 @@
       herocap: val('herocap'),
       overlap: val('overlap'),
       air: val('air'),
+      seed: seed,
       theme: theme,
       view: WIN_VIEW[win],
       token: String(Date.now())
@@ -651,7 +664,7 @@
   });
 
   el('dice').addEventListener('click', function(){
-    roll += 1;
+    seed = freshSeed();
     var d = el('dice');
     d.classList.remove('rolling');
     void d.offsetWidth;

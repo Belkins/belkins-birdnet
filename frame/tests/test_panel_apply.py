@@ -44,7 +44,7 @@ shoot_subtitle = "Heard This Week"
 """
 
 CURRENT = {"zoom": 1.4, "budget": 0.92, "mintile": 0.012, "herocap": 0.24,
-           "overlap": 0.25, "air": 0.8, "theme": "day"}
+           "overlap": 0.25, "air": 0.8, "seed": 0, "theme": "day"}
 
 
 def _valid(extra=None, current=CURRENT):
@@ -62,7 +62,7 @@ def test_current_knobs_reads_the_config():
 def test_current_knobs_defaults_on_empty_text():
     assert panel_apply.current_knobs("") == {
         "zoom": 1.7, "budget": 0.95, "mintile": 0.009, "herocap": 0.32,
-        "overlap": 0.3, "air": 1.0, "theme": "day"}
+        "overlap": 0.3, "air": 1.0, "seed": 0, "theme": "day"}
 
 
 def test_current_knobs_garbled_param_falls_alone():
@@ -124,6 +124,19 @@ def test_air_open_at_zero_closed_at_one():
     assert _valid({"air": 1.0})[0] is not None
     assert _valid({"air": 1.001})[0] is None
     assert _valid({"air": -0.5})[0] is None
+
+
+def test_seed_integer_int31_zero_means_free():
+    assert _valid({"seed": 0})[0]["seed"] == 0, "0 = free roll, valid"
+    assert _valid({"seed": 1})[0]["seed"] == 1
+    assert _valid({"seed": 2147483647})[0]["seed"] == 2147483647
+    assert _valid({"seed": 2147483648})[0] is None
+    assert _valid({"seed": -1})[0] is None
+    merged, reason = _valid({"seed": 1.5})
+    assert merged is None and "integer" in reason
+    # a float that IS integral passes and comes back an int (JSON floats)
+    merged, _ = _valid({"seed": 42.0})
+    assert merged["seed"] == 42 and isinstance(merged["seed"], int)
 
 
 def test_overlap_closed_both_ends():
@@ -269,6 +282,22 @@ def test_rewrite_on_empty_text_creates_both_lines():
     out = panel_apply.rewrite_config("", _merged())
     assert out.startswith("shoot_spa_path = ")
     assert "\nshoot_zoom = " in out
+
+
+def test_rewrite_seed_zero_stays_out_of_the_path():
+    """seed 0 = 'not baked': the page must keep rolling its own dice, so the
+    param never appears — an explicit seed=0 in the URL would still read as
+    null in profile.ts, but the contract is cleaner with it absent."""
+    out = panel_apply.rewrite_config(CFG, _merged())
+    assert "seed=" not in out
+
+
+def test_rewrite_bakes_a_positive_seed_as_a_bare_integer():
+    out = panel_apply.rewrite_config(CFG, _merged(seed=123456789))
+    assert "&seed=123456789" in out
+    assert "seed=123456789.0" not in out, "an integer, never a float repr"
+    # and it round-trips through the parser
+    assert panel_apply.current_knobs(out)["seed"] == 123456789
 
 
 def test_rewrite_bakes_default_air_when_config_never_had_it():

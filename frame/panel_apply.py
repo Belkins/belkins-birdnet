@@ -33,15 +33,18 @@ STATE_PATH = "/run/birdframe/panel-state.json"
 # absent or a knob cannot be parsed out of it. Per KEY — one garbled param
 # must not reset the five others.
 DEFAULTS = {"zoom": 1.7, "budget": 0.95, "mintile": 0.009, "herocap": 0.32,
-            "overlap": 0.3, "air": 1.0, "theme": "day"}
+            "overlap": 0.3, "air": 1.0, "seed": 0, "theme": "day"}
 
-KNOB_KEYS = ("zoom", "budget", "mintile", "herocap", "overlap", "air")
+KNOB_KEYS = ("zoom", "budget", "mintile", "herocap", "overlap", "air", "seed")
 VIEW_NAMES = ("realtime", "today", "week", "all")
 
 # key -> (lo, hi, lo_inclusive). The high end is inclusive across the board;
 # only the low end differs: budget/mintile/herocap/air are open at zero
 # because zero means "no flock at all" (or, for air, birds hard against the
 # glass edge) — a request for nothing is a mistake, not a composition.
+# seed is the one INTEGER knob: 0 = "not baked" (the page rolls its own
+# dice), a positive int31 pins the pose dice so the wall paints exactly the
+# composition the panel previewed. validate() enforces integrality.
 RANGES = {
     "zoom": (1.0, 2.2, True),
     "budget": (0.0, 1.0, False),
@@ -49,6 +52,7 @@ RANGES = {
     "herocap": (0.0, 0.6, False),
     "overlap": (0.0, 0.5, True),
     "air": (0.0, 1.0, False),
+    "seed": (0.0, 2147483647.0, True),
 }
 
 # Top-level lines only — anchored at line start so commented-out examples
@@ -94,6 +98,12 @@ def current_knobs(cfg_text):
                     out[key] = float(pm.group(1))
                 except ValueError:
                     pass  # a garbled param: the default stands, alone
+        sm = re.search(r"[?&]seed=([^&]*)", url)
+        if sm:
+            try:
+                out["seed"] = int(sm.group(1))
+            except ValueError:
+                pass  # a garbled seed: the default (0, free roll) stands
         tm = re.search(r"[?&]theme=([^&]*)", url)
         if tm and tm.group(1) in ("day", "night"):
             out["theme"] = tm.group(1)
@@ -132,7 +142,12 @@ def validate(req, current):
         lo, hi, lo_incl = RANGES[key]
         if not ((v >= lo if lo_incl else v > lo) and v <= hi):
             return None, "%s=%s out of range" % (key, _fmt(v))
-        merged[key] = v
+        if key == "seed":
+            if v != int(v):
+                return None, "seed must be an integer"
+            merged[key] = int(v)
+        else:
+            merged[key] = v
     if "theme" in req:
         if req["theme"] not in ("day", "night"):
             return None, "theme %r not day|night" % (req["theme"],)
@@ -168,6 +183,10 @@ def rewrite_config(cfg_text, merged):
             "&mintile=%s&herocap=%s&overlap=%s&air=%s") % (
         merged["theme"], _fmt(merged["budget"]), _fmt(merged["mintile"]),
         _fmt(merged["herocap"]), _fmt(merged["overlap"]), _fmt(merged["air"]))
+    # seed 0 = "not baked": the page rolls fresh dice every paint (the old
+    # law). A positive seed pins the pose roll — WYSIWYG for the panel.
+    if merged.get("seed"):
+        path += "&seed=%d" % int(merged["seed"])
     wanted = (
         ("shoot_spa_path", 'shoot_spa_path = "%s"' % path),
         ("shoot_zoom", "shoot_zoom = %s" % _fmt(merged["zoom"])),
