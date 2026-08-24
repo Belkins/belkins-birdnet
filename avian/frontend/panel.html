@@ -445,11 +445,15 @@
   /* ---------- preview: the zoom trick ---------- */
   function updateGeometry(){
     var z = val('zoom');
-    var w = BASE_W / z, h = BASE_H / z;
+    // ROUNDED, exactly like display.py's shot viewport (vw=round(600/zoom)):
+    // a fractional preview viewport wouldn't just be cosmetic — the packer
+    // lays out in CSS pixels, so a 352.94 vs 353 canvas could diverge the
+    // seeded composition the apply promises to reproduce.
+    var w = Math.round(BASE_W / z), h = Math.round(BASE_H / z);
     iframe.style.width = w + 'px';
     iframe.style.height = h + 'px';
     iframe.style.transform = 'scale(' + (screen.clientWidth / w) + ')';
-    el('cap-zoom').textContent = shown('zoom') + '× · ' + Math.round(w) + '×' + Math.round(h);
+    el('cap-zoom').textContent = shown('zoom') + '× · ' + w + '×' + h;
   }
 
   function previewURL(){
