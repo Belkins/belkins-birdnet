@@ -9,12 +9,17 @@
 import { API_BASE, BASE, MOCK } from './config';
 import { MOCK_SPECIES } from './mockData';
 import { slugify } from './data';
+import { ENGINE_ART_URL, isEngine } from './engine';
 
 const MOCK_ASSET_SLUGS = new Set(
   MOCK_SPECIES.filter((s) => s.hasAsset).map((s) => slugify(s.sci)),
 );
 
 export function birdImageUrl(slug: string, sci: string, pose: 1 | 2 = 1): string | null {
+  // The one honest non-bird: BirdNET's "Engine" class (aircraft overhead).
+  // cutout.php refuses it and the gen pipeline must never paint it, so every
+  // surface hangs the bundled aeroplane plate instead (either pose, MOCK too).
+  if (isEngine(slug)) return ENGINE_ART_URL;
   if (MOCK) return MOCK_ASSET_SLUGS.has(slug) ? `${BASE}mock/${slug}.png` : null;
   return `${API_BASE}/cutout.php?sci=${encodeURIComponent(sci)}&pose=${pose}`;
 }

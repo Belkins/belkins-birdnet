@@ -189,7 +189,12 @@ for _part in os.environ.get(
         "ardea-cinerea:10,aegithalos-caudatus:20,"
         # wren breast 29-32, buzzard white belly 11 (tightest with the heron),
         # wagtail white belly 29 — all measured 2026-08-07 from the live plates.
-        "troglodytes-troglodytes:18,buteo-buteo:8,motacilla-alba:18").split(","):
+        "troglodytes-troglodytes:18,buteo-buteo:8,motacilla-alba:18,"
+        # measured 2026-08-24 by /reclean rekey against the live plates:
+        # kestrel + alpine swift healed at 28; hawfinch breast and the
+        # bellbird's all-white body needed 14; the turnstone's white belly 8.
+        "falco-tinnunculus:28,apus-melba:28,coccothraustes-coccothraustes:14,"
+        "procnias-nudicollis:14,arenaria-interpres:8").split(","):
     _slug, _, _tol = _part.strip().partition(":")
     if _slug and _tol.isdigit() and 5 <= int(_tol) <= 41:
         KEY_TOL_SLUGS[_slug] = int(_tol)

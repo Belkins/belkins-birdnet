@@ -6,6 +6,7 @@
 
 import type { Mask } from './types';
 import { BASE } from './config';
+import { ENGINE_ASPECT, isEngine } from './engine';
 
 type MaskRecord = { w: number; h: number; bits: string };
 type RawMasks = Record<string, MaskRecord>;
@@ -41,7 +42,11 @@ export async function loadData(): Promise<void> {
 
 /** width/height aspect for a species (DIMS lookup, else 1.4). */
 export function aspect(sci: string): number {
-  const d = DIMS[slugify(sci)];
+  const slug = slugify(sci);
+  // The Engine easter egg's bundled aeroplane plate is wider than any bird's
+  // default box; serve its own aspect so the tile doesn't squish the wings.
+  if (isEngine(slug)) return ENGINE_ASPECT;
+  const d = DIMS[slug];
   return d ? d[0] / d[1] : DEFAULT_ASPECT;
 }
 

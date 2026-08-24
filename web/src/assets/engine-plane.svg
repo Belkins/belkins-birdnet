@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+  <!-- The Engine easter egg: a vintage twin-prop airliner drifting through the
+       collage where BirdNET heard an aircraft. Painted in the museum's quiet
+       placeholder greys - a passing shadow, deliberately softer than the birds.
+       Faces left like most of the plates; gentle climb. -->
+  <g transform="rotate(-6 100 50)">
+    <!-- far wing, peeking above the fuselage -->
+    <path d="M104 42 L146 20 L156 22 L122 44 Z" fill="#8f897c"/>
+    <!-- far engine nacelle hint on the far wing -->
+    <ellipse cx="137" cy="27" rx="7" ry="3.2" fill="#847e71" transform="rotate(-28 137 27)"/>
+    <!-- tailplane (far side) -->
+    <path d="M168 40 L196 30 L192 42 L170 46 Z" fill="#8f897c"/>
+    <!-- fuselage: nose left, tapering to the tail -->
+    <path d="M14 52
+             C 20 45.5, 34 41.5, 52 40.5
+             L 150 37.5
+             C 166 37, 178 39.5, 184 43
+             C 178 48.5, 164 52, 148 53
+             L 44 57.5
+             C 28 58, 18 56, 14 52 Z" fill="#a59e8f"/>
+    <!-- tail fin -->
+    <path d="M160 39 C 168 32, 176 22, 179 13 L 191 13 C 190 24, 187 35, 183 43 Z" fill="#a59e8f"/>
+    <!-- cockpit glazing -->
+    <path d="M23 48.5 C 27 45.5, 33 43.5, 40 42.8 L 39 47.6 C 32 48.6, 27 49.2, 23 48.5 Z" fill="#6e685d"/>
+    <!-- cabin window strip -->
+    <g fill="#6e685d">
+      <circle cx="58" cy="46" r="1.7"/>
+      <circle cx="67" cy="45.7" r="1.7"/>
+      <circle cx="76" cy="45.4" r="1.7"/>
+      <circle cx="85" cy="45.1" r="1.7"/>
+      <circle cx="94" cy="44.8" r="1.7"/>
+      <circle cx="103" cy="44.5" r="1.7"/>
+      <circle cx="112" cy="44.2" r="1.7"/>
+    </g>
+    <!-- near wing, sweeping down toward the viewer -->
+    <path d="M74 50 L96 51.5 L64 88 L48 84 Z" fill="#9a9385"/>
+    <!-- near engine nacelle + prop disc -->
+    <ellipse cx="63" cy="63" rx="10" ry="4.6" fill="#847e71" transform="rotate(48 63 63)"/>
+    <ellipse cx="57" cy="56.5" rx="1.6" ry="7.5" fill="#6e685d" transform="rotate(24 57 56.5)" opacity="0.55"/>
+    <!-- tailplane (near side) -->
+    <path d="M166 46 L192 52 L184 58 L162 52 Z" fill="#9a9385"/>
+  </g>
+</svg>

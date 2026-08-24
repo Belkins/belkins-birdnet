@@ -23,7 +23,9 @@ export const FLIGHT_ASPECT: Record<string, number> = {
   // robin re-measured 2026-08-05 after the belly rekey (plate now 1042x625);
   // the 1.28 here was probed 07-01 against a plate two generations gone.
   'erithacus-rubecula': 1.67,
-  'psittacula-krameri': 1.0,
+  // parakeet flight re-rolled 2026-08-24 (the old "flight" plate was a perched
+  // copy that measured square); the real wings-spread plate is 759×700.
+  'psittacula-krameri': 1.08,
   'cyanistes-caeruleus': 1.2,
   'carduelis-carduelis': 1.82,
   'apus-apus': 1.79,

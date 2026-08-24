@@ -25,6 +25,7 @@ import { fetchCatalog } from '../catalog';
 import { API_BASE, ATTEST_URL } from '../config';
 import { formatDay } from '../days';
 import { birdImageUrl } from '../img';
+import { ENGINE_DESC, isEngine } from '../engine';
 import {
   counterpointFor,
   fetchJardine,
@@ -201,7 +202,7 @@ function Dialog({
   // (its status probe answers → phase leaves 'unavailable'); the old plate keeps
   // hanging until a QA-passing successor lands (never-worse). `swappedAt` fires a
   // one-shot cache-bust so the swapped-in art bypasses the browser's old copy.
-  const repaint = useRepaint(bird.sci, pose, repaintEnabled);
+  const repaint = useRepaint(bird.sci, pose, repaintEnabled && !isEngine(bird.slug));
   const [bust, setBust] = useState(0);
   useEffect(() => {
     if (repaint.swappedAt) setBust(repaint.swappedAt);
@@ -265,6 +266,12 @@ function Dialog({
 
   // Wikipedia summary (species blurb). Same silent-degrade contract as above.
   useEffect(() => {
+    // The Engine easter egg: wiki.php?sci=Engine would return the article on
+    // combustion engines. The museum's own label replaces the whole fetch.
+    if (isEngine(bird.slug)) {
+      setDesc(ENGINE_DESC);
+      return;
+    }
     const ctrl = new AbortController();
     (async () => {
       try {
@@ -279,7 +286,7 @@ function Dialog({
       }
     })();
     return () => ctrl.abort();
-  }, [bird.sci]);
+  }, [bird.sci, bird.slug]);
 
   // Conservator's Mark: the judge's verdict on the HANGING perched plate,
   // fetched from birdgen's public /attest. 'attested' | 'caveat' |
@@ -577,32 +584,36 @@ function Dialog({
                 </div>
               )}
 
-              <div className="bp-pose" role="group" aria-label="Pose">
-                <button
-                  type="button"
-                  className="bp-pose-b"
-                  aria-pressed={pose === 1}
-                  aria-label="Perched"
-                  onClick={() => {
-                    setPose(1);
-                    onPoseChange?.(1);
-                  }}
-                >
-                  perched
-                </button>
-                <button
-                  type="button"
-                  className="bp-pose-b"
-                  aria-pressed={pose === 2}
-                  aria-label="In flight"
-                  onClick={() => {
-                    setPose(2);
-                    onPoseChange?.(2);
-                  }}
-                >
-                  flight
-                </button>
-              </div>
+              {/* An aircraft has one pose; the easter egg's dossier hides the
+                  perched/flight toggle rather than offering a no-op. */}
+              {!isEngine(bird.slug) && (
+                <div className="bp-pose" role="group" aria-label="Pose">
+                  <button
+                    type="button"
+                    className="bp-pose-b"
+                    aria-pressed={pose === 1}
+                    aria-label="Perched"
+                    onClick={() => {
+                      setPose(1);
+                      onPoseChange?.(1);
+                    }}
+                  >
+                    perched
+                  </button>
+                  <button
+                    type="button"
+                    className="bp-pose-b"
+                    aria-pressed={pose === 2}
+                    aria-label="In flight"
+                    onClick={() => {
+                      setPose(2);
+                      onPoseChange?.(2);
+                    }}
+                  >
+                    flight
+                  </button>
+                </div>
+              )}
 
               {/* A quiet corner whisper while a repaint is in flight: the OLD
                   plate keeps hanging (never-worse), so this is the only signal
