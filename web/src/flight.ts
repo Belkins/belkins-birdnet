@@ -58,8 +58,10 @@ export function canFly(slug: string): boolean {
 
 /** FNV-1a over the slug, folded with the profile seed, mapped to [0, 1).
  *  Per-SLUG so the outcome is independent of roll order: the panel preview
- *  and the wall shot agree bird-by-bird, whichever loads a species first. */
-function seededRoll(seed: number, slug: string): number {
+ *  and the wall shot agree bird-by-bird, whichever loads a species first.
+ *  Exported for the determinism test — rollPose is the only production
+ *  caller. */
+export function seededRoll(seed: number, slug: string): number {
   let h = 2166136261 ^ seed;
   for (let i = 0; i < slug.length; i++) {
     h ^= slug.charCodeAt(i);

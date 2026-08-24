@@ -66,12 +66,18 @@ def test_current_knobs_defaults_on_empty_text():
 
 
 def test_current_knobs_garbled_param_falls_alone():
-    """One unparseable param resets that one key, not its five neighbours."""
+    """One unparseable param resets that one key, not its neighbours — and
+    the seed's separate int() path must survive a garbled value too (a
+    hand-edited seed=3.5 raising out of current_knobs would kill consume on
+    every apply)."""
     text = CFG.replace("budget=0.92", "budget=oops").replace("theme=day",
                                                              "theme=dusk")
+    text = text.replace("&air=0.8", "&air=0.8&seed=3.5")
     got = panel_apply.current_knobs(text)
     assert got["budget"] == 0.95 and got["theme"] == "day"
+    assert got["seed"] == 0, "garbled seed falls to 0 (free roll), alone"
     assert got["mintile"] == 0.012 and got["zoom"] == 1.4
+    assert got["air"] == 0.8
 
 
 def test_current_knobs_ignores_a_views_table_path():
@@ -404,6 +410,22 @@ def test_consume_applies_and_arms_a_fresh_token(tmp_path):
     assert panel_apply.consume(**p) == "applied token=phone-2"
     doc2 = views.read_view(p["view_file"])
     assert doc2["token"] != doc1["token"], "a stale token paints nothing"
+
+
+def test_consume_bakes_and_publishes_a_positive_seed(tmp_path):
+    """The WYSIWYG loop end to end on the daemon side: a spooled seed lands
+    in the config URL AND in the published state — the state is what the
+    panel's boot reads to adopt the wall's baked seed, so dropping seed from
+    publish_state would silently unbake the wall on the next apply."""
+    p = _paths(tmp_path)
+    (tmp_path / "config.toml").write_text(CFG)
+    (tmp_path / "panel.json").write_text(
+        json.dumps({"token": "t-seed", "seed": 424242}))
+    assert panel_apply.consume(**p) == "applied token=t-seed"
+    cfg = (tmp_path / "config.toml").read_text()
+    assert "&seed=424242" in cfg
+    st = json.loads((tmp_path / "panel-state.json").read_text())
+    assert st["knobs"]["seed"] == 424242
 
 
 def test_consume_keeps_the_showing_view_when_request_names_none(tmp_path):

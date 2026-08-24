@@ -409,6 +409,12 @@
   var el = function(id){ return document.getElementById(id); };
   var sliders = {};
   KNOBS.forEach(function(k){ sliders[k] = el(k); });
+  // The declared ceiling, captured BEFORE any clamp: enforcePair() assigns
+  // sliders.mintile.max, and that assignment reflects into the content
+  // attribute — so the markup's max must be read exactly once, here, or the
+  // raised cap silently reverts to whatever the first clamp wrote (the
+  // shipped-and-caught two-copies bug this line retires).
+  var MINTILE_MAX = parseFloat(sliders.mintile.max);
   var iframe = el('preview'), screen = el('screen');
   var applyBtn = el('apply'), statusEl = el('status');
 
@@ -436,7 +442,7 @@
 
   /* ---------- pair rule: mintile must stay below herocap ---------- */
   function enforcePair(){
-    var cap = Math.min(0.030, Math.round((val('herocap') - 0.001) * 1000) / 1000);
+    var cap = Math.min(MINTILE_MAX, Math.round((val('herocap') - 0.001) * 1000) / 1000);
     sliders.mintile.max = cap;
     if (val('mintile') > cap){ sliders.mintile.value = cap; }
     updateReadout('mintile');
@@ -639,13 +645,7 @@
   el('presetseg').addEventListener('click', function(e){
     var b = e.target.closest('button'); if (!b) return;
     var p = PRESETS[b.dataset.preset]; if (!p) return;
-    // herocap FIRST, then re-derive mintile's ceiling, then the rest —
-    // otherwise a preset's mintile could clamp against the OLD herocap.
-    sliders.herocap.value = p.herocap;
-    enforcePair();
-    KNOBS.forEach(function(k){
-      if (k !== 'herocap' && (k in p)) sliders[k].value = p[k];
-    });
+    KNOBS.forEach(function(k){ if (k in p) sliders[k].value = p[k]; });
     enforcePair();
     KNOBS.forEach(updateReadout);
     updateGeometry();
