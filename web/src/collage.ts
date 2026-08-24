@@ -214,15 +214,21 @@ export class CollageEngine {
    *  cluster simply sits a touch inboard of the hidden chrome. */
   private safeBox(): { L: number; T: number; R: number; B: number } {
     const { W, H } = this;
-    const mx = Math.max(24, W * 0.05); // side gutters (clears parakeet-tail tangents)
+    // ?air= scales every inset below. The pixel FLOORS were tuned for browser
+    // canvases; on the wall's zoomed viewport (353×471 at 1.7×, 273×364 at
+    // 2.2×) they dominate the percentages and eat the glass — the packer's
+    // shrink-to-fit loop then caps the whole flock at the shrunken safe box.
+    // air < 1 hands that glass back; 1 (or absent) is today's law unchanged.
+    const air = PROFILE.air ?? 1;
+    const mx = Math.max(24, W * 0.05) * air; // side gutters (clears parakeet-tail tangents)
     // TITLE CLEAR ZONE: reserve the whole display-headline band at the top so no
     // bird (parakeet head et al.) can tangent RECENTLY — in BOTH collage-landing
     // and chrome-free frame modes. Deliberately generous: a large display title
     // plus its top offset, so the clamp below keeps the cluster wholly beneath it.
-    const mt = Math.max(96, H * 0.2); // top: display title band + filter/menu row
+    const mt = Math.max(96, H * 0.2) * air; // top: display title band + filter/menu row
     // Bottom: nav + counter + colophon, but pulled in from the old 0.15 so the
     // cluster's baseline extends into the lower third (kills the dead bottom zone).
-    const mb = Math.max(56, H * 0.12);
+    const mb = Math.max(56, H * 0.12) * air;
     return { L: mx, T: mt, R: W - mx, B: H - mb };
   }
 

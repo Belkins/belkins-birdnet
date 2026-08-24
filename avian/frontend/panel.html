@@ -177,6 +177,19 @@
     box-shadow:0 0 0 1px var(--line);
   }
 
+  /* ---------- the gallery ---------- */
+  .gal-drop{
+    border:1px dashed var(--line);
+    padding:22px 14px;
+    text-align:center;
+    cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .gal-drop:focus-visible{outline:1px dashed var(--accent);outline-offset:4px}
+  .gal-drop.dragover{border-color:var(--accent);background:var(--line-soft)}
+  .gal-drop .big{font-size:13px;letter-spacing:.14em;text-transform:uppercase}
+  .gal-drop .sub{font-size:11px;color:var(--muted);margin-top:4px}
+
   /* ---------- apply ---------- */
   #apply{
     width:100%;
@@ -218,7 +231,7 @@
   /* ---------- wider than a phone ---------- */
   @media (min-width:880px){
     .wrap{max-width:920px;display:grid;grid-template-columns:400px 1fr;column-gap:56px;align-items:start}
-    header,.onwall-block{grid-column:1/-1}
+    header,.onwall-block,.gallery-block{grid-column:1/-1}
     .preview-col{position:sticky;top:28px}
   }
 </style>
@@ -273,26 +286,22 @@
       <button type="button" class="dice" id="dice" title="re-roll the flock" aria-label="re-roll the flock">&#9860;</button>
     </div>
 
-    <!-- THE GALLERY EASTER EGG: a guest exhibit in the museum's frame. Any
-         photo, painted full-glass in the six inks; any bird button (or the
-         4h view TTL) brings the birds back on its own. -->
-    <p class="seclabel" style="margin-top:1.2rem">
-      <button type="button" id="gal-toggle"
-        style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer;letter-spacing:inherit;text-transform:inherit">
-        &#128444;&#65039; gallery — hang your own picture</button>
-    </p>
-    <div id="gallery" style="display:none">
-      <label for="gal-file" class="seg" style="display:inline-block;padding:.55rem .9rem;cursor:pointer">
-        add a photo
-        <input type="file" id="gal-file" accept="image/*" style="display:none">
-      </label>
-      <span id="gal-note" class="faint" style="margin-left:.6rem"></span>
-      <div id="gal-shelf" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:.6rem;margin-top:.8rem"></div>
-      <p class="faint" style="margin-top:.5rem">any window button brings the birds back — or the wall does it itself after 4h</p>
-    </div>
   </div>
 
   <div class="knobs-col">
+    <p class="seclabel">compositions</p>
+    <!-- One-tap stances: curated knob combos (engine physics: hero drama =
+         low mintile + high herocap + budget < 1; air hands the glass back).
+         They only move the sliders — APPLY is still the only paint trigger. -->
+    <div class="segrow">
+      <div class="seg" id="presetseg" role="group" aria-label="size presets">
+        <button type="button" data-preset="museum">MUSEUM</button>
+        <button type="button" data-preset="grand">GRAND</button>
+        <button type="button" data-preset="fullglass">FULL&nbsp;GLASS</button>
+        <button type="button" data-preset="aviary">AVIARY</button>
+      </div>
+    </div>
+
     <p class="seclabel">knobs</p>
 
     <div class="knob">
@@ -300,7 +309,7 @@
         <label for="herocap">hero size<span class="key">herocap</span></label>
         <output for="herocap" id="v-herocap"></output>
       </div>
-      <input type="range" id="herocap" min="0.11" max="0.40" step="0.01">
+      <input type="range" id="herocap" min="0.11" max="0.60" step="0.01">
     </div>
 
     <div class="knob">
@@ -324,7 +333,7 @@
         <label for="mintile">small birds<span class="key">mintile</span></label>
         <output for="mintile" id="v-mintile"></output>
       </div>
-      <input type="range" id="mintile" min="0.005" max="0.030" step="0.001">
+      <input type="range" id="mintile" min="0.005" max="0.050" step="0.001">
     </div>
 
     <div class="knob">
@@ -332,13 +341,45 @@
         <label for="zoom">zoom<span class="key">shoot_zoom</span></label>
         <output for="zoom" id="v-zoom"></output>
       </div>
-      <!-- capped at 1.8: past it the page's fixed margins (title zone, bird
-           padding) eat the shrinking viewport and the flock gets SMALLER -->
-      <input type="range" id="zoom" min="1.0" max="1.8" step="0.1">
+      <!-- the full backend range. Past ~1.8 the page's fixed margins used to
+           eat the shrinking viewport and the flock got SMALLER — the air knob
+           below is the companion lever: lower air at high zoom hands the
+           margin pixels back to the birds. -->
+      <input type="range" id="zoom" min="1.0" max="2.2" step="0.1">
+    </div>
+
+    <div class="knob">
+      <div class="knob-head">
+        <label for="air">air<span class="key">air</span></label>
+        <output for="air" id="v-air"></output>
+      </div>
+      <!-- breathing room: scales the title clear zone, bottom band and side
+           gutters. 1 = the museum's own law; low air lets the flock crowd
+           the masthead and the glass edge — the preview shows the truth. -->
+      <input type="range" id="air" min="0.10" max="1.00" step="0.05">
     </div>
 
     <button type="button" id="apply">apply to wall</button>
     <p id="status" role="status" aria-live="polite"></p>
+  </div>
+
+  <!-- THE GALLERY: a guest exhibit in the museum's frame — once an Easter
+       egg, now front of house. Any photo, painted full-glass in the six
+       inks; any window button (or the 4h view TTL) brings the birds back
+       on its own. Endpoints and daemon flow unchanged. -->
+  <div class="gallery-block">
+    <p class="seclabel">the gallery — hang your own picture</p>
+    <div class="frame">
+      <div class="gal-drop" id="gal-drop" role="button" tabindex="0"
+           aria-label="add a photo to the gallery">
+        <p class="big">add a photo</p>
+        <p class="sub">tap to choose — or drop an image here. it hangs full-glass in the six inks.</p>
+        <input type="file" id="gal-file" accept="image/*" style="display:none">
+      </div>
+      <p id="gal-note" class="faint" style="min-height:18px;margin-top:8px"></p>
+      <div id="gal-shelf" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:.6rem;margin-top:.4rem"></div>
+      <p class="faint" style="margin-top:.5rem">any window button brings the birds back — or the wall does it itself after 4h</p>
+    </div>
   </div>
 
 </div>
@@ -349,11 +390,20 @@
 
   var API = '../api/frame-config.php';
   var BASE_W = 600, BASE_H = 800;           // the viewport the frame photographs at zoom 1
-  var DEFAULTS = { zoom:1.7, budget:0.95, mintile:0.009, herocap:0.32, overlap:0.3, theme:'day' };
+  var DEFAULTS = { zoom:1.7, budget:0.95, mintile:0.009, herocap:0.32, overlap:0.3, air:1.0, theme:'day' };
   var WIN_VIEW = { '1':'realtime', '24':'today', '168':'week', '1000000':'all' };
   var VIEW_WIN = { realtime:'1', today:'24', week:'168', all:'1000000' };
-  var DECIMALS = { zoom:1, budget:2, mintile:3, herocap:2, overlap:2 };
-  var KNOBS = ['herocap','overlap','budget','mintile','zoom'];
+  var DECIMALS = { zoom:1, budget:2, mintile:3, herocap:2, overlap:2, air:2 };
+  var KNOBS = ['herocap','overlap','budget','mintile','zoom','air'];
+  // One-tap stances. Engine physics (measured on the wall, 2026-08-05):
+  // hero drama = LOW mintile + HIGH herocap + budget < 1; budget above 1
+  // triggers the squeeze pass and SHRINKS the hero — so no preset uses it.
+  var PRESETS = {
+    museum:    { zoom:1.7, air:1.0,  herocap:0.32, mintile:0.009, budget:0.95, overlap:0.3 },
+    grand:     { zoom:2.0, air:0.55, herocap:0.5,  mintile:0.007, budget:0.9,  overlap:0.35 },
+    fullglass: { zoom:2.2, air:0.3,  herocap:0.6,  mintile:0.006, budget:0.95, overlap:0.4 },
+    aviary:    { zoom:1.9, air:0.5,  herocap:0.22, mintile:0.02,  budget:1.0,  overlap:0.45 }
+  };
 
   var el = function(id){ return document.getElementById(id); };
   var sliders = {};
@@ -404,6 +454,7 @@
       + '&mintile=' + sent('mintile')
       + '&herocap=' + sent('herocap')
       + '&overlap=' + sent('overlap')
+      + '&air=' + sent('air')
       + '&win=' + win
       + '&roll=' + roll;
   }
@@ -487,6 +538,7 @@
       'mintile ' + fmtNum(k.mintile) + sep +
       'herocap ' + fmtNum(k.herocap) + sep +
       'overlap ' + fmtNum(k.overlap) + sep +
+      'air ' + fmtNum(k.air) + sep +
       esc(st.theme || '—') + sep +
       esc(st.view || '—') + sep +
       '<span class="faint">' + fmtTime(st.last_refresh) + '</span>';
@@ -510,6 +562,7 @@
       mintile: val('mintile'),
       herocap: val('herocap'),
       overlap: val('overlap'),
+      air: val('air'),
       theme: theme,
       view: WIN_VIEW[win],
       token: String(Date.now())
@@ -553,8 +606,34 @@
       if (k === 'herocap' || k === 'mintile'){ enforcePair(); }
       updateReadout(k);
       if (k === 'zoom'){ updateGeometry(); }
+      markPreset(null); // a hand-moved slider is its own composition
       scheduleReload();
     });
+  });
+
+  /* ---------- compositions (presets) ---------- */
+  function markPreset(name){
+    el('presetseg').querySelectorAll('button').forEach(function(b){
+      var on = b.dataset.preset === name;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on);
+    });
+  }
+  el('presetseg').addEventListener('click', function(e){
+    var b = e.target.closest('button'); if (!b) return;
+    var p = PRESETS[b.dataset.preset]; if (!p) return;
+    // herocap FIRST, then re-derive mintile's ceiling, then the rest —
+    // otherwise a preset's mintile could clamp against the OLD herocap.
+    sliders.herocap.value = p.herocap;
+    enforcePair();
+    KNOBS.forEach(function(k){
+      if (k !== 'herocap' && (k in p)) sliders[k].value = p[k];
+    });
+    enforcePair();
+    KNOBS.forEach(updateReadout);
+    updateGeometry();
+    markPreset(b.dataset.preset);
+    reloadPreview();
   });
 
   el('winseg').addEventListener('click', function(e){
@@ -589,18 +668,20 @@
     el('inkshot').src = API + '?shot=1&t=' + Date.now();
   }
 
-  /* ---------- the gallery Easter egg ---------- */
+  /* ---------- the gallery ---------- */
   var GAPI = '../api/frame-gallery.php';
-
-  el('gal-toggle').addEventListener('click', function(){
-    var g = el('gallery');
-    g.style.display = g.style.display === 'none' ? 'block' : 'none';
-  });
 
   function renderGallery(st){
     var shelf = el('gal-shelf');
     var ids = (st && st.gallery) || [];
     shelf.innerHTML = '';
+    if (!ids.length){
+      var empty = document.createElement('span');
+      empty.className = 'faint';
+      empty.textContent = 'the shelf is empty';
+      shelf.appendChild(empty);
+      return;
+    }
     ids.forEach(function(id){
       var card = document.createElement('div');
       var img = document.createElement('img');
@@ -657,10 +738,12 @@
     }).catch(function(){ el('gal-note').textContent = 'the wall is unreachable'; });
   }
 
-  el('gal-file').addEventListener('change', function(){
-    var f = this.files && this.files[0];
+  function galUpload(f){
     if (!f) return;
-    this.value = '';
+    if (f.type && f.type.indexOf('image/') !== 0){
+      el('gal-note').textContent = 'that is not an image';
+      return;
+    }
     el('gal-note').textContent = 'uploading…';
     var fd = new FormData();
     fd.append('photo', f);
@@ -672,6 +755,34 @@
         setTimeout(function(){ el('gal-note').textContent = ''; }, 12000);
       });
     }).catch(function(e){ el('gal-note').textContent = String(e.message || e); });
+  }
+
+  el('gal-file').addEventListener('change', function(){
+    var f = this.files && this.files[0];
+    this.value = '';
+    galUpload(f);
+  });
+
+  var drop = el('gal-drop');
+  drop.addEventListener('click', function(){ el('gal-file').click(); });
+  drop.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); el('gal-file').click(); }
+  });
+  ['dragenter','dragover'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){
+      e.preventDefault();
+      drop.classList.add('dragover');
+    });
+  });
+  ['dragleave','drop'].forEach(function(ev){
+    drop.addEventListener(ev, function(e){
+      e.preventDefault();
+      drop.classList.remove('dragover');
+    });
+  });
+  drop.addEventListener('drop', function(e){
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    galUpload(f);
   });
 
   /* ---------- boot ---------- */

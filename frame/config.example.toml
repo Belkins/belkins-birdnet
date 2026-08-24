@@ -16,9 +16,10 @@ shoot = true
 # shoot_spa_path = "/collage/?surface=kiosk&theme=day&motion=off&budget=0.92&mintile=0.012&herocap=0.24"
 # shoot_spa_settle_ms = 3500   # kiosk surface: outlive the exit pill's 3s fade
 # The composition knobs (budget/mintile/herocap — the flock's share of the
-# panel, the rarest bird's floor, the hero's ceiling) ride IN the URL; the
-# SPA validates them (web/src/profile.ts) and a bad value silently reverts
-# to the page's own law. TWO traps: (a) a [views.<name>] table that carries
+# panel, the rarest bird's floor, the hero's ceiling — plus overlap, and
+# air, which scales the safe-box insets so the flock may use the whole
+# glass) ride IN the URL; the SPA validates them (web/src/profile.ts) and
+# a bad value silently reverts to the page's own law. TWO traps: (a) a [views.<name>] table that carries
 # its own shoot_spa_path REPLACES this string wholesale — restate the knobs
 # there or that view shoots knob-less; (b) never put win= in this path —
 # display.py appends the view's window itself, and the page reads the FIRST

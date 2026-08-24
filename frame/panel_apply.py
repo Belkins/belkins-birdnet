@@ -33,21 +33,22 @@ STATE_PATH = "/run/birdframe/panel-state.json"
 # absent or a knob cannot be parsed out of it. Per KEY — one garbled param
 # must not reset the five others.
 DEFAULTS = {"zoom": 1.7, "budget": 0.95, "mintile": 0.009, "herocap": 0.32,
-            "overlap": 0.3, "theme": "day"}
+            "overlap": 0.3, "air": 1.0, "theme": "day"}
 
-KNOB_KEYS = ("zoom", "budget", "mintile", "herocap", "overlap")
+KNOB_KEYS = ("zoom", "budget", "mintile", "herocap", "overlap", "air")
 VIEW_NAMES = ("realtime", "today", "week", "all")
 
 # key -> (lo, hi, lo_inclusive). The high end is inclusive across the board;
-# only the low end differs: budget/mintile/herocap are open at zero because
-# zero means "no flock at all" — a request for nothing is a mistake, not a
-# composition.
+# only the low end differs: budget/mintile/herocap/air are open at zero
+# because zero means "no flock at all" (or, for air, birds hard against the
+# glass edge) — a request for nothing is a mistake, not a composition.
 RANGES = {
     "zoom": (1.0, 2.2, True),
     "budget": (0.0, 1.0, False),
-    "mintile": (0.0, 0.03, False),
-    "herocap": (0.0, 0.4, False),
+    "mintile": (0.0, 0.05, False),
+    "herocap": (0.0, 0.6, False),
     "overlap": (0.0, 0.5, True),
+    "air": (0.0, 1.0, False),
 }
 
 # Top-level lines only — anchored at line start so commented-out examples
@@ -86,7 +87,7 @@ def current_knobs(cfg_text):
     m = _SPA_LINE.search(head)
     if m:
         url = m.group(1)
-        for key in ("budget", "mintile", "herocap", "overlap"):
+        for key in ("budget", "mintile", "herocap", "overlap", "air"):
             pm = re.search(r"[?&]%s=([^&]*)" % key, url)
             if pm:
                 try:
@@ -164,9 +165,9 @@ def rewrite_config(cfg_text, merged):
     itself at shot time and the page reads the FIRST occurrence, so a baked
     win= would freeze every button to one window."""
     path = ("/collage/?surface=kiosk&theme=%s&motion=off&budget=%s"
-            "&mintile=%s&herocap=%s&overlap=%s") % (
+            "&mintile=%s&herocap=%s&overlap=%s&air=%s") % (
         merged["theme"], _fmt(merged["budget"]), _fmt(merged["mintile"]),
-        _fmt(merged["herocap"]), _fmt(merged["overlap"]))
+        _fmt(merged["herocap"]), _fmt(merged["overlap"]), _fmt(merged["air"]))
     wanted = (
         ("shoot_spa_path", 'shoot_spa_path = "%s"' % path),
         ("shoot_zoom", "shoot_zoom = %s" % _fmt(merged["zoom"])),
