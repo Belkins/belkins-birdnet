@@ -9,8 +9,9 @@
 // bundled, deterministic, free.
 import planeUrl from './assets/engine-plane.svg';
 
-/** The catalog slug BirdNET's "Engine" class resolves to (slugify('Engine')). */
-export const ENGINE_SLUG = 'engine';
+/** The catalog slug BirdNET's "Engine" class resolves to (slugify('Engine')).
+ *  Deliberately unexported: isEngine() is the one idiom every consumer uses. */
+const ENGINE_SLUG = 'engine';
 
 export function isEngine(slug: string): boolean {
   return slug === ENGINE_SLUG;

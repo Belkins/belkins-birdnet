@@ -322,6 +322,29 @@ def get_state(slug: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def is_non_bird_label(sci: Optional[str], com: Optional[str]) -> bool:
+    """BirdNET's non-species classes (Engine, Siren, Fireworks, ...) carry the
+    SAME text in both label halves — a real species is always
+    'Genus species_Vernacular Name', so sci == com is the structural signature
+    of a non-bird class, not a per-class list that goes stale. The pipeline
+    must never spend a generation on one: the single recorded attempt (Engine)
+    hallucinated a house sparrow. Enforced at BOTH gen entry points
+    (/detected pre-queue, /requeue pre-delete); /reclean stays open because
+    healing an already-published plate costs nothing."""
+    s = (sci or "").strip().lower()
+    return bool(s) and s == (com or "").strip().lower()
+
+
+def stored_label(slug: str) -> tuple:
+    """(sci, com) as first recorded for the slug, or (None, None) — /requeue
+    receives bare slugs, so the non-bird check reads the row it stored."""
+    with _db_lock:
+        row = db().execute(
+            "SELECT sci, com FROM species_jobs WHERE slug=?", (slug,)
+        ).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
 def insert_queued(slug: str, sci: str, com: str, conf: float) -> None:
     now = int(time.time())
     with _db_lock:
@@ -1801,6 +1824,13 @@ async def detected(payload: Detection, authorization: Optional[str] = Header(Non
     if payload.conf < CONF_THRESHOLD:
         return {"status": "low_confidence"}
 
+    # 3b. non-bird classes (sci == com) never reach the paint queue — checked
+    # before dedup so a future Siren/Fireworks class is refused on first
+    # hearing, not after a wasted generation.
+    if is_non_bird_label(payload.sci, payload.com):
+        log.info("non-bird-refused slug=%s", slug)
+        return {"status": "non_bird"}
+
     # 4. dedup (Railway terminal state is authoritative)
     state = get_state(slug)
     if state == "done" or (ASSETS_DIR / ("%s.png" % slug)).exists():
@@ -1899,6 +1929,12 @@ async def requeue(request: Request, authorization: Optional[str] = Header(None))
     requeued: list = []
     refused: dict = {}
     for slug in targets:
+        _sci, _com = stored_label(slug)
+        if is_non_bird_label(_sci, _com):
+            # a non-bird class must never buy a generation — and the refusal
+            # runs before delete-first so it cannot wipe a published plate.
+            refused[slug] = "non_bird"
+            continue
         if manual and slug in BUNDLED:
             # bundled plates are served from the Pi's own tiers before the
             # Railway proxy — regen art here would never be seen on the wall.
