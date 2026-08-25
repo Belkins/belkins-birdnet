@@ -62,6 +62,14 @@ const COMPANIONS: { href: string; name: string; desc: string }[] = [
 // door that is on no walkable path is how this station got stranded once
 // already.
 const STATION: { href: string; name: string; desc: string }[] = [
+  // The Wall panel leads: it is the room's own remote — the e-ink frame's
+  // knobs (bird size, air, seed, presets) and the hang-your-own-picture
+  // gallery, served by the station beside this app.
+  {
+    href: '/avian/frontend/panel.html',
+    name: 'The Wall Panel',
+    desc: 'size the birds on the ink frame, roll the dice, hang your own picture — the wall’s knobs, from your phone',
+  },
   { href: '/index.php', name: 'Station Console', desc: 'the old BirdNET-Pi UI — service switches, settings, system controls' },
 ];
 
