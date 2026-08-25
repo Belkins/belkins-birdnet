@@ -14,6 +14,8 @@
 //
 // Probed 2026-07-01 via cutout.php?sci=<sci>&pose=2 (X-Av-Real=1) + sips.
 
+import { PROFILE } from './profile';
+
 /** Chance a flight-capable bird shows in its flight pose (calm minority). */
 export const FLY_PROB = 0.25;
 
@@ -54,8 +56,30 @@ export function canFly(slug: string): boolean {
   return Object.prototype.hasOwnProperty.call(FLIGHT_ASPECT, slug);
 }
 
+/** FNV-1a over the slug, folded with the profile seed, mapped to [0, 1).
+ *  Per-SLUG so the outcome is independent of roll order: the panel preview
+ *  and the wall shot agree bird-by-bird, whichever loads a species first.
+ *  Exported for the determinism test — rollPose is the only production
+ *  caller. */
+export function seededRoll(seed: number, slug: string): number {
+  let h = 2166136261 ^ seed;
+  for (let i = 0; i < slug.length; i++) {
+    h ^= slug.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  // A finisher so seed and seed+1 land far apart per slug.
+  h ^= h >>> 13;
+  h = Math.imul(h, 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
 /** Roll a pose for a fresh render: flight (2) at FLY_PROB for flight-capable
- *  birds, perched (1) otherwise. Rerolls every seed (i.e. every reload). */
+ *  birds, perched (1) otherwise. Rerolls every seed (i.e. every reload) —
+ *  unless ?seed= pins the dice, which is how the wall paints the exact
+ *  composition the panel previewed (WYSIWYG apply). */
 export function rollPose(slug: string): 1 | 2 {
-  return canFly(slug) && Math.random() < FLY_PROB ? 2 : 1;
+  if (!canFly(slug)) return 1;
+  const r = PROFILE.seed !== null ? seededRoll(PROFILE.seed, slug) : Math.random();
+  return r < FLY_PROB ? 2 : 1;
 }

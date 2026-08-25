@@ -33,7 +33,7 @@ CFG = """\
 # Belkins BirdNET e-ink frame
 base_url = "http://birdnet.local"
 shoot_spa = true
-shoot_spa_path = "/collage/?surface=kiosk&theme=day&motion=off&budget=0.92&mintile=0.012&herocap=0.24&overlap=0.25"
+shoot_spa_path = "/collage/?surface=kiosk&theme=day&motion=off&budget=0.92&mintile=0.012&herocap=0.24&overlap=0.25&air=0.8"
 shoot_zoom = 1.4
 hours = 24
 view_ttl_hours = 4
@@ -44,7 +44,7 @@ shoot_subtitle = "Heard This Week"
 """
 
 CURRENT = {"zoom": 1.4, "budget": 0.92, "mintile": 0.012, "herocap": 0.24,
-           "overlap": 0.25, "theme": "day"}
+           "overlap": 0.25, "air": 0.8, "seed": 0, "theme": "day"}
 
 
 def _valid(extra=None, current=CURRENT):
@@ -62,16 +62,22 @@ def test_current_knobs_reads_the_config():
 def test_current_knobs_defaults_on_empty_text():
     assert panel_apply.current_knobs("") == {
         "zoom": 1.7, "budget": 0.95, "mintile": 0.009, "herocap": 0.32,
-        "overlap": 0.3, "theme": "day"}
+        "overlap": 0.3, "air": 1.0, "seed": 0, "theme": "day"}
 
 
 def test_current_knobs_garbled_param_falls_alone():
-    """One unparseable param resets that one key, not its five neighbours."""
+    """One unparseable param resets that one key, not its neighbours — and
+    the seed's separate int() path must survive a garbled value too (a
+    hand-edited seed=3.5 raising out of current_knobs would kill consume on
+    every apply)."""
     text = CFG.replace("budget=0.92", "budget=oops").replace("theme=day",
                                                              "theme=dusk")
+    text = text.replace("&air=0.8", "&air=0.8&seed=3.5")
     got = panel_apply.current_knobs(text)
     assert got["budget"] == 0.95 and got["theme"] == "day"
+    assert got["seed"] == 0, "garbled seed falls to 0 (free roll), alone"
     assert got["mintile"] == 0.012 and got["zoom"] == 1.4
+    assert got["air"] == 0.8
 
 
 def test_current_knobs_ignores_a_views_table_path():
@@ -105,17 +111,38 @@ def test_budget_open_at_zero_closed_at_one():
     assert _valid({"budget": 1.001})[0] is None
 
 
-def test_mintile_open_at_zero_closed_at_003():
+def test_mintile_open_at_zero_closed_at_005():
     assert _valid({"mintile": 0.0})[0] is None
-    assert _valid({"mintile": 0.03})[0] is not None   # 0.03 < herocap 0.24
-    assert _valid({"mintile": 0.0301})[0] is None
+    assert _valid({"mintile": 0.05})[0] is not None   # 0.05 < herocap 0.24
+    assert _valid({"mintile": 0.0501})[0] is None
     assert _valid({"mintile": -0.01})[0] is None
 
 
-def test_herocap_open_at_zero_closed_at_04():
+def test_herocap_open_at_zero_closed_at_06():
     assert _valid({"herocap": 0.0})[0] is None
-    assert _valid({"herocap": 0.4})[0] is not None
-    assert _valid({"herocap": 0.401})[0] is None
+    assert _valid({"herocap": 0.6})[0] is not None
+    assert _valid({"herocap": 0.601})[0] is None
+
+
+def test_air_open_at_zero_closed_at_one():
+    assert _valid({"air": 0.0})[0] is None, "air 0 is a mistake, not a composition"
+    assert _valid({"air": 0.001})[0] is not None
+    assert _valid({"air": 1.0})[0] is not None
+    assert _valid({"air": 1.001})[0] is None
+    assert _valid({"air": -0.5})[0] is None
+
+
+def test_seed_integer_int31_zero_means_free():
+    assert _valid({"seed": 0})[0]["seed"] == 0, "0 = free roll, valid"
+    assert _valid({"seed": 1})[0]["seed"] == 1
+    assert _valid({"seed": 2147483647})[0]["seed"] == 2147483647
+    assert _valid({"seed": 2147483648})[0] is None
+    assert _valid({"seed": -1})[0] is None
+    merged, reason = _valid({"seed": 1.5})
+    assert merged is None and "integer" in reason
+    # a float that IS integral passes and comes back an int (JSON floats)
+    merged, _ = _valid({"seed": 42.0})
+    assert merged["seed"] == 42 and isinstance(merged["seed"], int)
 
 
 def test_overlap_closed_both_ends():
@@ -207,7 +234,7 @@ def test_rewrite_replaces_both_lines_in_place():
     out = panel_apply.rewrite_config(CFG, _merged(zoom=1.9, budget=0.8,
                                                   theme="night"))
     assert ('shoot_spa_path = "/collage/?surface=kiosk&theme=night&motion=off'
-            '&budget=0.8&mintile=0.012&herocap=0.24&overlap=0.25"') in out
+            '&budget=0.8&mintile=0.012&herocap=0.24&overlap=0.25&air=0.8"') in out
     assert "shoot_zoom = 1.9" in out
     # every OTHER line is byte-identical, in order
     keep = [l for l in CFG.splitlines()
@@ -261,6 +288,35 @@ def test_rewrite_on_empty_text_creates_both_lines():
     out = panel_apply.rewrite_config("", _merged())
     assert out.startswith("shoot_spa_path = ")
     assert "\nshoot_zoom = " in out
+
+
+def test_rewrite_seed_zero_stays_out_of_the_path():
+    """seed 0 = 'not baked': the page must keep rolling its own dice, so the
+    param never appears — an explicit seed=0 in the URL would still read as
+    null in profile.ts, but the contract is cleaner with it absent."""
+    out = panel_apply.rewrite_config(CFG, _merged())
+    assert "seed=" not in out
+
+
+def test_rewrite_bakes_a_positive_seed_as_a_bare_integer():
+    out = panel_apply.rewrite_config(CFG, _merged(seed=123456789))
+    assert "&seed=123456789" in out
+    assert "seed=123456789.0" not in out, "an integer, never a float repr"
+    # and it round-trips through the parser
+    assert panel_apply.current_knobs(out)["seed"] == 123456789
+
+
+def test_rewrite_bakes_default_air_when_config_never_had_it():
+    """A pre-air config (no air= in its path): the merge base fills 1.0 and
+    the rebuilt path carries it explicitly — the SPA and the panel then agree
+    on what the wall is running instead of each assuming their own default."""
+    pre_air = CFG.replace("&air=0.8", "")
+    current = panel_apply.current_knobs(pre_air)
+    assert current["air"] == 1.0
+    merged, reason = panel_apply.validate({"token": "t", "zoom": 2.0}, current)
+    assert merged is not None, reason
+    out = panel_apply.rewrite_config(pre_air, merged)
+    assert "&air=1.0" in out
 
 
 def test_rewrite_is_pure_and_win_free():
@@ -342,6 +398,7 @@ def test_consume_applies_and_arms_a_fresh_token(tmp_path):
 
     st = json.loads((tmp_path / "panel-state.json").read_text())
     assert st["knobs"]["zoom"] == 2.0 and st["knobs"]["budget"] == 0.92
+    assert st["knobs"]["air"] == 0.8, "air kept current and published"
     assert st["theme"] == "day" and st["view"] == "week"
     assert st["last_refresh"] == 123.5
     assert isinstance(st["published_at"], float)
@@ -353,6 +410,22 @@ def test_consume_applies_and_arms_a_fresh_token(tmp_path):
     assert panel_apply.consume(**p) == "applied token=phone-2"
     doc2 = views.read_view(p["view_file"])
     assert doc2["token"] != doc1["token"], "a stale token paints nothing"
+
+
+def test_consume_bakes_and_publishes_a_positive_seed(tmp_path):
+    """The WYSIWYG loop end to end on the daemon side: a spooled seed lands
+    in the config URL AND in the published state — the state is what the
+    panel's boot reads to adopt the wall's baked seed, so dropping seed from
+    publish_state would silently unbake the wall on the next apply."""
+    p = _paths(tmp_path)
+    (tmp_path / "config.toml").write_text(CFG)
+    (tmp_path / "panel.json").write_text(
+        json.dumps({"token": "t-seed", "seed": 424242}))
+    assert panel_apply.consume(**p) == "applied token=t-seed"
+    cfg = (tmp_path / "config.toml").read_text()
+    assert "&seed=424242" in cfg
+    st = json.loads((tmp_path / "panel-state.json").read_text())
+    assert st["knobs"]["seed"] == 424242
 
 
 def test_consume_keeps_the_showing_view_when_request_names_none(tmp_path):

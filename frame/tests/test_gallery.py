@@ -141,3 +141,43 @@ def test_list_gallery_sorts_and_filters(tmp_path):
         os.utime(f, (1000 + i, 1000 + i))
     got = panel_apply.list_gallery(str(gal))
     assert got == ["g2.png", "g1.png"]
+
+
+def test_thumbs_regrow_after_tmpfs_wipe(tmp_path, monkeypatch):
+    """/run is tmpfs: a reboot wipes the thumbs but not the photos. The
+    daemon must regrow exactly the missing ones, or the panel's shelf shows
+    a broken image per photo until the next upload."""
+    gal = tmp_path / "gallery"
+    gal.mkdir()
+    (gal / "g1.png").write_bytes(b"x")
+    (gal / "g2.png").write_bytes(b"x")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    (thumbs / "g2.png").write_bytes(b"t")  # this one survived
+    calls = []
+    monkeypatch.setattr(panel_apply, "_thumb",
+                        lambda src, gid, td: calls.append(gid) or True)
+    assert panel_apply.ensure_thumbs(str(gal), str(thumbs)) == 1
+    assert calls == ["g1.png"], "only the MISSING thumb is remade"
+
+
+def test_consume_gallery_quiet_tick_still_regrows_thumbs(tmp_path, monkeypatch):
+    """The wiring, from the daemon's real entry: a tick with no spool files
+    must still self-heal the thumbs (and return None as ever)."""
+    gal = tmp_path / "gallery"
+    gal.mkdir()
+    (gal / "g9.png").write_bytes(b"x")
+    thumbs = tmp_path / "thumbs"
+    thumbs.mkdir()
+    calls = []
+    monkeypatch.setattr(panel_apply, "_thumb",
+                        lambda src, gid, td: calls.append(gid) or True)
+    out = panel_apply.consume_gallery(
+        cfg_path=str(tmp_path / "config.toml"),
+        view_file=str(tmp_path / "view.json"),
+        ttl_hours=4,
+        upload_path=str(tmp_path / "up.img"),
+        req_path=str(tmp_path / "req.json"),
+        gallery_dir=str(gal),
+        thumbs_dir=str(thumbs))
+    assert out is None and calls == ["g9.png"]
