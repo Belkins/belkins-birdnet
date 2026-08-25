@@ -439,6 +439,21 @@ def _thumb(src, gid, thumbs_dir=THUMBS_DIR):
         return False
 
 
+def ensure_thumbs(gallery_dir=GALLERY_DIR, thumbs_dir=THUMBS_DIR):
+    """Regrow missing thumbnails. /run is tmpfs: every reboot wipes the
+    thumbs while the photos survive in ~/.birdframe/gallery, and the panel's
+    shelf would otherwise show a broken image per photo forever. A stat per
+    photo per tick is the whole cost; _thumb already fails soft without PIL.
+    Returns how many thumbs were (re)made."""
+    d = os.path.expanduser(gallery_dir)
+    made = 0
+    for name in list_gallery(gallery_dir):
+        if not os.path.exists(os.path.join(thumbs_dir, name)):
+            if _thumb(os.path.join(d, name), name, thumbs_dir):
+                made += 1
+    return made
+
+
 def consume_gallery(cfg_path, view_file, ttl_hours,
                     upload_path=GALLERY_UPLOAD, req_path=GALLERY_REQ,
                     gallery_dir=GALLERY_DIR, thumbs_dir=THUMBS_DIR):
@@ -446,6 +461,8 @@ def consume_gallery(cfg_path, view_file, ttl_hours,
     Never raises — same survival contract as consume()."""
     import views  # sibling module; deferred so tests can import panel_apply alone
     try:
+        # Self-heal first: thumbs live in tmpfs and vanish on reboot.
+        ensure_thumbs(gallery_dir, thumbs_dir)
         # 1. An uploaded image waiting in the spool: verify it IS an image by
         # re-encoding through PIL (which also strips EXIF), then admit it.
         if os.path.exists(upload_path):
